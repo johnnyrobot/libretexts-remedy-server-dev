@@ -691,8 +691,16 @@ def _is_generic_alt_text(alt_text: str) -> bool:
         return True
     if normalized in _GENERIC_ALT_TEXT_LITERALS:
         return True
-    if any(normalized.startswith(prefix) for prefix in _FALLBACK_ALT_PREFIXES):
-        return True
+    for prefix in _FALLBACK_ALT_PREFIXES:
+        if normalized.startswith(prefix):
+            suffix = normalized[len(prefix) :].strip()
+            if not suffix:
+                return True
+            # Preserve non-empty fallback payloads as potentially useful
+            # context once vision text extraction succeeds.
+            if len(suffix) < 15:
+                return True
+            break
     if _FILENAME_ALT_PATTERN.match(normalized):
         return True
     # Bare-filesystem-path alts (the original /Alt that producers leaked

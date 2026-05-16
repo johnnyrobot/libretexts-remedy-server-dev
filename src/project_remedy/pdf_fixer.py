@@ -6502,6 +6502,10 @@ def _ocr_text_from_image(image_path: Path, *, language: str) -> str:
     tesseract = shutil.which("tesseract")
     if tesseract is None:
         return ""
+    try:
+        tesseract_timeout = float(os.environ.get("PDF_FALLBACK_OCR_TIMEOUT_SECONDS", "30"))
+    except ValueError:
+        tesseract_timeout = 30.0
 
     try:
         result = subprocess.run(
@@ -6518,6 +6522,7 @@ def _ocr_text_from_image(image_path: Path, *, language: str) -> str:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
+            timeout=tesseract_timeout,
         )
     except Exception:
         return ""

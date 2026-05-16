@@ -26,6 +26,8 @@ compliance/
 
 # Test suite (local-only per repo policy)
 tests/
+!tests/
+!tests/**/*.py
 
 # Local-only project notes / per-developer scratch files
 CLAUDE.md
@@ -87,12 +89,18 @@ openmemory.md
 .playwright-mcp/
 .firecrawl/
 
+# Smoke batch outputs and helper script
+exports_v2_run_*/
+scripts/laccd_smoke_batch.py
+
 # Clean seed repo exclusions
 *.md
 !src/project_remedy/behavioral_proxies/**/prompts/
 !src/project_remedy/behavioral_proxies/**/prompts/*.md
 !src/project_remedy/quality_judges/**/prompts/
 !src/project_remedy/quality_judges/**/prompts/*.md
+!v2_docs/*.md
+!v2_docs/**/*.md
 docs/
 doc/
 knowledge-base/
@@ -105,6 +113,12 @@ test_*.py
 *_test.py
 *.test.*
 *.spec.*
+!BUILD_LOG.md
+!v2_docs/
+!v2_docs/*.md
+!v2_docs/**/*.md
+!tests/
+!tests/**/*.py
 !README.md
 !src/**/*.py
 !backend/**/*.py

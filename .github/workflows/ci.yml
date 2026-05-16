@@ -132,10 +132,47 @@ jobs:
             --store quality_experiments.db \
             --dry-run \
             --json
-      # Hard readiness gate intentionally omitted. The PRD blockers
-      # (real corpus artifacts, calibration metrics, held-out A/B runs) are
-      # tracked in v2_docs/quality-layer-hard-blockers.md and surface via
-      # the four "Report ... readiness" steps above.
+
+      - name: Enforce readiness when corpus annotations exist
+        run: |
+          if [ -d tools/corpus_annotations/v1/annotations ] && \
+             find tools/corpus_annotations/v1/annotations \
+               -maxdepth 3 \
+               -type f -name '*.json' | grep -q .; then
+            uv run python tools/annotate_corpus.py coverage \
+              --root tools/corpus_annotations/v1 \
+              --json
+            uv run python tools/verify_corpus_snapshots.py check \
+              --root tools/corpus_annotations/v1 \
+              --json
+            uv run python tools/verify_behavioral_corpus.py check \
+              --root tools/corpus_annotations/v1 \
+              --results tools/corpus_annotations/v1/behavioral_results.jsonl \
+              --json
+            uv run python tools/calibrate_judges.py calibrate \
+              --root tools/corpus_annotations/v1 \
+              --store quality_experiments.db \
+              --judge-results tools/corpus_annotations/v1/judge_results.jsonl \
+              --enforce-readiness \
+              --json
+          else
+            echo "No corpus annotations committed yet; readiness remains advisory."
+            uv run python tools/calibrate_judges.py calibrate \
+              --root tools/corpus_annotations/v1 \
+              --store quality_experiments.db \
+              --dry-run \
+              --json
+          fi
+
+      - name: Run quality-focused tests
+        run: |
+          uv run pytest tests/corpus/test_quality_artifact_tracking.py
+
+      - name: Run phase G holdout tests
+        run: |
+          uv run pytest \
+            tests/vision_planner/test_quality_evaluation.py \
+            tests/vision_planner/test_proposer_dimension_aware.py
 
   security:
     name: pip-audit

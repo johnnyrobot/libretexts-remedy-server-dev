@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import json as _json
+import logging
+import os
 import shutil
 from dataclasses import asdict
 from pathlib import Path
@@ -50,6 +52,8 @@ from backend.app.jobs import (
     Job,
     JobStore,
 )
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -135,17 +139,59 @@ async def _remediate_pdf(job: Job, store: JobStore, settings: Settings) -> None:
     report_dir = workdir / "report"
     cfg = load_config()
 
-    await store.update(job.id, stage="remediating", progress=0.15)
-    await asyncio.to_thread(
-        fix_and_verify, input_path, output_path,
-        config=cfg, original_path=input_path, conformance_repair=True,
+    try:
+        remediation_timeout = float(
+            os.environ.get("PDF_REMEDIATION_TIMEOUT_SECONDS", "900")
+        )
+    except ValueError:
+        remediation_timeout = 900.0
+    try:
+        acceptance_timeout = float(
+            os.environ.get("PDF_ACCEPTANCE_TIMEOUT_SECONDS", "300")
+        )
+    except ValueError:
+        acceptance_timeout = 300.0
+
+    log.info(
+        "Starting remediation for job %s (timeout=%.0fs, acceptance_timeout=%.0fs)",
+        job.id,
+        remediation_timeout,
+        acceptance_timeout,
     )
 
+    await store.update(job.id, stage="remediating", progress=0.15)
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                fix_and_verify,
+                input_path,
+                output_path,
+                config=cfg,
+                original_path=input_path,
+                conformance_repair=True,
+            ),
+            timeout=remediation_timeout,
+        )
+    except TimeoutError as exc:
+        raise RuntimeError(
+            f"remediation_timeout: fix_and_verify exceeded {remediation_timeout:.0f}s"
+        ) from exc
+
     await store.update(job.id, stage="evaluating_acceptance", progress=0.65)
-    acceptance = await asyncio.to_thread(
-        evaluate_pdf_acceptance, output_path,
-        config=cfg, original_path=input_path,
-    )
+    try:
+        acceptance = await asyncio.wait_for(
+            asyncio.to_thread(
+                evaluate_pdf_acceptance,
+                output_path,
+                config=cfg,
+                original_path=input_path,
+            ),
+            timeout=acceptance_timeout,
+        )
+    except TimeoutError as exc:
+        raise RuntimeError(
+            f"acceptance_timeout: evaluate_pdf_acceptance exceeded {acceptance_timeout:.0f}s"
+        ) from exc
 
     # Rebuild-tier escalation: if the deterministic repair didn't produce a
     # passing PDF and the client opted in, run the semantic rebuild tier
@@ -194,11 +240,19 @@ async def _remediate_pdf(job: Job, store: JobStore, settings: Settings) -> None:
         from project_remedy.quality_judges.pdf.audit import audit_pdf_quality
 
         assert_quality_calibrated(settings, "pdf")
-        acceptance.quality_result = await asyncio.to_thread(
-            audit_pdf_quality,
-            output_path,
-            config=cfg,
-        )
+        try:
+            acceptance.quality_result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    audit_pdf_quality,
+                    output_path,
+                    config=cfg,
+                ),
+                timeout=acceptance_timeout,
+            )
+        except TimeoutError as exc:
+            raise RuntimeError(
+                f"acceptance_timeout: audit_pdf_quality exceeded {acceptance_timeout:.0f}s"
+            ) from exc
 
     await store.update(job.id, stage="generating_report", progress=0.85)
     await asyncio.to_thread(

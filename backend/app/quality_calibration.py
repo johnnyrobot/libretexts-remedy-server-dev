@@ -252,49 +252,62 @@ def _summarize_rows(
     return f"{label}: {rendered}"
 
 
-def assert_quality_calibrated(settings: Settings, fmt: str) -> None:
+def assert_quality_calibrated(settings: Settings, fmt: str | None = None) -> None:
     """Raise when deployment settings require calibration and it is incomplete."""
     if not settings.quality_require_calibration:
         return
-    status = quality_calibration_status(settings, fmt)
-    if status.ready:
-        return
-    parts = [
-        _summarize_rows(
-            "missing judges",
-            status.missing_judges,
-            lambda row: f"{row['judge_id']}:{row['judge_version']}({row['dimension']})",
-        ),
-        (
-            "missing dimensions: " + ", ".join(status.missing_dimensions)
-            if status.missing_dimensions
-            else None
-        ),
-        # below_threshold is intentionally not truncated to keep operator-facing
-        # detail comprehensive when only a handful of judges are weak.
-        _summarize_rows(
-            "below threshold",
-            status.below_threshold,
-            lambda row: (
-                f"{row['dimension']} kappa={row['cohens_kappa']} n={row['sample_size']}"
+    formats = [fmt] if fmt else sorted(DIMENSIONS_BY_FORMAT)
+    failure_messages: list[str] = []
+
+    for format_name in formats:
+        status = quality_calibration_status(settings, format_name)
+        if status.ready:
+            continue
+        parts = [
+            _summarize_rows(
+                "missing judges",
+                status.missing_judges,
+                lambda row: (
+                    f"{row['judge_id']}:{row['judge_version']}({row['dimension']})"
+                ),
             ),
-            limit=None,
-        ),
-        _summarize_rows(
-            "stale calibration",
-            status.stale_calibrations,
-            lambda row: f"{row['dimension']} measured_at={row['measured_at']}",
-        ),
-        _summarize_rows(
-            "malformed calibration",
-            status.malformed_calibrations,
-            lambda row: f"{row['dimension']} reason={row['reason']}",
-        ),
-    ]
-    detail = "; ".join(part for part in parts if part) or "no applicable dimensions calibrated"
+            (
+                "missing dimensions: " + ", ".join(status.missing_dimensions)
+                if status.missing_dimensions
+                else None
+            ),
+            # below_threshold is intentionally not truncated to keep operator-facing
+            # detail comprehensive when only a handful of judges are weak.
+            _summarize_rows(
+                "below threshold",
+                status.below_threshold,
+                lambda row: (
+                    f"{row['dimension']} kappa={row['cohens_kappa']} n={row['sample_size']}"
+                ),
+                limit=None,
+            ),
+            _summarize_rows(
+                "stale calibration",
+                status.stale_calibrations,
+                lambda row: f"{row['dimension']} measured_at={row['measured_at']}",
+            ),
+            _summarize_rows(
+                "malformed calibration",
+                status.malformed_calibrations,
+                lambda row: f"{row['dimension']} reason={row['reason']}",
+            ),
+        ]
+        detail = "; ".join(part for part in parts if part) or "no applicable dimensions calibrated"
+        failure_messages.append(
+            f"{format_name}: {detail}"
+        )
+
+    if not failure_messages:
+        return
+
     raise QualityCalibrationError(
         "Quality layer is not calibrated for "
-        f"{fmt}: {detail}. Run tools/calibrate_judges.py and meet "
+        f"{'; '.join(failure_messages)}. Run tools/calibrate_judges.py and meet "
         f"kappa >= {settings.quality_min_cohens_kappa} before enabling active quality execution."
     )
 
