@@ -39,6 +39,7 @@ pipeline.db
 *.db
 *.db-shm
 *.db-wal
+*.db.backup-*
 
 # API backend runtime artifacts
 job_data/
