@@ -188,6 +188,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from backend.app.validate_routes import build_router as build_validate_router
     from backend.app.vision_plan_routes import build_router as build_vp_router
     from backend.app.quality_routes import build_router as build_quality_router
+    from backend.app.cxone_routes import build_router as build_cxone_router
     app.include_router(build_pdf_router(settings, limiter, upload_limit))
     app.include_router(build_pdf_fix_router(settings, limiter, upload_limit))
     app.include_router(build_office_router(settings, store, worker, limiter, upload_limit))
@@ -195,6 +196,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(build_validate_router(settings, limiter, upload_limit))
     app.include_router(build_vp_router(settings, store, worker, limiter, upload_limit))
     app.include_router(build_quality_router(settings, limiter, upload_limit))
+    app.include_router(build_cxone_router(settings))
 
     return app
 

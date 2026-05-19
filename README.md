@@ -28,6 +28,39 @@ curl http://127.0.0.1:8000/openapi.json   # full schema
 # Interactive docs: http://127.0.0.1:8000/docs
 ```
 
+### Local Conductor + LibreTexts Remedy testing
+
+For local CXone page remediation, run `remedy-server` as the stable API surface
+and forward the page-specific work to the `libretexts_remedy` Node bridge:
+
+```bash
+# Terminal 1: libretexts_remedy CXone bridge
+cd ../libretexts_remedy
+npm run dev:api --workspace @libretexts/remedy-conductor-panel
+# -> http://127.0.0.1:5175
+
+# Terminal 2: remedy-server
+cd ../remedy-server
+CXONE_BRIDGE_BASE_URL=http://127.0.0.1:5175 \
+./.venv/bin/uvicorn backend.app.main:app --reload
+# -> http://127.0.0.1:8000
+```
+
+Point Conductor at `remedy-server`:
+
+```bash
+PROJECT_REMEDY_BASE_URL=http://127.0.0.1:8000
+# Leave PROJECT_REMEDY_API_KEY empty unless APP_API_KEY is set in remedy-server.
+```
+
+This enables:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/v1/cxone/page/scan` | Scan a CXone page URL/id and return Conductor criteria + findings. |
+| `POST` | `/v1/cxone/page/preview-fix` | Preview selected deterministic fixes, or page-wide pipeline fixes with `fix_mode=pipeline`. |
+| `POST` | `/v1/cxone/page/apply-fix` | Apply the approved preview through the `libretexts_remedy` guardrails. |
+
 ## Deploy (single-node)
 
 ### Option A — docker-compose (recommended)
@@ -194,8 +227,6 @@ Each job kind maps to a dedicated handler in `backend/app/engine_service.py`. Th
 3. **`generate_document_report()`** — per-PDF HTML conformance report.
 
 Vision-planner / Tier-3 agentic remediation is **not** part of this default flow. It's an opt-in tool (`/v1/vision-plan/run`) because the deterministic path is faster, cheaper, and more reliable on the corpus we've tested.
-
-For the full module map, see `CLAUDE.md`.
 
 ---
 

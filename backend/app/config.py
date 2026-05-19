@@ -77,6 +77,10 @@ class Settings:
     # CORS.
     cors_allow_origins: list[str] = field(default_factory=lambda: ["*"])
 
+    # Optional local bridge to the LibreTexts CXone remediation service.
+    cxone_bridge_base_url: str = "http://127.0.0.1:5175"
+    cxone_bridge_timeout_seconds: float = 300.0
+
     # Quality-layer reviewer/calibration storage.
     quality_experiment_store_path: Path = Path("./quality_experiments.db")
     quality_review_queue_path: Path = Path("./quality_review_queue.jsonl")
@@ -113,6 +117,8 @@ class Settings:
             errors.append("QUALITY_MIN_CALIBRATION_SAMPLES must be at least 1")
         if self.quality_max_calibration_age_days < 0:
             errors.append("QUALITY_MAX_CALIBRATION_AGE_DAYS must be 0 or greater")
+        if self.cxone_bridge_timeout_seconds <= 0:
+            errors.append("CXONE_BRIDGE_TIMEOUT_SECONDS must be greater than 0")
         if self.job_store_path.exists() and self.job_store_path.is_dir():
             errors.append(
                 "JOB_STORE_PATH points to a directory; mount the containing "
@@ -151,6 +157,11 @@ def load_settings(env_path: Path | None = None) -> Settings:
         backup_interval_hours=_env_int("JOB_BACKUP_INTERVAL_HOURS", 1),
         worker_concurrency=_env_int("WORKER_CONCURRENCY", 1),
         cors_allow_origins=_env_list("CORS_ALLOW_ORIGINS", ["*"]),
+        cxone_bridge_base_url=_env(
+            "CXONE_BRIDGE_BASE_URL",
+            "http://127.0.0.1:5175",
+        ),
+        cxone_bridge_timeout_seconds=_env_float("CXONE_BRIDGE_TIMEOUT_SECONDS", 300.0),
         quality_experiment_store_path=Path(
             _env("QUALITY_EXPERIMENT_STORE_PATH", "./quality_experiments.db")
         ),
