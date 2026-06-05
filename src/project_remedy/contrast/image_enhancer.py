@@ -5,6 +5,8 @@ from __future__ import annotations
 import io
 import logging
 
+from project_remedy._zip_safety import MAX_IMAGE_PIXELS
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,6 +31,10 @@ class ImageContrastEnhancer:
             Enhanced image as PNG bytes.
         """
         from PIL import Image, ImageEnhance
+
+        # Bound Pillow decoding of attacker-controlled image bytes; oversized
+        # images raise Image.DecompressionBombError.
+        Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
         img = Image.open(io.BytesIO(image_bytes))
 
@@ -56,6 +62,10 @@ class ImageContrastEnhancer:
         """
         from PIL import Image
         import statistics
+
+        # Bound Pillow decoding of attacker-controlled image bytes; oversized
+        # images raise Image.DecompressionBombError.
+        Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
         img = Image.open(io.BytesIO(image_bytes))
         if img.mode != "L":

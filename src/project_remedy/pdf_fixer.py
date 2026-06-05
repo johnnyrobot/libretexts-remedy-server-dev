@@ -32,6 +32,7 @@ import pikepdf
 
 logger = logging.getLogger(__name__)
 
+from project_remedy._zip_safety import MAX_IMAGE_PIXELS
 from project_remedy.ocr_escalation import (
     OCREscalationSignal,
     available_specialized_ocr_adapters,
@@ -6669,6 +6670,10 @@ def _extract_xobject_image(page: pikepdf.Page, xobj_name: str) -> Path | None:
     except ImportError:
         return None
 
+    # Bound Pillow decoding of attacker-controlled images extracted from
+    # uploaded PDFs; oversized images raise Image.DecompressionBombError.
+    Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
     raw = xobj.read_raw_bytes()
     cs = str(xobj.get("/ColorSpace", ""))
     fltr = xobj.get("/Filter")
@@ -6681,7 +6686,10 @@ def _extract_xobject_image(page: pikepdf.Page, xobj_name: str) -> Path | None:
 
     pil_image = None
     if filter_name in ("/DCTDecode", "/JPXDecode"):
-        pil_image = Image.open(io.BytesIO(raw))
+        try:
+            pil_image = Image.open(io.BytesIO(raw))
+        except Exception:
+            return None
     elif filter_name == "/FlateDecode":
         decoded = xobj.read_bytes()
         mode = "RGB"
@@ -6689,6 +6697,10 @@ def _extract_xobject_image(page: pikepdf.Page, xobj_name: str) -> Path | None:
             mode = "L"
         elif "/DeviceCMYK" in cs:
             mode = "CMYK"
+        # Image.frombytes() does not honor MAX_IMAGE_PIXELS; bound the
+        # attacker-controlled /Width * /Height explicitly.
+        if width * height > MAX_IMAGE_PIXELS:
+            return None
         try:
             pil_image = Image.frombytes(mode, (width, height), decoded)
             if mode == "CMYK":

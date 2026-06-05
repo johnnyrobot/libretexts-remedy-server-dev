@@ -18,6 +18,7 @@ from typing import Any, Callable
 
 import pikepdf
 
+from project_remedy._zip_safety import MAX_IMAGE_PIXELS
 from project_remedy.content_stream.parser import GraphicsStateTracker
 from project_remedy.content_stream.modifier import ContentStreamModifier
 from project_remedy.contrast.detector import ContrastDetector, _get_page_count
@@ -245,6 +246,10 @@ class ContrastRemediator:
 
             from PIL import Image
 
+            # Bound Pillow decoding of attacker-controlled images; oversized
+            # images raise Image.DecompressionBombError (caught below).
+            Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
             cs = str(xobj.get("/ColorSpace", "/DeviceRGB"))
             if "Gray" in cs:
                 mode = "L"
@@ -254,6 +259,11 @@ class ContrastRemediator:
                 expected_len = width * height * 3
 
             if len(image_data) < expected_len:
+                return False
+
+            # Image.frombytes() does not honor MAX_IMAGE_PIXELS; bound the
+            # attacker-controlled /Width * /Height explicitly.
+            if width * height > MAX_IMAGE_PIXELS:
                 return False
 
             img = Image.frombytes(mode, (width, height), image_data[:expected_len])
