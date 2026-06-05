@@ -181,12 +181,17 @@ ENV JOB_DIR=/app/job_data \
     REMEDY_QUESTPDF_BINARY=/usr/local/bin/remedy-questpdf \
     GHOSTSCRIPT_ENABLED=true \
     GHOSTSCRIPT_PATH=/usr/bin/gs \
-    LOG_FORMAT=json
+    LOG_FORMAT=json \
+    FORWARDED_ALLOW_IPS=127.0.0.1
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8000/readyz || exit 1
 
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# Trust X-Forwarded-* only from the reverse proxy. Default to the loopback
+# address (matching deploy/systemd/remedy-server.service); operators behind a
+# known proxy can override FORWARDED_ALLOW_IPS with the exact upstream IP/CIDR.
+# Shell form is required so ${FORWARDED_ALLOW_IPS} is expanded at runtime.
+CMD exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips "${FORWARDED_ALLOW_IPS}"
 
 # ---------------------------------------------------------------------------
 # 8. Optional slim target (no Node / Playwright — skips HTML validation
@@ -225,9 +230,14 @@ ENV JOB_DIR=/app/job_data \
     REMEDY_QUESTPDF_BINARY=/usr/local/bin/remedy-questpdf \
     GHOSTSCRIPT_ENABLED=true \
     GHOSTSCRIPT_PATH=/usr/bin/gs \
-    LOG_FORMAT=json
+    LOG_FORMAT=json \
+    FORWARDED_ALLOW_IPS=127.0.0.1
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8000/readyz || exit 1
 
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# Trust X-Forwarded-* only from the reverse proxy. Default to the loopback
+# address (matching deploy/systemd/remedy-server.service); operators behind a
+# known proxy can override FORWARDED_ALLOW_IPS with the exact upstream IP/CIDR.
+# Shell form is required so ${FORWARDED_ALLOW_IPS} is expanded at runtime.
+CMD exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips "${FORWARDED_ALLOW_IPS}"

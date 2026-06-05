@@ -25,11 +25,20 @@ services:
       OUTPUT_DIR: /app/state/output
       LOG_DIR: /app/state/logs
       LOG_FORMAT: json
+      # Trust X-Forwarded-* only from Caddy on the dedicated `edge` network
+      # (passed to uvicorn --forwarded-allow-ips). The image default is
+      # 127.0.0.1 (correct for the bare-metal systemd unit); inside compose the
+      # proxy is a separate container, so without this override the app would see
+      # Caddy's bridge IP as the client and collapse per-IP rate limiting onto a
+      # single key. Override to a tighter single proxy IP if desired.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.31.83.0/24}
     volumes:
       - job_data:/app/job_data
       - job_state:/app/state
     expose:
       - "8000"
+    networks:
+      - edge
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -61,9 +70,20 @@ services:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+    networks:
+      - edge
 
 volumes:
   job_data:
   job_state:                   # SQLite, backups, and engine output artefacts
   caddy_data:
   caddy_config:
+
+networks:
+  # Dedicated bridge with a fixed subnet so the app can trust X-Forwarded-*
+  # headers from Caddy (FORWARDED_ALLOW_IPS) without resorting to "*".
+  edge:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.83.0/24
