@@ -15,6 +15,7 @@ import asyncio
 import uuid
 from pathlib import Path
 
+import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
@@ -26,9 +27,23 @@ from backend.app.html_utils import (
     serialize_validation_report,
     stage_html_upload,
 )
+from backend.app.logging_setup import request_id_var
 
+
+_log = structlog.get_logger("project_remedy.backend.validate")
 
 _PDF_MAGIC = b"%PDF-"
+
+
+def _generic_detail(message: str) -> str:
+    """Stable, non-disclosing error detail with a request_id for correlation.
+
+    Full tool stderr / exception text is logged server-side; clients only
+    receive ``message`` plus the request_id so support can correlate the
+    failure with the structured log line.
+    """
+    rid = request_id_var.get("")
+    return f"{message} (request_id={rid})" if rid else message
 
 async def _stage_pdf(file: UploadFile, settings: Settings) -> Path:
     suffix = Path(file.filename or "").suffix.lower()
@@ -107,7 +122,10 @@ def build_router(settings: Settings, limiter: Limiter, upload_rate_limit: str) -
                 r.raise_for_status()
                 return JSONResponse(r.json())
         except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail=f"WAVE API error: {exc}")
+            _log.warning("wave.error", error=str(exc))
+            raise HTTPException(
+                status_code=502, detail=_generic_detail("WAVE API error")
+            ) from exc
 
     # ------------------------------------------------------------------
     # /pdf/verapdf — veraPDF PDF/UA-1 validation
@@ -141,11 +159,18 @@ def build_router(settings: Settings, limiter: Limiter, upload_rate_limit: str) -
             try:
                 payload = _json.loads(proc.stdout) if proc.stdout else {}
             except _json.JSONDecodeError:
-                payload = {"raw": proc.stdout[:4000]}
+                _log.warning(
+                    "verapdf.unparseable_output",
+                    returncode=proc.returncode,
+                    stdout=proc.stdout[:4000] if proc.stdout else "",
+                    stderr=proc.stderr[:1000] if proc.stderr else "",
+                )
+                payload = {"parse_error": "veraPDF output could not be parsed"}
+            if proc.stderr:
+                _log.warning("verapdf.stderr", stderr=proc.stderr[:1000])
             return JSONResponse({
                 "returncode": proc.returncode,
                 "report": payload,
-                "stderr": proc.stderr[:1000] if proc.stderr else "",
             })
         finally:
             path.unlink(missing_ok=True)
@@ -174,7 +199,10 @@ def build_router(settings: Settings, limiter: Limiter, upload_rate_limit: str) -
                 "raw_response_size": len(result.raw_report) if hasattr(result, "raw_report") else 0,
             })
         except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=502, detail=f"Adobe API error: {exc}")
+            _log.warning("adobe.error", error=str(exc), exc_type=type(exc).__name__)
+            raise HTTPException(
+                status_code=502, detail=_generic_detail("Adobe API error")
+            ) from exc
         finally:
             path.unlink(missing_ok=True)
 
@@ -201,7 +229,10 @@ def build_router(settings: Settings, limiter: Limiter, upload_rate_limit: str) -
         except HTTPException:
             raise
         except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=500, detail=f"WCAG verify error: {exc}")
+            _log.warning("wcag.error", error=str(exc), exc_type=type(exc).__name__)
+            raise HTTPException(
+                status_code=500, detail=_generic_detail("WCAG verify error")
+            ) from exc
         finally:
             path.unlink(missing_ok=True)
 
