@@ -61,7 +61,6 @@ from project_remedy.pdf_semantics import (
 )
 from project_remedy.tag_tree_reader import _extract_mcid_text
 from project_remedy.vision_prompts import (
-    figure_alt_prompt,
     language_detection_prompt,
     page_region_analysis_prompt,
     semantic_reading_order_prompt,
@@ -790,8 +789,6 @@ def fix_language(pdf: pikepdf.Pdf, language: str = "en", *, vision_provider=None
 
 def _detect_language(pdf: pikepdf.Pdf, vision_provider) -> str:
     """Detect document language via vision model on first page."""
-    import asyncio
-    import os
 
     # Text PDFs do not need a vision round trip for language detection. Use
     # the text layer first and reserve vision for image-only pages.
@@ -896,7 +893,6 @@ def fix_display_doc_title(pdf: pikepdf.Pdf, title: str = "", *, vision_provider=
 
 def _derive_title_vision(pdf: pikepdf.Pdf, vision_provider) -> str:
     """Use vision model to read the title from the first page."""
-    import asyncio
 
     try:
         from project_remedy.pdf_vision import render_page_to_image
@@ -5821,7 +5817,6 @@ def fix_substantive_artifact_images(
         return []
 
     # Render each candidate to a temp PNG, ask vision for a description.
-    from project_remedy.pdf_vision import VisionAnalyzer
 
     prompt = (
         "Describe the most visually prominent figure or artwork in this image. "
@@ -7759,7 +7754,6 @@ def fix_heading_synthesis(pdf: pikepdf.Pdf, *, vision_provider=None, force_pages
 
     Falls back to heuristic detection and title metadata when vision is unavailable.
     """
-    from project_remedy.vision_prompts import heading_detection_prompt
 
     # Collect which pages already have headings so we only scan pages that don't.
     # Previously this bailed out entirely if ANY headings existed, but documents
@@ -11267,7 +11261,6 @@ def fix_reading_order(pdf: pikepdf.Pdf, *, vision_provider=None, thorough: bool 
 
     Makes a single combined API call per qualifying page.
     """
-    import asyncio
 
     struct_root = pdf.Root.get("/StructTreeRoot")
     if struct_root is None:
@@ -11916,7 +11909,6 @@ def _fix_semantic_reading_order(
 
     This runs as a second pass after the basic reading-order reordering.
     """
-    import asyncio
 
     if vision_provider is None:
         return []
@@ -12169,7 +12161,6 @@ def fix_metadata(pdf: pikepdf.Pdf, *, vision_provider=None) -> list[str]:
     meaningful description and keywords from document content.
     Also sets /Producer to identify Remedy Server output.
     """
-    import asyncio
 
     changes = []
 
@@ -12279,7 +12270,6 @@ def fix_image_only_pdf(pdf: pikepdf.Pdf, *, vision_provider=None) -> list[str]:
     When *vision_provider* is supplied, OCRs each page and injects
     invisible text into the content stream so screen readers can read it.
     """
-    import asyncio
 
     changes = []
     # Check if any page has extractable text
@@ -14115,7 +14105,6 @@ def fix_table_regularity(pdf: pikepdf.Pdf, *, vision_provider=None) -> list[str]
     When *vision_provider* is supplied, uses vision model to analyze
     table structure and determine correct cell spans.
     """
-    import asyncio
 
     changes = []
 

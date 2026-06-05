@@ -7,10 +7,10 @@ round-trip a page's content stream with specific instruction replacements.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import pikepdf
-from pikepdf import Name, Object, Operator
+from pikepdf import Object, Operator
 
 logger = logging.getLogger(__name__)
 

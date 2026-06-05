@@ -10,7 +10,6 @@ import asyncio
 import json as _json
 import logging
 import os
-import shutil
 from dataclasses import asdict
 from pathlib import Path
 

@@ -7,20 +7,17 @@ of documents, or as a standalone overnight runner.
 
 from __future__ import annotations
 
-import json
 import logging
 import time
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from project_remedy.vision_planner.experiment_store import (
     ExperimentRecord,
     ExperimentStore,
-    HarnessVariant,
 )
-from project_remedy.vision_planner.proposer import HarnessProposer, analyze_failures
-from project_remedy.vision_planner.scorer import HarnessScorer, ScoringResult
+from project_remedy.vision_planner.proposer import HarnessProposer
+from project_remedy.vision_planner.scorer import HarnessScorer
 
 logger = logging.getLogger(__name__)
 

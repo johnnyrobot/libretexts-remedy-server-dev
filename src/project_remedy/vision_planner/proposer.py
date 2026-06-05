@@ -8,7 +8,6 @@ harness.py interface (prompt templates, context assembly, output parsing).
 from __future__ import annotations
 
 import copy
-import json
 import logging
 import re
 import uuid
@@ -25,7 +24,6 @@ from project_remedy.quality_judges.shared.dimensions import (
 from project_remedy.vision_planner.experiment_store import (
     ExperimentRecord,
     ExperimentStore,
-    HarnessVariant,
     _weak_dimensions_by_doc_type,
     _weak_dimensions_overall,
 )

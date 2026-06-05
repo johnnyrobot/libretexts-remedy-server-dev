@@ -8,7 +8,6 @@ enforces the dangling-asset_ref invariant.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Union
 
 from project_remedy.models import ExtractedImage
 from project_remedy.rebuild.ast import (

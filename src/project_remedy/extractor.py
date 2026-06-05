@@ -21,7 +21,7 @@ from project_remedy.config import PipelineConfig
 from project_remedy.database import DatabaseManager
 from project_remedy.image_extractor import extract_pdf_images
 from project_remedy.models import DocumentJob, ExtractedImage, FileType, JobStatus
-from project_remedy.ollama_client import OllamaClient, OllamaClientError
+from project_remedy.ollama_client import OllamaClient
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +148,6 @@ class ContentExtractor:
         """Extract DOCX content using python-docx, with vision OCR fallback."""
         try:
             from docx import Document as DocxDocument  # type: ignore[import-untyped]
-            from docx.opc.constants import RELATIONSHIP_TYPE as RT  # type: ignore[import-untyped]
         except ImportError:
             logger.warning(
                 "python-docx not installed — falling back to vision OCR for %s",

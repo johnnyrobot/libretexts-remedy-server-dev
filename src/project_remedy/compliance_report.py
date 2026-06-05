@@ -32,13 +32,11 @@ from project_remedy.pdf_acceptance import PDFAcceptanceResult, evaluate_pdf_acce
 from project_remedy.pdf_checker import (
     CheckReport,
     CheckResult,
-    PDFAccessibilityChecker,
 )
 from project_remedy.tag_tree_reader import (
     ScreenReaderIssue,
     Severity,
     ValidationResult as SRValidationResult,
-    validate_tag_tree,
 )
 
 

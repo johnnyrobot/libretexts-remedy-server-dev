@@ -26,7 +26,6 @@ from backend.app.auth import require_api_key_dependency
 from backend.app.config import Settings
 from backend.app.engine_service import (
     filetype_for_suffix,
-    is_office,
     media_type_for,
 )
 from backend.app.jobs import (

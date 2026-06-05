@@ -6,9 +6,6 @@ function, returns the result as JSON, and cleans up the temp file.
 
 from __future__ import annotations
 
-import contextlib
-import json
-import tempfile
 import uuid
 from dataclasses import asdict, is_dataclass
 from pathlib import Path

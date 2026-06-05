@@ -18,7 +18,6 @@ from project_remedy.quality_judges.shared.dimensions import (
 from project_remedy.vision_planner.experiment_store import (
     ExperimentRecord,
     ExperimentStore,
-    HarnessVariant,
 )
 
 logger = logging.getLogger(__name__)

@@ -29,7 +29,6 @@ from project_remedy.faithful_rebuild.image_embedder import (
 )
 from project_remedy.faithful_rebuild.models import (
     FaithfulRebuildResult,
-    FontMatch,
     MCIDManifest,
 )
 from project_remedy.faithful_rebuild.structure_builder import build_structure_tree

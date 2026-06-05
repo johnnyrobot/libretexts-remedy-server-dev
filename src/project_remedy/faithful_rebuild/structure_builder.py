@@ -17,7 +17,7 @@ import logging
 import pikepdf
 from pikepdf import Array, Dictionary, Name, String
 
-from project_remedy.faithful_rebuild.models import MCIDEntry, MCIDManifest
+from project_remedy.faithful_rebuild.models import MCIDManifest
 
 logger = logging.getLogger(__name__)
 

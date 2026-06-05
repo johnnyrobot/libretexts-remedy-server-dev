@@ -20,7 +20,7 @@ from slowapi import Limiter
 from backend.app.auth import require_api_key_dependency
 from backend.app.config import Settings
 from backend.app.engine_service import filetype_for_suffix, is_office, media_type_for
-from backend.app.jobs import JOB_KIND_REMEDIATE_OFFICE, JobStore, JobWorker, serialize_job
+from backend.app.jobs import JOB_KIND_REMEDIATE_OFFICE, JobStore, JobWorker
 from backend.app.routes import _finalize_upload_and_enqueue  # reuse helper
 from project_remedy.models import FileType
 

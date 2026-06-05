@@ -20,11 +20,8 @@ Commands::
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 import sys
-from dataclasses import asdict
-from datetime import datetime
 from pathlib import Path
 
 import click
@@ -46,7 +43,7 @@ from project_remedy.pdf_checker import (
     _get_struct_type,
     _node_has_direct_content,
 )
-from project_remedy.pdf_fixer import ALL_FIXES, FixReport, fix_all, fix_and_verify
+from project_remedy.pdf_fixer import FixReport, fix_all, fix_and_verify
 from project_remedy.token_tracker import tracker
 
 console = Console()

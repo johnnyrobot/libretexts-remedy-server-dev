@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Sequence
 
 import pikepdf
-from pikepdf import Dictionary, Name
+from pikepdf import Name
 
 from project_remedy.faithful_rebuild.models import FontFingerprint, FontMatch
 

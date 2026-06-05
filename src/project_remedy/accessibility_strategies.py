@@ -35,12 +35,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 

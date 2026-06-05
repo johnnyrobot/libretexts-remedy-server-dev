@@ -58,7 +58,6 @@ class OfficeRemediator:
         language: str,
     ) -> list[str]:
         from docx import Document
-        from docx.enum.style import WD_STYLE_TYPE
         from docx.oxml import OxmlElement
 
         doc = Document(str(input_path))

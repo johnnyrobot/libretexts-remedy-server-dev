@@ -566,7 +566,6 @@ def apply_deterministic_fixes(
             _normalize_structure_tree_indirect_objects,
             _tag_unmarked_content_streams,
             fix_bdc_emc_balance,
-            fix_create_structure_tree,
             fix_heading_nesting,
             fix_page_retag,
             fix_pdfua_identifier,

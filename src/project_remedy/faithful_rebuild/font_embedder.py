@@ -11,7 +11,6 @@ and page rendering (which writes content streams referencing that font).  It:
 
 from __future__ import annotations
 
-import math
 from io import BytesIO
 from pathlib import Path
 

@@ -10,7 +10,6 @@ Budget: ~500 pages/month on the free tier — use sparingly (test harness only).
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time

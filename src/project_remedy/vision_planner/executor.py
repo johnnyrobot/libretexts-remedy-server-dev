@@ -905,7 +905,6 @@ def execute_plan(
     dict with keys ``"applied"``, ``"skipped"``, ``"errors"`` -- each a list
     of :class:`OpResult` dicts (serialised via ``dataclasses.asdict``).
     """
-    from dataclasses import asdict
 
     all_results: list[OpResult] = []
 

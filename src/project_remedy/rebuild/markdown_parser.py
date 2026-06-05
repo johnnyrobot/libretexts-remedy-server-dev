@@ -18,7 +18,6 @@ from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
 from project_remedy.rebuild.ast import (
-    Block,
     HeadingBlock,
     ListBlock,
     ListItem,

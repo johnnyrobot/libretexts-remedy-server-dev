@@ -5,7 +5,6 @@ Run with ``uvicorn backend.app.main:app --reload``.
 
 from __future__ import annotations
 
-import logging
 import os
 import time
 import uuid

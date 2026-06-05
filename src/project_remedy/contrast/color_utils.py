@@ -6,7 +6,6 @@ All colors are represented as (r, g, b) tuples with values normalized to 0-1.
 from __future__ import annotations
 
 import colorsys
-import math
 
 
 def relative_luminance(r: float, g: float, b: float) -> float:

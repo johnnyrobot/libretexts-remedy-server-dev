@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass, field
 
 import pikepdf
-from pikepdf import Name, Object
+from pikepdf import Object
 
 logger = logging.getLogger(__name__)
 
