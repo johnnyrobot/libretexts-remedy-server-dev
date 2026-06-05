@@ -79,7 +79,7 @@ Workflow:
 4. Read the post-fix verification returned by the tool.
 5. If the tool result says `progress_state="improved"`, continue from the updated verification.
 6. If the tool result says `progress_state="no_progress"`, `progress_state="regressed"`, or `progress_state="tool_error"`, do not repeat that exact fix blindly. Inspect again and switch approaches.
-7. When a generic high-level fix tool stalls on a family, escalate quickly: inspect the affected page/object, then use `run_pikepdf_code` for a targeted edit.
+7. When a generic high-level fix tool stalls on a family, escalate quickly: inspect the affected page/object, then switch to a different mutating fix tool for that family.
 
 Rules:
 - Fix one violation family at a time.
@@ -93,19 +93,6 @@ Rules:
 - If a tool result says an exact mutation is blocked, choose a different approach immediately.
 - Call finish with status="fixed" only after veraPDF reports zero violations.
 - Call finish with status="manual_review" when you are stuck, the budget is exhausted, or the remaining issues are likely source-font limitations.
-
-Advanced tool — run_pikepdf_code:
-- Use run_pikepdf_code aggressively after a high-level tool fails to reduce violations for the same family.
-- The variable `pdf` is already an open pikepdf.Pdf. You can modify it directly.
-- Inspect first, then write the smallest targeted change that matches the current violation.
-- Common patterns:
-  - Rewrite content stream BDC/EMC markers: `page["/Contents"] = pdf.make_stream(new_bytes)`
-  - Change structure element type: `node["/S"] = pikepdf.Name("/Artifact")`
-  - Add /Lang: `pdf.Root["/Lang"] = pikepdf.String("en")`
-  - Read content stream: `raw = page["/Contents"].read_bytes()`
-- Always inspect first (`read_structure_tree`, `read_content_stream`, `read_page_image`) to understand the exact problem before writing code.
-- Assign to `result` to return diagnostic info, object ids, or counts: `result = f"Fixed {count} markers on page {page_no}"`
-- If custom code fails or has no effect, inspect again and change the code. Do not rerun the same code unchanged.
 """
 
 
@@ -384,37 +371,6 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "run_pikepdf_code",
-            "description": (
-                "Execute arbitrary Python/pikepdf code against the current working PDF. "
-                "The PDF is opened as `pdf` (pikepdf.Pdf). Your code can modify it freely. "
-                "After execution the PDF is saved automatically. Use this for fine-grained "
-                "edits that the high-level fix tools cannot handle — e.g. rewriting specific "
-                "BDC/EMC markers, changing individual structure elements, modifying content "
-                "streams. The code runs in a restricted namespace with pikepdf, re, and "
-                "pathlib available. Return value is captured as the tool result."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "code": {
-                        "type": "string",
-                        "description": (
-                            "Python code to execute. The variable `pdf` is a pikepdf.Pdf "
-                            "already opened on the working copy. Assign to `result` to "
-                            "return a value. Example: "
-                            "`page = pdf.pages[0]; result = str(page.get('/Tabs'))`"
-                        ),
-                    },
-                },
-                "required": ["code"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "finish",
             "description": "Stop the remediation loop and report the outcome.",
             "parameters": {
@@ -438,7 +394,6 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
 
 
 MUTATING_TOOL_NAMES = {
-    "run_pikepdf_code",
     "fix_untagged_content",
     "fix_heading_nesting",
     "fix_table_structure",
@@ -1299,7 +1254,7 @@ class AgentLoop:
         for family, stall_count in sorted(self._family_stagnation.items()):
             if stall_count >= self.loop_config.pikepdf_escalation_threshold:
                 hints.append(
-                    f"{family} has stalled {stall_count} time(s). After inspection, prefer run_pikepdf_code over another generic fix tool for that family."
+                    f"{family} has stalled {stall_count} time(s). After inspection, switch to a different mutating fix tool for that family."
                 )
 
         top_violation = next(
@@ -1385,14 +1340,9 @@ class AgentLoop:
                 parts.append("The tool itself failed.")
             else:
                 parts.append("It did not reduce the remaining violations.")
-            if name != "run_pikepdf_code":
-                parts.append(
-                    "Inspect the affected page/object first, then prefer run_pikepdf_code or a different mutating tool."
-                )
-            else:
-                parts.append(
-                    "Inspect again and change the code strategy instead of rerunning the same snippet."
-                )
+            parts.append(
+                "Inspect the affected page/object first, then switch to a different mutating tool."
+            )
 
         top_violation = next(
             (violation for violation in (after.get("violations") or before.get("violations") or []) if violation.get("rule_id")),
@@ -1593,9 +1543,6 @@ class AgentLoop:
                         op_id="agent_loop.set_tag",
                     )
                 ]
-            elif name == "run_pikepdf_code":
-                code = str(arguments.get("code", ""))
-                changes = self._execute_pikepdf_code(pdf, code)
             else:
                 raise ValueError(f"Unsupported mutating tool: {name}")
 
@@ -1605,38 +1552,6 @@ class AgentLoop:
                 object_stream_mode=pikepdf.ObjectStreamMode.disable,
             )
         return changes
-
-    def _execute_pikepdf_code(self, pdf: pikepdf.Pdf, code: str) -> MutationOutcome:
-        """Execute agent-written pikepdf code in a restricted namespace."""
-        import re as _re
-
-        if not code.strip():
-            return MutationOutcome(ok=False, changes=[], error="No code provided")
-
-        namespace: dict[str, Any] = {
-            "pdf": pdf,
-            "pikepdf": pikepdf,
-            "re": _re,
-            "Path": Path,
-            "result": None,
-        }
-
-        try:
-            exec(code, {"__builtins__": {}}, namespace)  # noqa: S102
-        except Exception as e:
-            return MutationOutcome(
-                ok=False,
-                changes=[],
-                error=f"{type(e).__name__}: {e}",
-            )
-
-        result_val = namespace.get("result")
-        changes: list[str] = []
-        if result_val is not None:
-            changes.append(f"pikepdf code result: {result_val}")
-        if not changes:
-            changes.append("pikepdf code executed successfully")
-        return MutationOutcome(ok=True, changes=changes)
 
 
 async def run_agent_loop(
