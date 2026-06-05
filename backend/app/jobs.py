@@ -97,7 +97,7 @@ class JobStore:
                 """
             )
             # Forward-compat: add columns if upgrading from an older DB.
-            for col, ddl in (
+            for _col, ddl in (
                 ("kind", "ALTER TABLE jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'remediate_pdf'"),
                 ("result_media_type", "ALTER TABLE jobs ADD COLUMN result_media_type TEXT NOT NULL DEFAULT 'application/pdf'"),
                 ("metadata_json", "ALTER TABLE jobs ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'"),

@@ -1079,7 +1079,7 @@ class PDFAccessibilityChecker:
         nodes_with_bad_parent: list[str] = []
         nodes_missing_parent: list[str] = []
 
-        for node, depth, parent in self._walk_structure_tree(pdf):
+        for node, _depth, _parent in self._walk_structure_tree(pdf):
             objgen = getattr(node, "objgen", (0, 0))
             if objgen != (0, 0):
                 reachable_objgens.add(objgen)
@@ -2507,7 +2507,7 @@ class PDFAccessibilityChecker:
                         missing_tu.append(name)
 
         # Also check widget annotations directly.
-        for i, page in enumerate(pdf.pages, 1):
+        for _i, page in enumerate(pdf.pages, 1):
             annots = page.get("/Annots")
             if not annots:
                 continue
@@ -3313,7 +3313,6 @@ class PDFAccessibilityChecker:
             if stype in _SKIP_TYPES:
                 continue
 
-            kids = node.get("/K")
             if node_has_annotation_ref(node):
                 issues.append(f"/{stype} has /Alt that hides annotation content")
 

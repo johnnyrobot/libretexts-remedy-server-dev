@@ -239,7 +239,6 @@ def _extract_page_structure_context(pdf_path: Path, page_index: int) -> tuple[st
         from project_remedy.pdf_checker import _resolve_pdf_object
 
         pdf = pikepdf.open(pdf_path)
-        total_pages = len(pdf.pages)
 
         # Walk structure tree to find elements on this page
         elements_on_page: list[str] = []

@@ -475,7 +475,7 @@ def build_structure_tree(
     pdf.Root["/Metadata"] = metadata_stream
 
     # --- DocInfo /Title ---
-    with pdf.open_metadata() as meta:
+    with pdf.open_metadata() as _meta:
         pass  # ensure docinfo exists
     pdf.docinfo["/Title"] = String(title)
 

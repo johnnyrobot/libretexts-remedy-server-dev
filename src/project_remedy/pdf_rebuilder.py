@@ -231,7 +231,6 @@ def _add_fresh_tag_tree(
         parent_nums = pikepdf.Array()
         for page_idx, page in enumerate(pdf.pages):
             start, end = page_mcid_ranges[page_idx]
-            mcr_kids = pikepdf.Array()
             parent_arr_entries = []
 
             for mcid in range(start, end):

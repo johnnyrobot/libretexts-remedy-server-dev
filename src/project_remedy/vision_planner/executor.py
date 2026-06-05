@@ -586,7 +586,6 @@ def _do_reconstruct_table(
     from project_remedy.pdf_checker import walk_structure_tree
 
     existing_table_parent = None
-    existing_table_node = None
     existing_table_index = None
     target_mcid_set = set(all_mcids)
 
@@ -597,7 +596,6 @@ def _do_reconstruct_table(
         node_mcids = _collect_descendant_mcids(node)
         if node_mcids & target_mcid_set:
             existing_table_parent = parent
-            existing_table_node = node
             # Find index in parent's /K
             if parent is not None:
                 parent_kids = parent.get("/K")

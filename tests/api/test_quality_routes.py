@@ -118,7 +118,7 @@ def test_quality_routes_use_existing_api_key_auth(monkeypatch, tmp_path) -> None
     _configure_import_env(monkeypatch, tmp_path)
     main = importlib.import_module("backend.app.main")
     app = main.create_app(settings)
-    annotation = build_annotation_record(
+    build_annotation_record(
         source_path=tmp_path / "source.pdf",
         fmt="pdf",
         doc_id="pdf-1",

@@ -176,7 +176,6 @@ class ContentExtractor:
             return await self._ollama.ocr(file_path=file_path)
 
         parts: list[str] = []
-        image_index = 0
 
         for element in doc.element.body:
             tag = element.tag.split("}")[-1] if "}" in element.tag else element.tag

@@ -366,7 +366,6 @@ class ExperimentStore:
         """Change a variant's status (active, retired, promoted)."""
         now = datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
-            updates = {"status": status}
             if status == "retired":
                 conn.execute(
                     "UPDATE harness_variants SET status = ?, retired_at = ? WHERE harness_id = ?",

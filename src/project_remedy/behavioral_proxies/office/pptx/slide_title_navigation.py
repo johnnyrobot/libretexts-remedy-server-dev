@@ -144,7 +144,7 @@ def _pptx_slide_title_navigation_questions(artifact_path: Path) -> list[Generate
         return []
 
     questions: list[GeneratedQuestion] = []
-    for slide_index, slide in enumerate(presentation.slides, start=1):
+    for _slide_index, slide in enumerate(presentation.slides, start=1):
         title_shape = slide.shapes.title
         title_text = ""
         if title_shape is not None:

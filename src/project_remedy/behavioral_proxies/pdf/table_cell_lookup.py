@@ -185,7 +185,7 @@ def _lookup_questions(
     if not headers:
         return []
     questions: list[GeneratedQuestion] = []
-    for row_index, row in enumerate(rows[1:], start=1):
+    for _row_index, row in enumerate(rows[1:], start=1):
         values = [text for tag, text in row if tag in {"TH", "TD"}]
         if len(values) < 2:
             continue

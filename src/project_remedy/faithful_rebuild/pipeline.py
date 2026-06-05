@@ -279,7 +279,7 @@ def faithful_rebuild(
     # ------------------------------------------------------------------
     try:
         verify_pdf = pikepdf.open(output_path)
-        reopened_pages = len(verify_pdf.pages)
+        len(verify_pdf.pages)
         verify_pdf.close()
     except Exception as exc:
         return FaithfulRebuildResult(

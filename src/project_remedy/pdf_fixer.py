@@ -3348,7 +3348,7 @@ def fix_annotations_tagged(pdf: pikepdf.Pdf) -> list[str]:
     retagged = 0
     key_cache = _annotation_struct_key_cache(struct_root)
     next_key_ref = [_next_annotation_struct_key(struct_root)]
-    for i, page in enumerate(pdf.pages):
+    for _i, page in enumerate(pdf.pages):
         annots = page.get("/Annots")
         if not annots:
             continue
@@ -6146,13 +6146,13 @@ def fix_figures_alt_text(pdf: pikepdf.Pdf, *, vision_provider=None) -> list[str]
 
         # Phase 1: Classify all images
         classification_tasks = []
-        for i, image_path in figure_images:
+        for _i, image_path in figure_images:
             classification_tasks.append(_classify_one(image_path))
         classifications = await asyncio.gather(*classification_tasks, return_exceptions=True)
 
         # Phase 2: Describe based on classification
         description_tasks = []
-        for (i, image_path), classification in zip(figure_images, classifications):
+        for (_i, image_path), classification in zip(figure_images, classifications):
             if isinstance(classification, Exception):
                 image_type = "unknown"
             else:
@@ -6192,7 +6192,7 @@ def fix_figures_alt_text(pdf: pikepdf.Pdf, *, vision_provider=None) -> list[str]
     changes = []
     # Convert decorative figures to artifacts to avoid gray boxes
     artifactized = 0
-    for (i, image_path), result in zip(figure_images, results):
+    for (i, image_path), _result in zip(figure_images, results):
         node = figures[i]
         alt = str(node.get("/Alt", "")).strip()
         if alt.lower() == "decorative image":
@@ -7567,7 +7567,7 @@ def _split_coarse_text_node(
     pieces: list[str] = []
     cursor = 0
 
-    for order, block in enumerate(blocks):
+    for _order, block in enumerate(blocks):
         if block.start > cursor:
             pieces.append(block_body[cursor:block.start])
         tag = _infer_region_tag(block, page_idx=page_idx, median_font_size=median_font_size)
@@ -7808,7 +7808,6 @@ def fix_heading_synthesis(pdf: pikepdf.Pdf, *, vision_provider=None, force_pages
             for heading_info in detected:
                 text = heading_info.get("text", "").strip()
                 level = int(heading_info.get("level", 2))
-                y_pos = float(heading_info.get("y_position", 0.5))
 
                 if not text or level < 1 or level > 6:
                     continue
@@ -8673,7 +8672,7 @@ def _fitz_visible_table_specs(
             finder = page.find_tables()
             tables = list(getattr(finder, "tables", []) or [])
             specs: list[_SyntheticTable] = []
-            for table_num, table in enumerate(tables, start=1):
+            for _table_num, table in enumerate(tables, start=1):
                 try:
                     rows = _normal_table_rows(table.extract())
                 except Exception:
@@ -10025,7 +10024,7 @@ def _fix_subtitle_and_transitional_headings(pdf: pikepdf.Pdf) -> list[str]:
         for node in nodes
     )
 
-    for page_idx, nodes in page_nodes.items():
+    for _page_idx, nodes in page_nodes.items():
         for idx, node in enumerate(nodes[:-1]):
             if _get_struct_type(node) != "H1":
                 continue
@@ -10248,7 +10247,7 @@ def _fix_subtitle_and_transitional_headings(pdf: pikepdf.Pdf) -> list[str]:
                 node["/S"] = pikepdf.Name("/P")
                 demoted += 1
 
-    for page_idx, nodes in page_nodes.items():
+    for _page_idx, nodes in page_nodes.items():
         headings = [
             (node, _structure_node_text(node))
             for node in nodes
@@ -11581,7 +11580,7 @@ def _fix_overused_heading_tags(pdf: pikepdf.Pdf) -> list[str]:
 
     demoted = 0
     kept = 0
-    for node, stype in headings:
+    for node, _stype in headings:
         text = _extract_node_text_full(node, pdf)
         if _heading_text_looks_like_body(text):
             node["/S"] = pikepdf.Name("/P")
@@ -11808,7 +11807,7 @@ def _apply_xy_cut_reading_order(
                 continue
 
             parent_node = None
-            for n, p in page_nodes:
+            for _n, p in page_nodes:
                 if id(p) == pid:
                     parent_node = p
                     break
@@ -11999,7 +11998,7 @@ def _fix_semantic_reading_order(
         try:
             # Build element list for the prompt.
             element_lines = []
-            for node, stype, text_preview, idx in page_elements:
+            for _node, stype, text_preview, idx in page_elements:
                 text_part = f' "{text_preview}"' if text_preview else ""
                 element_lines.append(f"  {idx}. /{stype}{text_part}")
 
@@ -13596,7 +13595,6 @@ def _synthesize_tounicode_for_font(
     }
 
     subtype = str(font.get("/Subtype", ""))
-    base_font = str(font.get("/BaseFont", ""))
 
     # Base14 fonts still need ToUnicode for PDF/UA compliance and Adobe's
     # accessibility checker.  Previously skipped, but this caused "Character
@@ -15300,7 +15298,6 @@ def _wrap_unmarked_form_xobject_content(pdf: pikepdf.Pdf) -> tuple[set[str], set
             except Exception:
                 processed[objgen] = (False, has_unembedded_font)
                 continue
-            has_text_operators = bool(re.search(r"\b(?:Tj|TJ|'|\")\b", raw))
             if not raw.strip():
                 processed[objgen] = (False, has_unembedded_font)
                 continue
@@ -15884,7 +15881,7 @@ def _tag_unmarked_content_streams(pdf: pikepdf.Pdf) -> int:
             pass
     next_sp = max(existing_sp, default=-1) + 1
 
-    for page_idx, page in enumerate(pdf.pages):
+    for _page_idx, page in enumerate(pdf.pages):
         raw = _read_page_content(page)
         if not raw:
             continue
@@ -17119,7 +17116,7 @@ def _gs_recovery_corrective_action(
         no_gs_output = Path(tmpdir) / output_path.name
 
         try:
-            no_gs_report = fix_all(
+            fix_all(
                 original_path,
                 no_gs_output,
                 config=config,

@@ -163,7 +163,7 @@ def check_accessibility(pdf_path: Path) -> AdobeCheckResult:
         doc.close()
 
         max_polls = 60
-        for i in range(max_polls):
+        for _ in range(max_polls):
             time.sleep(3)
             status_resp = httpx.get(poll_url, headers=headers, timeout=30.0)
 

@@ -526,7 +526,7 @@ def check_canary_eligibility(pdf: pikepdf.Pdf) -> CanaryEligibility:
         fonts_in_scope = resources.get("/Font") if resources is not None else None
         if fonts_in_scope is None:
             continue
-        for key, other_font in fonts_in_scope.items():
+        for _key, other_font in fonts_in_scope.items():
             if not isinstance(other_font, pikepdf.Object):
                 continue
             if not other_font.is_indirect:
@@ -857,7 +857,7 @@ def _iter_resource_dicts(pdf: pikepdf.Pdf):
             yield ("page", resources)
             xobjects = resources.get("/XObject")
             if xobjects is not None:
-                for xname, xobj in xobjects.items():
+                for _xname, xobj in xobjects.items():
                     if isinstance(xobj, pikepdf.Object) and xobj.is_indirect:
                         if xobj.get("/Subtype") == pikepdf.Name("/Form"):
                             xresources = xobj.get("/Resources")
@@ -1473,7 +1473,7 @@ def extract_codepoint_histogram(pdf: pikepdf.Pdf) -> dict:
     # Pass 2: for each unique font, union used_cids across all placements.
     all_derived_codepoints: set[int] = set()
 
-    for objgen, entry in font_placements.items():
+    for _objgen, entry in font_placements.items():
         font_obj = entry["font_obj"]
         combined_used_cids: set[int] = set()
         for page, key in entry["placements"]:
