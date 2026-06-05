@@ -8,6 +8,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
 
+from project_remedy._zip_safety import read_zip_member_safely
 from project_remedy.quality_judges.office._ooxml import (
     attr,
     is_docx_content_part,
@@ -118,17 +119,19 @@ def _links_from_ooxml_package(
             for part_name in sorted(package.namelist()):
                 if not part_predicate(part_name):
                     continue
+                content = read_zip_member_safely(package, part_name)
+                if content is None:
+                    continue
                 relationships = _relationships(package, rels_path_for(part_name))
-                links.extend(extractor(package.read(part_name), relationships, part_name))
+                links.extend(extractor(content, relationships, part_name))
     except (BadZipFile, OSError):
         return []
     return links
 
 
 def _relationships(package: ZipFile, rels_path: str) -> dict[str, str]:
-    try:
-        content = package.read(rels_path)
-    except KeyError:
+    content = read_zip_member_safely(package, rels_path)
+    if content is None:
         return {}
     try:
         root = ElementTree.fromstring(content)

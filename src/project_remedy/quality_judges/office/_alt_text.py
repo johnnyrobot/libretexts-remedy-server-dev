@@ -8,6 +8,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
 
+from project_remedy._zip_safety import read_zip_member_safely
 from project_remedy.quality_judges.office._ooxml import (
     attr,
     is_docx_content_part,
@@ -121,9 +122,12 @@ def _alt_objects_from_ooxml(
             for part_name in sorted(package.namelist()):
                 if not part_predicate(part_name):
                     continue
+                content = read_zip_member_safely(package, part_name)
+                if content is None:
+                    continue
                 objects.extend(
                     _alt_objects_from_xml(
-                        package.read(part_name),
+                        content,
                         source=part_name,
                         target_local_names=target_local_names,
                         require_keyword=require_keyword,

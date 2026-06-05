@@ -9,6 +9,7 @@ from typing import Any
 from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
 
+from project_remedy._zip_safety import read_zip_member_safely
 from project_remedy.behavioral_proxies.office._ooxml import (
     attr as _attr,
     local_name as _local_name,
@@ -52,9 +53,12 @@ def decorative_shapes_from_ooxml(
             for part_name in sorted(package.namelist()):
                 if not part_predicate(part_name):
                     continue
+                content = read_zip_member_safely(package, part_name)
+                if content is None:
+                    continue
                 shapes.extend(
                     _decorative_shapes_from_xml(
-                        package.read(part_name),
+                        content,
                         source=part_name,
                         target_local_names=target_local_names,
                     )
