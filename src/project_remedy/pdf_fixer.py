@@ -2406,7 +2406,7 @@ def fix_artifact_mcids_tagged_as_real_content(
     changed_pages = 0
     retagged = 0
     artifact_mcid_re = re.compile(
-        rf"/Artifact\s*(?P<props><<(?:<[^>]*>|(?!>>).)*?/MCID\s+(?P<mcid>\d+)(?:<[^>]*>|(?!>>).)*?>>)\s*BDC",
+        r"/Artifact\s*(?P<props><<(?:<[^>]*>|(?!>>).)*?/MCID\s+(?P<mcid>\d+)(?:<[^>]*>|(?!>>).)*?>>)\s*BDC",
         re.S,
     )
 
@@ -13914,7 +13914,7 @@ def _build_bfchar_cmap(
         "/CMapName /Adobe-Identity-UCS def",
         "/CMapType 2 def",
         "% jr:el_nerdo",
-        f"1 begincodespacerange",
+        "1 begincodespacerange",
         f"<{'0' * hex_width}> <{'F' * hex_width}>",
         "endcodespacerange",
     ]

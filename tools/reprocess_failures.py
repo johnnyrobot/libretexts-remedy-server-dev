@@ -52,7 +52,7 @@ def main() -> int:
         )
         if engine.returncode != 0 or not out.exists():
             results.append(Result(name, False, False, -1, [], engine.stderr[-500:]))
-            print(f"  ENGINE FAIL")
+            print("  ENGINE FAIL")
             continue
         pre = subprocess.run(
             ["./.venv/bin/python", str(PREFLIGHT), str(out), "--json"],

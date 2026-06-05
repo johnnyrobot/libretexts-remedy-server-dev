@@ -427,7 +427,7 @@ def run_corpus(
                         raise RuntimeError(adobe.error or "Adobe check failed")
                     checked = True
                     issues = local_issues
-                    print(f"    fallback: using local checker (Adobe quota error)")
+                    print("    fallback: using local checker (Adobe quota error)")
 
                 blocking_issues = [issue for issue in issues if _issue_is_blocking(issue)]
                 manual_only = [

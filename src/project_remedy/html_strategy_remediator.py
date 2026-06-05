@@ -650,8 +650,8 @@ class HTMLStrategyRemediator:
             sr_span.string = " (opens in new window)"
             a_tag.append(sr_span)
             fixes.append(
-                f"Added '(opens in new window)' indicator to "
-                f"target=\"_blank\" link"
+                "Added '(opens in new window)' indicator to "
+                "target=\"_blank\" link"
             )
             logger.debug("Added new-window indicator to <a>")
 
