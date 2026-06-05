@@ -42,6 +42,7 @@ PHASE_A_DEFAULT_MINIMUMS = {
     "office": 20,
 }
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
+DOC_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 
 def _canonical_manifest_annotation_path(path_value: str, *, root: Path) -> str:
@@ -406,9 +407,20 @@ def validate_annotation_record(record: dict[str, Any]) -> list[ValidationError]:
                 )
             )
 
-    for string_field in ("doc_id", "source_path", "document_class", "annotator"):
+    for string_field in ("source_path", "document_class", "annotator"):
         if not str(record.get(string_field, "")).strip():
             errors.append(ValidationError(string_field, "must be non-empty"))
+
+    doc_id = str(record.get("doc_id", ""))
+    if not doc_id.strip():
+        errors.append(ValidationError("doc_id", "must be non-empty"))
+    elif not DOC_ID_RE.match(doc_id) or ".." in doc_id:
+        errors.append(
+            ValidationError(
+                "doc_id",
+                "must contain only [A-Za-z0-9._-] (1-128 chars) and no path separators",
+            )
+        )
 
     version = str(record.get("annotation_version", ""))
     if not re.match(r"^\d+\.\d+$", version):
@@ -701,7 +713,10 @@ def write_annotation_record(
     ensure_corpus_layout(root)
     fmt = record["format"]
     doc_id = record["doc_id"]
-    annotation_path = root / "annotations" / fmt / f"{doc_id}.json"
+    base = root / "annotations" / fmt
+    annotation_path = base / f"{doc_id}.json"
+    if not annotation_path.resolve().is_relative_to(base.resolve()):
+        raise ValueError("doc_id escapes corpus root")
     if annotation_path.exists() and not overwrite:
         raise FileExistsError(f"Annotation already exists: {annotation_path}")
     annotation_path.write_text(
