@@ -69,8 +69,8 @@ One-command deploy to any Linux host with Docker. Ships Ghostscript + veraPDF + 
 
 ```bash
 # On the server:
-git clone https://github.com/johnnylibretexts/libre-remedy-server
-cd libre-remedy-server
+git clone https://github.com/johnnylibretexts/libretexts-remedy-server
+cd libretexts-remedy-server
 
 # Set domain + optional Caddy global options + your API key.
 cp .env.example .env
@@ -99,7 +99,7 @@ See [`deploy/systemd/README.md`](deploy/systemd/README.md) for native install in
 
 ```bash
 # docker-compose:
-cd libre-remedy-server
+cd libretexts-remedy-server
 git pull
 docker compose up -d --build
 
