@@ -8,6 +8,8 @@ from pathlib import Path
 from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
 
+from defusedxml.ElementTree import fromstring as _safe_fromstring
+
 from project_remedy._zip_safety import read_zip_member_safely
 from project_remedy.behavioral_proxies.office.xlsx.alt_text_substitution import (
     _xlsx_drawing_objects,
@@ -192,7 +194,7 @@ def _complex_objects_from_xml(
     target_local_names: tuple[str, ...],
 ) -> list[ComplexOfficeObject]:
     try:
-        root = ElementTree.fromstring(content)
+        root = _safe_fromstring(content)
     except ElementTree.ParseError:
         return []
 
@@ -263,7 +265,7 @@ def _equation_objects_from_xml(
     start_index: int,
 ) -> list[ComplexOfficeObject]:
     try:
-        root = ElementTree.fromstring(content)
+        root = _safe_fromstring(content)
     except ElementTree.ParseError:
         return []
 

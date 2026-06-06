@@ -9,6 +9,8 @@ from typing import Any
 from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
 
+from defusedxml.ElementTree import fromstring as _safe_fromstring
+
 from project_remedy._zip_safety import read_zip_member_safely
 from project_remedy.behavioral_proxies.office._ooxml import (
     attr as _attr,
@@ -176,7 +178,7 @@ def _decorative_shapes_from_xml(
     target_local_names: tuple[str, ...],
 ) -> list[DecorativeShape]:
     try:
-        root = ElementTree.fromstring(content)
+        root = _safe_fromstring(content)
     except ElementTree.ParseError:
         return []
 

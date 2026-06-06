@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from defusedxml.ElementTree import fromstring as _safe_fromstring
 
 from project_remedy.config import PipelineConfig
 from project_remedy.database import DatabaseManager
@@ -979,7 +980,7 @@ class AccessibilityValidator:
             # --- Parse XML output -----------------------------------------
             if stdout:
                 xml_text = stdout.decode("utf-8", errors="replace")
-                root = ET.fromstring(xml_text)
+                root = _safe_fromstring(xml_text)
 
                 # veraPDF XML uses a default namespace in some versions.
                 # Try namespace-aware and plain tag searches.

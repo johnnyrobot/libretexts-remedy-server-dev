@@ -8,6 +8,8 @@ from pathlib import Path
 from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
 
+from defusedxml.ElementTree import fromstring as _safe_fromstring
+
 from project_remedy._zip_safety import read_zip_member_safely
 from project_remedy.quality_judges.office._ooxml import (
     attr,
@@ -146,7 +148,7 @@ def _alt_objects_from_xml(
     require_keyword: bool,
 ) -> list[OfficeAltTextObject]:
     try:
-        root = ElementTree.fromstring(content)
+        root = _safe_fromstring(content)
     except ElementTree.ParseError:
         return []
 

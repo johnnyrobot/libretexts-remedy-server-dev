@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from defusedxml.ElementTree import fromstring as _safe_fromstring
+
 from project_remedy.config import PipelineConfig
 from project_remedy.pdf_checker import (
     CheckReport,
@@ -977,7 +979,7 @@ def _empty_tag_tree_result(pdf_path: Path, page_count: int) -> TagTreeValidation
 
 
 def _parse_verapdf_xml(xml_text: str) -> list[dict[str, Any]]:
-    root = ET.fromstring(xml_text)
+    root = _safe_fromstring(xml_text)
     ns = ""
     if root.tag.startswith("{"):
         ns = root.tag.split("}")[0] + "}"

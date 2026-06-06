@@ -8,6 +8,8 @@ from pathlib import Path
 from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
 
+from defusedxml.ElementTree import fromstring as _safe_fromstring
+
 from project_remedy._zip_safety import read_zip_member_safely
 from project_remedy.quality_judges.office._ooxml import (
     attr,
@@ -134,7 +136,7 @@ def _relationships(package: ZipFile, rels_path: str) -> dict[str, str]:
     if content is None:
         return {}
     try:
-        root = ElementTree.fromstring(content)
+        root = _safe_fromstring(content)
     except ElementTree.ParseError:
         return {}
     return {
@@ -150,7 +152,7 @@ def _extract_docx_links(
     source: str,
 ) -> list[OfficeLink]:
     try:
-        root = ElementTree.fromstring(content)
+        root = _safe_fromstring(content)
     except ElementTree.ParseError:
         return []
     links: list[OfficeLink] = []
@@ -171,7 +173,7 @@ def _extract_pptx_links(
     source: str,
 ) -> list[OfficeLink]:
     try:
-        root = ElementTree.fromstring(content)
+        root = _safe_fromstring(content)
     except ElementTree.ParseError:
         return []
     links: list[OfficeLink] = []
@@ -202,7 +204,7 @@ def _extract_xlsx_links(
     source: str,
 ) -> list[OfficeLink]:
     try:
-        root = ElementTree.fromstring(content)
+        root = _safe_fromstring(content)
     except ElementTree.ParseError:
         return []
     links: list[OfficeLink] = []

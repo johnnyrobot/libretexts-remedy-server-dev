@@ -8,6 +8,8 @@ from typing import Any
 from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
 
+from defusedxml.ElementTree import fromstring as _safe_fromstring
+
 from project_remedy._zip_safety import read_zip_member_safely
 from project_remedy.behavioral_proxies.office._ooxml import (
     attr as _attr,
@@ -255,7 +257,7 @@ def _xlsx_drawing_objects(artifact_path: Path) -> list[XLSXDrawingObject]:
 
 def _drawing_objects_from_xml(content: bytes, *, source: str) -> list[XLSXDrawingObject]:
     try:
-        root = ElementTree.fromstring(content)
+        root = _safe_fromstring(content)
     except ElementTree.ParseError:
         return []
 
