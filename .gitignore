@@ -113,7 +113,6 @@ test_*.py
 *_test.py
 *.test.*
 *.spec.*
-!BUILD_LOG.md
 !v2_docs/
 !v2_docs/*.md
 !v2_docs/**/*.md
@@ -126,3 +125,7 @@ test_*.py
 
 # Screenshots / demo recordings — not part of source
 screenshots/
+
+# Per-developer session memories — internal scratch with personal paths.
+# (Curated v2_docs design/process docs above are intentionally kept.)
+v2_docs/session-memory-*.md
