@@ -70,7 +70,7 @@ One-command deploy to any Linux host with Docker. Ships Ghostscript + veraPDF + 
 ```bash
 # On the server:
 git clone https://github.com/johnnylibretexts/libretexts-remedy-server-dev
-cd libretexts-remedy-server
+cd libretexts-remedy-server-dev
 
 # Set domain + optional Caddy global options + your API key.
 cp .env.example .env
