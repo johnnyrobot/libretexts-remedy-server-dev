@@ -150,10 +150,19 @@ RUN ln -s /opt/verapdf/verapdf /usr/local/bin/verapdf
 COPY --from=questpdf /out/remedy-questpdf /usr/local/bin/remedy-questpdf
 COPY --from=node-tools /opt/node /opt/node
 COPY --from=python-deps /opt/venv /opt/venv
+# Keep runtime Chromium system libraries in sync with the Playwright version
+# locked in the Python environment; the install in the playwright stage does
+# not carry apt packages into this fresh runtime stage.
+RUN playwright install-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
 # Playwright browsers are in /root/.cache/ms-playwright after install;
 # relocate under /opt so the non-root user can read them.
 COPY --from=playwright /root/.cache/ms-playwright /opt/ms-playwright
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN chrome="$(find /opt/ms-playwright -type f -path '*/chrome-linux64/chrome' | head -n1)" \
+    && [ -n "$chrome" ] \
+    && ln -sf "$chrome" /usr/local/bin/remedy-chromium
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
+    CHROME_PATH=/usr/local/bin/remedy-chromium
 
 WORKDIR /app
 COPY --chown=app:app pyproject.toml README.md ./
