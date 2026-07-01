@@ -51,6 +51,33 @@ jobs:
       - name: Check whitespace
         run: git diff --check
 
+  unit-tests:
+    # Committed unit tests live in tests/unit/ (the rest of tests/ is
+    # gitignored / local-only per repo policy). This job runs only that
+    # committed subtree.
+    name: unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install project + dev deps
+        run: uv sync --extra dev
+
+      - name: Run committed unit tests
+        run: uv run pytest tests/unit -v
+
   quality-checks:
     name: quality layer checks
     runs-on: ubuntu-latest
