@@ -247,6 +247,62 @@ def _alt_coverage(acceptance: PDFAcceptanceResult) -> float | None:
     return round(100.0 * with_alt / len(figures), 1)
 
 
+#: PDF/UA-1 Fonts clause (ISO 14289-1 §7.21): font program, descriptor,
+#: CIDToGIDMap/CIDSet, ToUnicode. Structural/LLM remediation can't fix these —
+#: they need the faithful_rebuild font-embedding tier.
+_FONT_CLAUSE_PREFIX = "ISO 14289-1:2014-7.21"
+
+
+def is_font_clause_only(violations: list[dict[str, Any]]) -> bool:
+    """True if there is ≥1 violation and *every* violation is a Fonts-clause
+    (7.21.x) failure — the signal to escalate to font rebuild rather than spin
+    the structural/LLM refine loop.
+    """
+    ids = [(v.get("id") or v.get("rule_id") or "") for v in violations]
+    ids = [i for i in ids if i]
+    if not ids:
+        return False
+    return all(i.startswith(_FONT_CLAUSE_PREFIX) for i in ids)
+
+
+def select_shard(items: list, *, shard_index: int, shard_count: int) -> list:
+    """Return the strided slice of *items* for worker *shard_index* of *shard_count*.
+
+    Striding (``index % shard_count == shard_index``) rather than contiguous
+    blocks keeps each worker's load balanced even when file cost is unevenly
+    distributed across the sorted corpus. Together the shards form a complete,
+    disjoint partition of *items*.
+    """
+    if shard_count <= 1:
+        return list(items)
+    if not (0 <= shard_index < shard_count):
+        raise ValueError(f"shard_index {shard_index} out of range for {shard_count} shards")
+    return [item for i, item in enumerate(items) if i % shard_count == shard_index]
+
+
+def oversized_reason(
+    *,
+    file_size_bytes: int,
+    page_count: int,
+    max_mb: float,
+    max_pages: int,
+) -> str | None:
+    """Return a reason string if a PDF is too large to remediate safely, else None.
+
+    Pathological PDFs (huge structure trees, hundreds of pages) can wedge the
+    remediation pipeline for tens of minutes. The corpus orchestrator uses this
+    cheap pre-check (page count + file size — neither walks the structure tree)
+    to route such files to a manual queue instead of running the full engine.
+    Boundary values are allowed; only strictly-over trips the guard.
+    """
+    if max_pages and page_count > max_pages:
+        return f"too many pages ({page_count} > {max_pages})"
+    size_mb = file_size_bytes / (1024 * 1024)
+    if max_mb and size_mb > max_mb:
+        return f"file too large ({size_mb:.1f} MB > {max_mb} MB)"
+    return None
+
+
 def summarize_levels(
     records: list[dict[str, Any]],
     *,

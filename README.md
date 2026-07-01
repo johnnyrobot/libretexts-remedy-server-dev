@@ -181,7 +181,7 @@ Set `APP_API_KEY` in `.env` to require clients to send `X-API-Key: <key>` on all
 
 ## AI provider
 
-The active cloud provider is **Ollama Cloud** (`gemma4:31b-cloud`) via `OllamaClient`. `vision_planner` runs through the same Ollama-backed factory used by `pdf_vision.py`.
+The active cloud provider is **Ollama Cloud** (`kimi-k2.7-code:cloud`) via `OllamaClient`. `vision_planner` runs through the same Ollama-backed factory used by `pdf_vision.py`.
 
 ---
 
@@ -212,7 +212,7 @@ All env-driven. See `.env.example` for the full list. Key knobs:
 **Engine** (`src/project_remedy/config.py`):
 - Ollama Cloud: `OLLAMA_BASE_URL` (default `https://ollama.com/v1`), `OLLAMA_API_KEY`,
   `OLLAMA_MODEL`, `OLLAMA_VISION_MODEL`, `OLLAMA_ESCALATION_MODEL` — all default to
-  `gemma4:31b-cloud`. `APP_ENV=production` requires `OLLAMA_API_KEY` to be non-empty.
+  `kimi-k2.7-code:cloud`. `APP_ENV=production` requires `OLLAMA_API_KEY` to be non-empty.
   Optional `OLLAMA_VISION_FALLBACK_MODELS` and `OLLAMA_VISION_FALLBACK_BASE_URLS`
   configure ordered vision fallbacks such as a local `gemma4:26b` model.
   The `/v1` path is used because `OllamaClient` speaks the OpenAI-compatible
@@ -220,10 +220,9 @@ All env-driven. See `.env.example` for the full list. Key knobs:
   `https://ollama.com/api` with `/api/chat`.
 - Quality layer model separation: `QUALITY_JUDGE_MODEL` and `BEHAVIORAL_TEST_MODEL`
   must be different model families from `OLLAMA_MODEL`, `OLLAMA_VISION_MODEL`, and
-  `OLLAMA_ESCALATION_MODEL`. Two viable non-Kimi setups are a local Ollama
-  OpenAI-compatible endpoint such as `QUALITY_JUDGE_BASE_URL=http://localhost:11434/v1`
-  with `QUALITY_JUDGE_MODEL=llama3.1:8b`, or a separate OpenAI-compatible gateway
-  serving an independent answerer such as `BEHAVIORAL_TEST_MODEL=qwen2.5:7b`.
+  `OLLAMA_ESCALATION_MODEL`. The default separated setup uses
+  `QUALITY_JUDGE_MODEL=mistral-large-3:675b` and
+  `BEHAVIORAL_TEST_MODEL=gemma4:31b-cloud`.
   Runtime checks reject same-family judge or behavioral models.
 - Ghostscript: `GHOSTSCRIPT_ENABLED`, `GHOSTSCRIPT_PATH`
 - veraPDF: `VERAPDF_PATH`

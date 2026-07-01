@@ -117,3 +117,6 @@ test_*.py
 
 # Screenshots / demo recordings — not part of source
 screenshots/
+
+# Graphify knowledge-graph output (generated, ~36MB) — not source
+graphify-out/
