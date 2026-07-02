@@ -17,6 +17,8 @@ class OfficeCheckResult:
     status: str  # Passed / Failed / Manual Check Needed
     details: list[str] = field(default_factory=list)
     fixable: bool = False
+    checkpoint: str = ""   # office-verify catalog group (empty for legacy checks)
+    wcag_ref: str = ""     # WCAG 2.1 SC, e.g. "1.1.1" (empty for legacy checks)
 
 
 @dataclass
