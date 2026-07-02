@@ -291,6 +291,26 @@ async def _remediate_office(job: Job, store: JobStore, settings: Settings) -> No
         meta = _json.loads(job.metadata_json or "{}")
     except Exception:  # noqa: BLE001
         meta = {}
+
+    # FR5 (office-verify): validate remediation output before reporting done —
+    # the same role evaluate_pdf_acceptance plays for the PDF path above.
+    await store.update(job.id, stage="evaluating_acceptance", progress=0.70)
+    if ft in (FileType.DOCX, FileType.PPTX, FileType.XLSX):
+        from project_remedy.office_acceptance import (
+            evaluate_office_acceptance,
+            summarize_office_acceptance,
+        )
+
+        try:
+            acceptance = await asyncio.to_thread(
+                evaluate_office_acceptance, output_path, file_type=ft
+            )
+            meta["acceptance"] = summarize_office_acceptance(acceptance)
+        except Exception as exc:  # noqa: BLE001 - gate failure must not lose the output
+            meta["acceptance"] = {"passed": False, "error": str(exc)}
+    else:
+        meta["acceptance"] = {"passed": False, "error": f"unsupported legacy type {ft.value}"}
+
     if meta.get("quality"):
         # NOTE: ``ft`` may be a legacy Office type (FileType.DOC/PPT/XLS) when
         # the upload's suffix matched a legacy extension. Neither
@@ -301,15 +321,17 @@ async def _remediate_office(job: Job, store: JobStore, settings: Settings) -> No
         from backend.app.quality_calibration import assert_quality_calibrated
         from project_remedy.quality_judges.office.audit import audit_office_quality
 
-        assert_quality_calibrated(settings, ft.value)
-        quality_result = await asyncio.to_thread(
-            audit_office_quality,
-            output_path,
-            file_type=ft,
-            config=load_config(),
-        )
-        meta["quality_result"] = asdict(quality_result)
-        await store.update(job.id, metadata_json=_json.dumps(meta))
+        try:
+            assert_quality_calibrated(settings, ft.value)
+            quality_result = await asyncio.to_thread(
+                audit_office_quality,
+                output_path,
+                file_type=ft,
+                config=load_config(),
+            )
+            meta["quality_result"] = asdict(quality_result)
+        except Exception as exc:  # noqa: BLE001 - quality is advisory; never lose the output
+            meta["quality_result_error"] = str(exc)
 
     await store.update(
         job.id,
@@ -318,6 +340,7 @@ async def _remediate_office(job: Job, store: JobStore, settings: Settings) -> No
         progress=1.0,
         output_path=str(output_path),
         result_media_type=media_type_for(ft),
+        metadata_json=_json.dumps(meta),
     )
 
 
