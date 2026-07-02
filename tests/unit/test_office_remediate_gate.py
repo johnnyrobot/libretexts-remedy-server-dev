@@ -95,3 +95,32 @@ async def test_remediate_office_gate_exception_does_not_lose_output(tmp_path, mo
     assert final.get("output_path")
     meta = json.loads(final["metadata_json"])
     assert meta["acceptance"] == {"passed": False, "error": "boom"}
+
+
+async def test_remediate_office_quality_failure_is_nonfatal(tmp_path, monkeypatch):
+    input_path = make_docx(tmp_path / "input.docx", body_paragraphs=["Some text."])
+    job = Job(
+        id="job-test-quality-fail", kind=JOB_KIND_REMEDIATE_OFFICE, status="running", stage="",
+        progress=0.0, input_path=str(input_path), output_path="", report_path="",
+        error="", created_at="", updated_at="",
+        metadata_json=json.dumps({"quality": True}),
+    )
+    store = _FakeStore()
+    settings = SimpleNamespace(job_dir=tmp_path / "jobs")
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("not calibrated")
+
+    monkeypatch.setattr(
+        "backend.app.quality_calibration.assert_quality_calibrated", _boom
+    )
+
+    await _remediate_office(job, store, settings)
+
+    final = store.updates[-1]
+    assert final.get("status") == "done"
+    assert final.get("output_path")
+    meta = json.loads(final["metadata_json"])
+    assert meta["quality_result_error"] == "not calibrated"
+    assert "quality_result" not in meta
+    assert "acceptance" in meta
