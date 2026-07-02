@@ -64,8 +64,20 @@ def probe_office_structure(path: Path, file_type: FileType) -> OfficeStructurePr
         if p_pr is None:
             continue
         style = p_pr.find(qn_w("pStyle"))
-        style_val = ((style.get(qn_w("val")) if style is not None else "") or "").lower()
-        if style_val.startswith(("heading", "title")) or p_pr.find(qn_w("outlineLvl")) is not None:
+        # Normalize spaces out of the style id: python-docx collapses a style
+        # *name* like "Accessibility Title" into the id "AccessibilityTitle",
+        # so matching on the raw id alone (as OOXML does) needs the same fold
+        # the checker rule (_docx_paragraph_has_heading_structure) applies to
+        # the resolved style *name*. Residual limitation: fully-custom or
+        # localized style ids without an outlineLvl are still missed here —
+        # true style-name resolution would need styles.xml parsing (Phase 2+
+        # if ever needed). The error direction is conservative
+        # (under-classification, never over-classification).
+        style_id = ((style.get(qn_w("val")) if style is not None else "") or "").replace(" ", "").lower()
+        if (
+            style_id.startswith(("heading", "title", "accessibilityheading", "accessibilitytitle"))
+            or p_pr.find(qn_w("outlineLvl")) is not None
+        ):
             has_heading = True
 
     has_tbl_header = root.find(f".//{qn_w('tblHeader')}") is not None
