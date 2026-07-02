@@ -137,3 +137,47 @@ def rule_docx_no_orphan_intro(ctx: DocxContext) -> OfficeCheckResult:
         "OOXML-DOCX-2.3", flagged=flagged,
         details=[f"document opens on body paragraph: '{first.text.strip()[:64]}'"],
     )
+
+
+# --- Checkpoint 3: images ----------------------------------------------------
+
+_PLACEHOLDER_ALT_RE = re.compile(
+    r"^\s*(?:image|picture|img|graphic|photo)[\s_-]*\d*\s*$"
+    r"|^[\w\s_-]*\.(?:png|jpe?g|gif|bmp|tiff?|webp)\s*$",
+    re.IGNORECASE
+)
+
+
+def _iter_image_doc_prs(body_root: ET.Element) -> list[tuple[str, ET.Element]]:
+    """(kind, wp:docPr) for every inline and anchored image in body order."""
+    found: list[tuple[str, ET.Element]] = []
+    for drawing in body_root.iter(qn_w("drawing")):
+        for kind in ("inline", "anchor"):
+            for container in drawing.iter(f"{{{NS['wp']}}}{kind}"):
+                doc_pr = container.find(f"{{{NS['wp']}}}docPr")
+                if doc_pr is not None:
+                    found.append(("inline" if kind == "inline" else "anchored", doc_pr))
+    return found
+
+
+def _alt_text_of(doc_pr: ET.Element) -> str:
+    return ((doc_pr.get("descr") or "").strip() or (doc_pr.get("title") or "").strip())
+
+
+@docx_rule("OOXML-DOCX-3.1")
+def rule_docx_image_alt_present(ctx: DocxContext) -> OfficeCheckResult:
+    missing: list[str] = []
+    for ordinal, (kind, doc_pr) in enumerate(_iter_image_doc_prs(ctx.body_root), start=1):
+        if not _alt_text_of(doc_pr):
+            missing.append(f"image {ordinal} ({kind}) has no descr/title alt text")
+    return _make_result("OOXML-DOCX-3.1", flagged=bool(missing), details=missing)
+
+
+@docx_rule("OOXML-DOCX-3.2")
+def rule_docx_alt_not_placeholder(ctx: DocxContext) -> OfficeCheckResult:
+    offenders: list[str] = []
+    for ordinal, (kind, doc_pr) in enumerate(_iter_image_doc_prs(ctx.body_root), start=1):
+        alt = _alt_text_of(doc_pr)
+        if alt and _PLACEHOLDER_ALT_RE.match(alt):
+            offenders.append(f"image {ordinal} ({kind}) alt is a placeholder: '{alt}'")
+    return _make_result("OOXML-DOCX-3.2", flagged=bool(offenders), details=offenders)
