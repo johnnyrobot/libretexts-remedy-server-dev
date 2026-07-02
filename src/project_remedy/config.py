@@ -35,6 +35,10 @@ class BrandingConfig:
     brand_primary: str = "#0b5ed7"
     brand_accent: str = "#fd7e14"
     brand_neutral: str = "#6c757d"
+    # URL used as the href for the "Report an Accessibility Issue" link in
+    # generated HTML. Typically a mailto: address; may also be a contact-form
+    # URL. Empty string renders an inert link rather than raising KeyError.
+    accessibility_email: str = ""
 
 
 @dataclass(frozen=True)
@@ -66,8 +70,8 @@ class APIConfig:
     cluster_nodes: tuple[str, ...] = ()      # Additional Ollama node URLs
     vision_base_url: str = ""                # Dedicated vision endpoint
     vision_cluster_nodes: tuple[str, ...] = ()  # Additional vision node URLs
-    vision_model: str = "gemma4:31b-cloud"
-    text_model: str = "gemma4:31b-cloud"
+    vision_model: str = "kimi-k2.7-code:cloud"
+    text_model: str = "kimi-k2.7-code:cloud"
     max_concurrent_calls: int = 5
     max_retries: int = 3
     retry_backoff_base: float = 2.0
@@ -80,12 +84,12 @@ class APIConfig:
     liteparse_sparse_max_chars: int = 200
     escalation_backend: str = "ollama"
     escalation_base_url: str = ""
-    escalation_model: str = "gemma4:31b-cloud"
+    escalation_model: str = "kimi-k2.7-code:cloud"
     quality_judge_backend: str = "ollama"
     quality_judge_base_url: str = ""
-    quality_judge_model: str = "llama3.1:8b"
+    quality_judge_model: str = "mistral-large-3:675b"
     behavioral_test_backend: str = "ollama"
-    behavioral_test_model: str = "qwen2.5:7b"
+    behavioral_test_model: str = "gemma4:31b-cloud"
     behavioral_test_cache_path: str = ""
     ollama_stream: bool = False
     ollama_reasoning_effort: str = "none"
@@ -149,6 +153,8 @@ class RebuildConfig:
     vision_concurrency: int = 4
     sidecar_timeout_s: float = 120.0
     markdown_parser: str = "markdown-it-py"
+    backend: str = "questpdf"          # "questpdf" | "typst" (FR-1)
+    typst_timeout_s: float = 120.0     # NFR-2: budgeted like sidecar_timeout_s
 
 
 @dataclass
@@ -230,10 +236,10 @@ def load_config(
             if _env("VISION_CLUSTER_NODES")
             else api_yml.get("vision_cluster_nodes", [])
         ),
-        vision_model=_env("OLLAMA_VISION_MODEL", api_yml.get("vision_model", "gemma4:31b-cloud")),
+        vision_model=_env("OLLAMA_VISION_MODEL", api_yml.get("vision_model", "kimi-k2.7-code:cloud")),
         text_model=_env(
             "OLLAMA_MODEL",
-            _env("OLLAMA_TEXT_MODEL", api_yml.get("text_model", "gemma4:31b-cloud")),
+            _env("OLLAMA_TEXT_MODEL", api_yml.get("text_model", "kimi-k2.7-code:cloud")),
         ),
         max_concurrent_calls=_env_int("MAX_CONCURRENT_API_CALLS", api_yml.get("max_concurrent_calls", 5)),
         max_retries=_env_int("MAX_RETRIES", api_yml.get("max_retries", 3)),
@@ -249,7 +255,7 @@ def load_config(
         escalation_base_url=_env("ESCALATION_BASE_URL", api_yml.get("escalation_base_url", "")),
         escalation_model=_env(
             "OLLAMA_ESCALATION_MODEL",
-            _env("ESCALATION_MODEL", api_yml.get("escalation_model", "gemma4:31b-cloud")),
+            _env("ESCALATION_MODEL", api_yml.get("escalation_model", "kimi-k2.7-code:cloud")),
         ),
         quality_judge_backend=_env(
             "QUALITY_JUDGE_BACKEND",
@@ -261,7 +267,7 @@ def load_config(
         ),
         quality_judge_model=_env(
             "QUALITY_JUDGE_MODEL",
-            api_yml.get("quality_judge_model", "llama3.1:8b"),
+            api_yml.get("quality_judge_model", "mistral-large-3:675b"),
         ),
         behavioral_test_backend=_env(
             "BEHAVIORAL_TEST_BACKEND",
@@ -269,7 +275,7 @@ def load_config(
         ),
         behavioral_test_model=_env(
             "BEHAVIORAL_TEST_MODEL",
-            api_yml.get("behavioral_test_model", "qwen2.5:7b"),
+            api_yml.get("behavioral_test_model", "gemma4:31b-cloud"),
         ),
         behavioral_test_cache_path=_env(
             "BEHAVIORAL_TEST_CACHE_PATH",
@@ -369,6 +375,11 @@ def load_config(
         markdown_parser=_env(
             "REBUILD_MARKDOWN_PARSER",
             rebuild_yml.get("markdown_parser", "markdown-it-py"),
+        ),
+        backend=_env("REBUILD_BACKEND", rebuild_yml.get("backend", "questpdf")),
+        typst_timeout_s=_env_float(
+            "REBUILD_TYPST_TIMEOUT_S",
+            rebuild_yml.get("typst_timeout_s", 120.0),
         ),
     )
 

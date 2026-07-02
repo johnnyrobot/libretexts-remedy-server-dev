@@ -15,9 +15,9 @@ services:
       APP_API_KEY: ${APP_API_KEY:?Set APP_API_KEY in .env}
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:?Set OLLAMA_API_KEY in .env}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-https://ollama.com/v1}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-kimi-k2.6:cloud}
-      OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL:-kimi-k2.6:cloud}
-      OLLAMA_ESCALATION_MODEL: ${OLLAMA_ESCALATION_MODEL:-kimi-k2.6:cloud}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-kimi-k2.7-code:cloud}
+      OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL:-kimi-k2.7-code:cloud}
+      OLLAMA_ESCALATION_MODEL: ${OLLAMA_ESCALATION_MODEL:-kimi-k2.7-code:cloud}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:?Set CORS_ALLOW_ORIGINS in .env}
       JOB_DIR: /app/job_data
       JOB_STORE_PATH: /app/state/jobs.db
