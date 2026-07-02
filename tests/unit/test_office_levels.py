@@ -58,11 +58,37 @@ def test_gate_ladder():
     r = classify_level(_acceptance(statuses=["Passed"]), _probe())
     assert r.level == "L3" and "quality_layer_not_run" in r.blocking_conditions
     bad_q = QualityResult(format="docx", overall_pass=False)
-    assert classify_level(_acceptance(statuses=["Passed"], quality=bad_q), _probe()).level == "L3"
+    r = classify_level(_acceptance(statuses=["Passed"], quality=bad_q), _probe())
+    assert r.level == "L3"
+    assert "quality_failed" in r.blocking_conditions
     good_q = QualityResult(format="docx", overall_pass=True)
     r = classify_level(_acceptance(statuses=["Passed"], quality=good_q), _probe())
     assert r.level == "L4" and r.profile == OFFICE_PROFILE_NAME
     assert isinstance(r, LevelResult)  # FR3: shared dataclass, not a fork
+
+
+def test_structural_signal_via_table_or_alt_alone():
+    r = classify_level(_acceptance(statuses=["Failed"]),
+                       _probe(has_heading_structure=False, has_table_header_marks=True))
+    assert r.level == "L2"  # table header marks alone are a structural signal
+    r = classify_level(_acceptance(statuses=["Failed"]),
+                       _probe(has_heading_structure=False, has_alt_text_signal=True))
+    assert r.level == "L2"  # alt text alone is a structural signal
+
+
+def test_probe_detects_accessibility_fallback_heading_styles(tmp_path):
+    # remediator fallback styles have IDs like "AccessibilityTitle" — the probe
+    # must count them as heading structure just like the checker rule does
+    from docx import Document
+    from docx.enum.style import WD_STYLE_TYPE
+
+    path = tmp_path / "fallback.docx"
+    doc = Document()
+    style = doc.styles.add_style("Accessibility Title", WD_STYLE_TYPE.PARAGRAPH)
+    doc.add_paragraph("Fallback heading", style=style)
+    doc.save(str(path))
+    probe = probe_office_structure(path, FileType.DOCX)
+    assert probe.has_heading_structure
 
 
 def test_manual_check_routes_to_needs_human_not_blocking():
