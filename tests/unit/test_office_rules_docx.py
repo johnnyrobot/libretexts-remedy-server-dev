@@ -169,3 +169,33 @@ def test_rule_4_2_no_merged_header_cells(tmp_path):
     assert _run("OOXML-DOCX-4.2", good).status == "Passed"
     result = _run("OOXML-DOCX-4.2", bad)
     assert result.status == "Failed" and result.fixable is False
+
+
+def test_rule_5_1_manual_bullets(tmp_path):
+    good = make_docx(tmp_path / "g.docx", real_list_items=["alpha", "beta"])
+    bad = make_docx(tmp_path / "b.docx", manual_bullets=["• first item", "- second item"])
+    assert _run("OOXML-DOCX-5.1", good).status == "Passed"
+    result = _run("OOXML-DOCX-5.1", bad)
+    assert result.status == "Manual Check Needed"  # never a hard Fail (PRD §5/§10)
+    assert len(result.details) == 2
+
+
+def test_rule_6_1_link_text(tmp_path):
+    good = make_docx(tmp_path / "g.docx", hyperlinks=[("District accessibility policy", "https://example.com/policy")])
+    bare = make_docx(tmp_path / "b1.docx", hyperlinks=[("https://example.com", "https://example.com")])
+    generic = make_docx(tmp_path / "b2.docx", hyperlinks=[("click here", "https://example.com")])
+    assert _run("OOXML-DOCX-6.1", good).status == "Passed"
+    assert _run("OOXML-DOCX-6.1", bare).status == "Failed"
+    result = _run("OOXML-DOCX-6.1", generic)
+    assert result.status == "Failed"
+    assert any("click here" in d for d in result.details)
+
+
+def test_rule_7_1_color_only_meaning(tmp_path):
+    good = make_docx(tmp_path / "g.docx", color_paragraph="Deadlines are firm.")
+    bad = make_docx(tmp_path / "b.docx", color_paragraph="Required fields are shown in red")
+    plain = make_docx(tmp_path / "p.docx", body_paragraphs=["Items shown in red are required."])
+    assert _run("OOXML-DOCX-7.1", good).status == "Passed"      # color without referential phrase
+    result = _run("OOXML-DOCX-7.1", bad)
+    assert result.status == "Manual Check Needed"               # color + phrase → flag, not fail
+    assert _run("OOXML-DOCX-7.1", plain).status == "Passed"     # phrase without colored run
