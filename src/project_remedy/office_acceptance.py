@@ -172,7 +172,11 @@ def evaluate_office_acceptance(
 
 def run_office_checker(file_path: Path, file_type: FileType) -> OfficeCheckReport:
     if file_type == FileType.DOCX:
-        return _check_docx(file_path)
+        # office-verify deterministic rule engine (PRD §4.1); lazy import to
+        # avoid a module-level cycle (office_checker imports our dataclasses).
+        from project_remedy.office_checker import OfficeAccessibilityChecker
+
+        return OfficeAccessibilityChecker(file_path, file_type).run_all()
     if file_type == FileType.PPTX:
         return _check_pptx(file_path)
     if file_type == FileType.XLSX:
@@ -209,76 +213,6 @@ def validate_office_package(file_path: Path, file_type: FileType) -> OfficePacka
     except Exception as exc:
         return OfficePackageResult(checked=True, passed=False, error=str(exc))
     return OfficePackageResult(checked=True, passed=True)
-
-
-def _check_docx(file_path: Path) -> OfficeCheckReport:
-    from docx import Document
-
-    doc = Document(str(file_path))
-    results: list[OfficeCheckResult] = []
-
-    title = (doc.core_properties.title or "").strip()
-    results.append(
-        OfficeCheckResult(
-            rule_id="docx-title",
-            description="Document title metadata is present",
-            status="Passed" if title else "Failed",
-            fixable=True,
-        )
-    )
-    language = (getattr(doc.core_properties, "language", "") or "").strip()
-    results.append(
-        OfficeCheckResult(
-            rule_id="docx-language",
-            description="Document language metadata is present",
-            status="Passed" if language else "Failed",
-            fixable=True,
-        )
-    )
-
-    headings = [para for para in doc.paragraphs if _docx_paragraph_has_heading_structure(para)]
-    results.append(
-        OfficeCheckResult(
-            rule_id="docx-headings",
-            description="Document includes heading/title styles",
-            status="Passed" if headings else "Failed",
-            fixable=True,
-        )
-    )
-
-    missing_table_headers = 0
-    for table in doc.tables:
-        if not table.rows:
-            continue
-        tr_pr = table.rows[0]._tr.trPr
-        has_header = bool(tr_pr is not None and tr_pr.find(_qn("w:tblHeader")) is not None)
-        if not has_header:
-            missing_table_headers += 1
-    results.append(
-        OfficeCheckResult(
-            rule_id="docx-table-headers",
-            description="Tables expose first-row header semantics",
-            status="Passed" if missing_table_headers == 0 else "Failed",
-            details=[f"{missing_table_headers} table(s) missing header rows"] if missing_table_headers else [],
-            fixable=True,
-        )
-    )
-
-    missing_alt = 0
-    for inline_shape in doc.inline_shapes:
-        doc_pr = inline_shape._inline.docPr
-        if not ((doc_pr.get("descr") or "").strip() or (doc_pr.get("title") or "").strip()):
-            missing_alt += 1
-    results.append(
-        OfficeCheckResult(
-            rule_id="docx-alt-text",
-            description="Images contain alternate text",
-            status="Passed" if missing_alt == 0 else "Failed",
-            details=[f"{missing_alt} image(s) missing alternate text"] if missing_alt else [],
-            fixable=True,
-        )
-    )
-    return OfficeCheckReport(file_path=file_path, file_type=FileType.DOCX, results=results)
 
 
 def _check_pptx(file_path: Path) -> OfficeCheckReport:

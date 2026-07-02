@@ -272,3 +272,34 @@ def rule_docx_color_only_meaning(ctx: DocxContext) -> OfficeCheckResult:
                 f"is not conveyed by color alone: '{text.strip()[:64]}'"
             )
     return _make_result("OOXML-DOCX-7.1", flagged=bool(flagged), details=flagged)
+
+
+# --- Engine entry point -------------------------------------------------------
+
+class OfficeAccessibilityChecker:
+    """FR1: runs the full deterministic rule catalog for one Office document.
+
+    Phase 1 implements docx; pptx/xlsx delegate to the legacy per-format
+    checks in ``office_acceptance`` until Phases 2/3 move them here.
+    """
+
+    def __init__(self, file_path: Path, file_type: FileType | None = None) -> None:
+        self.file_path = Path(file_path)
+        self.file_type = file_type or _infer_file_type(self.file_path)
+
+    def run_all(self) -> OfficeCheckReport:
+        if self.file_type != FileType.DOCX:
+            from project_remedy.office_acceptance import _check_pptx, _check_xlsx
+
+            if self.file_type == FileType.PPTX:
+                return _check_pptx(self.file_path)
+            if self.file_type == FileType.XLSX:
+                return _check_xlsx(self.file_path)
+            raise ValueError(f"Unsupported Office checker type: {self.file_type}")
+        ctx = DocxContext.load(self.file_path)
+        results = [
+            DOCX_RULES[spec.rule_id](ctx)
+            for spec in RULE_CATALOG
+            if spec.format == "docx"
+        ]
+        return OfficeCheckReport(file_path=self.file_path, file_type=FileType.DOCX, results=results)
