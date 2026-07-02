@@ -321,14 +321,17 @@ async def _remediate_office(job: Job, store: JobStore, settings: Settings) -> No
         from backend.app.quality_calibration import assert_quality_calibrated
         from project_remedy.quality_judges.office.audit import audit_office_quality
 
-        assert_quality_calibrated(settings, ft.value)
-        quality_result = await asyncio.to_thread(
-            audit_office_quality,
-            output_path,
-            file_type=ft,
-            config=load_config(),
-        )
-        meta["quality_result"] = asdict(quality_result)
+        try:
+            assert_quality_calibrated(settings, ft.value)
+            quality_result = await asyncio.to_thread(
+                audit_office_quality,
+                output_path,
+                file_type=ft,
+                config=load_config(),
+            )
+            meta["quality_result"] = asdict(quality_result)
+        except Exception as exc:  # noqa: BLE001 - quality is advisory; never lose the output
+            meta["quality_result_error"] = str(exc)
 
     await store.update(
         job.id,
