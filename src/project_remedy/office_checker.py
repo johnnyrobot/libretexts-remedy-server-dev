@@ -210,3 +210,65 @@ def rule_docx_no_merged_header_cells(ctx: DocxContext) -> OfficeCheckResult:
                 merged.append(f"table {index}: header row contains merged cells (gridSpan/vMerge)")
                 break
     return _make_result("OOXML-DOCX-4.2", flagged=bool(merged), details=merged)
+
+
+# --- Checkpoints 5-7: lists, hyperlinks, color-only meaning ------------------
+
+_MANUAL_BULLET_RE = re.compile(r"^\s*(?:[•\-\*]\s+|\d+[.)]\s+)")
+_BARE_URL_RE = re.compile(r"(?i)^\s*(?:https?://|www\.)\S+\s*$")
+_GENERIC_LINK_TEXT = {"click here", "here", "read more", "more", "learn more", "link", "this link"}
+_COLOR_PHRASE_RE = re.compile(
+    r"\b(?:in|shown in|marked in|highlighted in|displayed in)\s+"
+    r"(?:red|green|blue|yellow|orange|purple|pink)\b"
+    r"|\b(?:red|green|blue|yellow|orange|purple|pink)\s+(?:text|items?|entries|values|fields?|cells?)\b",
+    re.IGNORECASE
+)
+
+
+def _p_text(p_element: ET.Element) -> str:
+    return "".join(t.text or "" for t in p_element.iter(qn_w("t")))
+
+
+@docx_rule("OOXML-DOCX-5.1")
+def rule_docx_manual_bullets(ctx: DocxContext) -> OfficeCheckResult:
+    flagged: list[str] = []
+    for index, p in enumerate(ctx.body_root.iter(qn_w("p")), start=1):
+        text = _p_text(p)
+        if not _MANUAL_BULLET_RE.match(text):
+            continue
+        p_pr = p.find(qn_w("pPr"))
+        has_num_pr = p_pr is not None and p_pr.find(qn_w("numPr")) is not None
+        if not has_num_pr:
+            flagged.append(f"paragraph {index}: manual bullet/number without w:numPr: '{text.strip()[:48]}'")
+    return _make_result("OOXML-DOCX-5.1", flagged=bool(flagged), details=flagged)
+
+
+@docx_rule("OOXML-DOCX-6.1")
+def rule_docx_link_text(ctx: DocxContext) -> OfficeCheckResult:
+    offenders: list[str] = []
+    for index, link in enumerate(ctx.body_root.iter(qn_w("hyperlink")), start=1):
+        display = "".join(t.text or "" for t in link.iter(qn_w("t"))).strip()
+        if not display:
+            continue
+        if _BARE_URL_RE.match(display) or display.lower() in _GENERIC_LINK_TEXT:
+            offenders.append(f"hyperlink {index}: display text is not descriptive: '{display[:64]}'")
+    return _make_result("OOXML-DOCX-6.1", flagged=bool(offenders), details=offenders)
+
+
+@docx_rule("OOXML-DOCX-7.1")
+def rule_docx_color_only_meaning(ctx: DocxContext) -> OfficeCheckResult:
+    flagged: list[str] = []
+    for index, p in enumerate(ctx.body_root.iter(qn_w("p")), start=1):
+        text = _p_text(p)
+        if not text.strip() or not _COLOR_PHRASE_RE.search(text):
+            continue
+        has_colored_run = any(
+            (color.get(qn_w("val")) or "").lower() not in ("", "auto", "000000")
+            for color in p.iter(qn_w("color"))
+        )
+        if has_colored_run:
+            flagged.append(
+                f"paragraph {index}: color-reference phrase with colored run — verify meaning "
+                f"is not conveyed by color alone: '{text.strip()[:64]}'"
+            )
+    return _make_result("OOXML-DOCX-7.1", flagged=bool(flagged), details=flagged)
