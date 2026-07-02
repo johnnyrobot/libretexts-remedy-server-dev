@@ -40,7 +40,8 @@ def _guard_ooxml(path: Path) -> FileType:
     """FR8 fail-closed guard: reject legacy/OLE2/non-ZIP input before parsing."""
     if path.suffix.lower() in _LEGACY_SUFFIXES:
         raise click.ClickException(f"{_CONVERT_MSG} (got '{path.suffix}')")
-    head = path.open("rb").read(8)
+    with path.open("rb") as fh:
+        head = fh.read(8)
     if head.startswith(_OLE2_MAGIC):
         raise click.ClickException(f"{_CONVERT_MSG} (OLE2 container detected)")
     if not head.startswith(b"PK"):
