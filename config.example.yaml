@@ -10,8 +10,8 @@ api:
   # --- Ollama Cloud (or local Ollama-compatible /v1 endpoint) ---
   api_key: ""                          # OLLAMA_API_KEY; required for cloud
   base_url: "https://ollama.com/v1"
-  vision_model: "gemma4:31b-cloud"
-  text_model: "gemma4:31b-cloud"
+  vision_model: "kimi-k2.7-code:cloud"
+  text_model: "kimi-k2.7-code:cloud"
   cluster_nodes: []                    # additional Ollama nodes
   vision_base_url: ""                  # e.g. "http://localhost:11434" for local vision
   vision_cluster_nodes: []
@@ -19,16 +19,16 @@ api:
   # --- Tier 2 escalation ---
   escalation_backend: "ollama"
   escalation_base_url: ""
-  escalation_model: "gemma4:31b-cloud"
+  escalation_model: "kimi-k2.7-code:cloud"
 
   # --- Quality layer model separation ---
   # Must not share a model family with text_model, vision_model, or escalation_model.
   quality_judge_backend: "ollama"
   quality_judge_base_url: ""
-  quality_judge_model: "llama3.1:8b"
+  quality_judge_model: "mistral-large-3:675b"
   # Behavioral proxy answerers should also differ from the artifact generator.
   behavioral_test_backend: "ollama"
-  behavioral_test_model: "qwen2.5:7b"
+  behavioral_test_model: "gemma4:31b-cloud"
   behavioral_test_cache_path: ""       # optional JSON cache keyed by document hash
 
   # --- LiteParse (optional local triage) ---

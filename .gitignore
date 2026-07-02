@@ -26,8 +26,6 @@ compliance/
 
 # Test suite (local-only per repo policy)
 tests/
-!tests/
-!tests/**/*.py
 
 # Local-only project notes / per-developer scratch files
 CLAUDE.md
@@ -41,6 +39,7 @@ pipeline.db
 *.db
 *.db-shm
 *.db-wal
+*.db.backup-*
 
 # API backend runtime artifacts
 job_data/
@@ -99,8 +98,6 @@ scripts/laccd_smoke_batch.py
 !src/project_remedy/behavioral_proxies/**/prompts/*.md
 !src/project_remedy/quality_judges/**/prompts/
 !src/project_remedy/quality_judges/**/prompts/*.md
-!v2_docs/*.md
-!v2_docs/**/*.md
 docs/
 doc/
 knowledge-base/
@@ -113,11 +110,6 @@ test_*.py
 *_test.py
 *.test.*
 *.spec.*
-!v2_docs/
-!v2_docs/*.md
-!v2_docs/**/*.md
-!tests/
-!tests/**/*.py
 !README.md
 !src/**/*.py
 !backend/**/*.py
@@ -127,8 +119,20 @@ test_*.py
 screenshots/
 
 # Per-developer session memories — internal scratch with personal paths.
-# (Curated v2_docs design/process docs above are intentionally kept.)
 v2_docs/session-memory-*.md
 
 # Local veraPDF installer cache; fetch during setup instead of committing.
 /verapdf-installer.zip
+
+# Graphify knowledge-graph output (generated, ~36MB) — not source
+graphify-out/
+
+# Committed unit tests (exception to the local-only tests/ policy above).
+# Keep tests/ ignored (heavy corpus/integration stays local) but commit only
+# tests/unit/*.py. Order matters — these are last-match-wins over the tests/
+# and test_*.py patterns above. Negating *.py only (not tests/unit/**) keeps
+# __pycache__/*.pyc out. Verify with: git check-ignore -v tests/unit/<f>.py
+!tests/
+tests/*
+!tests/unit/
+!tests/unit/*.py

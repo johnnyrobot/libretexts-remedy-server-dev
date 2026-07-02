@@ -16515,6 +16515,35 @@ def fix_all(
                 except Exception as exc:
                     report.skipped.append(f"{description}: error — {exc}")
 
+            # Vision-driven CROSS-PARENT structure reading-order reorder. The
+            # in-loop doc-reading-order pass reorders only within a single struct
+            # parent; designed multi-column pages (career "Major Sheets",
+            # brochures) need a cross-parent permutation. This shows each page to
+            # the vision model, gets a full reading-order permutation of the
+            # page's tagged units, and rebuilds the container /K in that order —
+            # integrity-gated (struct leaf count preserved, else reverted) so
+            # PDF/UA validity holds. Needs a vision provider; deferred for large
+            # documents. Runs before the content-stream reorder so the physical
+            # order can follow the finalized structure order.
+            if vision_provider is not None and (only is None or only == "doc-reading-order"):
+                if only is None and large_doc_deep_fixes:
+                    report.skipped.append(
+                        "Vision struct reading-order reorder deferred for large document"
+                    )
+                else:
+                    try:
+                        from project_remedy.vision_struct_reorder import (
+                            fix_struct_reading_order_vision,
+                        )
+
+                        report.changes.extend(
+                            fix_struct_reading_order_vision(
+                                pdf, vision_provider, thorough=thorough
+                            )
+                        )
+                    except Exception as exc:  # never abort remediation
+                        report.skipped.append(f"Vision struct reorder: error — {exc}")
+
             if _should_run_empty_leaf_cleanup(pdf):
                 empty_leaf_text = _fix_empty_leaf_text_elements(pdf)
                 if empty_leaf_text:
@@ -16525,6 +16554,47 @@ def fix_all(
                 report.skipped.append(
                     "Whitespace-only leaf text cleanup deferred for large document"
                 )
+
+            # Align the PHYSICAL content-stream order with the logical structure
+            # order just built. Screen readers follow the struct tree, but
+            # Acrobat's Order panel / Read-Out-Loud / Reflow / copy-paste follow
+            # the page content stream — on designed multi-column pages the two
+            # disagree. This re-sequences the movable tagged marked-content blocks
+            # to struct order behind a render pixel-diff gate (reverts any page
+            # that would change visually). Struct tree / MCIDs / ParentTree are
+            # untouched, so PDF/UA validity is preserved. Deferred for large docs.
+            if (only is None or only == "doc-content-stream-order") and \
+                    not (only is None and large_doc_deep_fixes):
+                try:
+                    from project_remedy.content_stream_reorder import (
+                        fix_content_stream_order,
+                    )
+
+                    report.changes.extend(fix_content_stream_order(pdf))
+                except Exception as exc:  # never let reorder abort remediation
+                    report.skipped.append(f"Content-stream reorder: error — {exc}")
+            elif only is None and large_doc_deep_fixes:
+                report.skipped.append(
+                    "Content-stream reorder deferred for large document"
+                )
+
+            # Re-balance text objects. The string/regex marked-content injectors
+            # (e.g. _wrap_content_gaps) are not BT/ET-aware and can leave text
+            # objects unbalanced — fine in lenient viewers (Preview/poppler) but
+            # rejected by Acrobat/Ghostscript ("invalid operator in text block").
+            # This re-inserts the missing BT/ET; it touches only those operators,
+            # so text, fonts, marked content (/MCID) and the struct tree are
+            # preserved. Idempotent — a no-op on already-balanced streams.
+            try:
+                from project_remedy.content_stream_repair import repair_page
+
+                bt_et_fixed = sum(repair_page(pdf, page) for page in pdf.pages)
+                if bt_et_fixed:
+                    report.changes.append(
+                        f"Repaired {bt_et_fixed} unbalanced BT/ET text-object operators"
+                    )
+            except Exception as exc:  # never let the render-repair abort remediation
+                report.skipped.append(f"BT/ET content-stream repair: error — {exc}")
 
             if not dry_run:
                 output_path.parent.mkdir(parents=True, exist_ok=True)
