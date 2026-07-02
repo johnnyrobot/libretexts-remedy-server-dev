@@ -127,3 +127,28 @@ def test_rule_2_2_outline_level_maps_to_level_plus_one(tmp_path):
     result = _run("OOXML-DOCX-2.2", skip)
     assert result.status == "Failed"
     assert any("1 -> 3" in d for d in result.details)
+
+
+def test_rule_3_1_inline_and_anchored_alt(tmp_path):
+    good = make_docx(tmp_path / "g.docx", inline_images=1, image_alt="A chart")
+    bad_inline = make_docx(tmp_path / "bi.docx", inline_images=1, image_alt=None)
+    bad_anchored = make_docx(tmp_path / "ba.docx", inline_images=1, image_alt=None, anchored_images=True)
+    assert _run("OOXML-DOCX-3.1", good).status == "Passed"
+    r_inline = _run("OOXML-DOCX-3.1", bad_inline)
+    assert r_inline.status == "Failed" and r_inline.rule_id == "docx-alt-text"
+    # the baseline gap: anchored images must fail too (legacy check passed them)
+    r_anchored = _run("OOXML-DOCX-3.1", bad_anchored)
+    assert r_anchored.status == "Failed"
+    assert any("anchored" in d for d in r_anchored.details)
+
+
+def test_rule_3_2_placeholder_alt(tmp_path):
+    good = make_docx(tmp_path / "g.docx", inline_images=1, image_alt="Campus map with entrances")
+    bad = make_docx(tmp_path / "b.docx", inline_images=1, image_alt="image1.png")
+    missing = make_docx(tmp_path / "m.docx", inline_images=1, image_alt=None)
+    assert _run("OOXML-DOCX-3.2", good).status == "Passed"
+    result = _run("OOXML-DOCX-3.2", bad)
+    assert result.status == "Failed"
+    assert any("image1.png" in d for d in result.details)
+    # missing alt is 3.1's job; 3.2 passes vacuously
+    assert _run("OOXML-DOCX-3.2", missing).status == "Passed"
