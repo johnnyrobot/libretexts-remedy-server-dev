@@ -287,3 +287,27 @@ def test_run_all_delegates_non_docx(tmp_path):
 
     with pytest.raises(ValueError, match="Unsupported Office checker type"):
         OfficeAccessibilityChecker(tmp_path / "x.doc", FileType.DOC).run_all()
+
+
+def test_rule_4_1_honors_explicit_val_zero(tmp_path):
+    # <w:tblHeader w:val="0"/> explicitly negates the header mark (ECMA-376
+    # ST_OnOff) and must NOT count as a marked header row.
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    path = tmp_path / "val0.docx"
+    doc = Document()
+    table = doc.add_table(rows=2, cols=2)
+    tr_pr = table.rows[0]._tr.get_or_add_trPr()
+    tbl_header = OxmlElement("w:tblHeader")
+    tbl_header.set(qn("w:val"), "0")
+    tr_pr.append(tbl_header)
+    doc.save(str(path))
+    result = _run("OOXML-DOCX-4.1", path)
+    assert result.status == "Failed"
+
+    # val="true" (and, per existing fixtures, the bare element) still passes
+    tbl_header.set(qn("w:val"), "true")
+    doc.save(str(path))
+    assert _run("OOXML-DOCX-4.1", path).status == "Passed"
