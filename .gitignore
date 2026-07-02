@@ -129,3 +129,6 @@ screenshots/
 # Per-developer session memories — internal scratch with personal paths.
 # (Curated v2_docs design/process docs above are intentionally kept.)
 v2_docs/session-memory-*.md
+
+# Local veraPDF installer cache; fetch during setup instead of committing.
+/verapdf-installer.zip
