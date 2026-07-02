@@ -193,8 +193,12 @@ def rule_docx_table_header_marked(ctx: DocxContext) -> OfficeCheckResult:
         if first_tr is None:
             continue
         tr_pr = first_tr.find(qn_w("trPr"))
-        if tr_pr is None or tr_pr.find(qn_w("tblHeader")) is None:
-            unmarked.append(f"table {index}: first row lacks w:tblHeader")
+        tbl_header = tr_pr.find(qn_w("tblHeader")) if tr_pr is not None else None
+        # <w:tblHeader w:val="0"/> explicitly negates the header mark (ECMA-376
+        # ST_OnOff); a bare element or val="1"/"true"/"on" means marked.
+        header_val = (tbl_header.get(qn_w("val")) or "").lower() if tbl_header is not None else None
+        if tbl_header is None or header_val in ("0", "false", "off"):
+            unmarked.append(f"table {index}: first row lacks an effective w:tblHeader")
     return _make_result("OOXML-DOCX-4.1", flagged=bool(unmarked), details=unmarked)
 
 
