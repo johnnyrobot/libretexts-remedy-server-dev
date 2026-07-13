@@ -43,6 +43,64 @@ def build_router(settings: Settings) -> APIRouter:
     router = APIRouter()
     require_key = Depends(require_api_key_dependency(settings))
 
+    @router.get("/v1/cxone/health", dependencies=[require_key])
+    async def cxone_health() -> Any:
+        scope = {
+            "host": "dev.libretexts.org",
+            "root": "Sandboxes/johnnyphung",
+        }
+        if not settings.cxone_integration_enabled:
+            return {
+                "ok": True,
+                "state": "disabled",
+                "enabled": False,
+                "write_scope": scope,
+            }
+        try:
+            async with httpx.AsyncClient(
+                base_url=settings.cxone_bridge_base_url.rstrip("/"),
+                timeout=settings.cxone_health_timeout_seconds,
+            ) as client:
+                response = await client.get("/healthz")
+        except (httpx.TimeoutException, httpx.RequestError):
+            return {
+                "ok": False,
+                "state": "degraded",
+                "enabled": True,
+                "error": "cxone_bridge_unavailable",
+                "write_scope": scope,
+            }
+        try:
+            data = _json_response(response)
+        except HTTPException:
+            return {
+                "ok": False,
+                "state": "degraded",
+                "enabled": True,
+                "error": "cxone_bridge_unavailable",
+                "write_scope": scope,
+            }
+        if response.status_code >= 400 or not isinstance(data, dict):
+            return {
+                "ok": False,
+                "state": "degraded",
+                "enabled": True,
+                "error": "cxone_bridge_unavailable",
+                "write_scope": scope,
+            }
+        state = data.get("state")
+        if state not in {"ready", "degraded", "misconfigured"}:
+            state = "misconfigured"
+        result = {
+            "ok": state == "ready",
+            "state": state,
+            "enabled": True,
+            "write_scope": scope,
+        }
+        if state != "ready":
+            result["error"] = data.get("error") or "cxone_configuration_invalid"
+        return result
+
     @router.post("/v1/cxone/page/scan", dependencies=[require_key])
     async def scan_page(body: CxoneScanRequest) -> Any:
         return await _forward(settings, "/v1/cxone/page/scan", _payload(body))
@@ -59,6 +117,14 @@ def build_router(settings: Settings) -> APIRouter:
 
 
 async def _forward(settings: Settings, path: str, payload: dict[str, Any]) -> Any:
+    if not settings.cxone_integration_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "cxone_integration_disabled",
+                "message": "CXone integration is disabled on this environment.",
+            },
+        )
     if not payload.get("page_url") and not payload.get("page_id"):
         raise HTTPException(
             status_code=422,
@@ -80,7 +146,7 @@ async def _forward(settings: Settings, path: str, payload: dict[str, Any]) -> An
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail={
                 "error": "cxone_bridge_timeout",
-                "message": f"CXone bridge timed out at {bridge_url}.",
+                "message": "CXone integration timed out.",
             },
         ) from exc
     except httpx.RequestError as exc:
@@ -88,7 +154,7 @@ async def _forward(settings: Settings, path: str, payload: dict[str, Any]) -> An
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={
                 "error": "cxone_bridge_unavailable",
-                "message": f"CXone bridge unavailable at {bridge_url}.",
+                "message": "CXone integration is unavailable.",
             },
         ) from exc
 
