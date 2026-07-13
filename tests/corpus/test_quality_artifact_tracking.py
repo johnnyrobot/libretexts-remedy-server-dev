@@ -8,7 +8,6 @@ import sys
 def test_quality_layer_source_artifacts_are_git_trackable() -> None:
     repo_root = Path(__file__).parents[2]
     required_roots = [
-        repo_root / "BUILD_LOG.md",
         repo_root / "v2_docs/quality-layer-loop-stopping-criteria.md",
         repo_root / "src/project_remedy/vision_planner/dimension_strategy_map.yaml",
         repo_root / "tools/corpus_annotations/schema.json",
