@@ -1,0 +1,18 @@
+{
+  "annotation_sha256": "1b7782d3d737d34a24b2db68e23f1971d9d023bc1b9fffd878e26321fb012699",
+  "captured_at": "2026-05-09T18:21:12.882284+00:00",
+  "default_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "default_response_metadata": {
+    "quality": false
+  },
+  "default_response_sha256": "0fdf89807580a7f23927f548eb0f08a190002a15fa00735daa4fcb05e53fe9ae",
+  "doc_id": "pptx_003",
+  "endpoint": "/v1/office/remediate",
+  "final_job_status": "done",
+  "format": "pptx",
+  "job_id": "synthetic-846b6a695ad845d4ba8bf1e22aca360e",
+  "quality_false": true,
+  "quality_result_absent": true,
+  "source_path": "tools/corpus_annotations/v1/artifacts/pptx/pptx_003_source.pptx",
+  "source_sha256": "5a6690afeb4aab991e624ada751d126604dc6edaffe8a35d9b6d792a42a960c8"
+}

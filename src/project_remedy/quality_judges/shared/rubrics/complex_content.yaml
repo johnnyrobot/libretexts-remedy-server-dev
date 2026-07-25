@@ -1,0 +1,25 @@
+dimension: complex_content
+version: rubric_v1
+applies_to: [pdf, docx, pptx, xlsx]
+criteria:
+  - id: data_level_description
+    scale: 1-5
+    description: Charts, equations, diagrams, and complex visuals are described at the data or relationship level.
+  - id: task_relevance
+    scale: 1-5
+    description: Description includes information needed to complete the document's likely user task.
+  - id: non_visual_redundancy
+    scale: 1-5
+    description: Description avoids visual-only phrasing and is understandable without seeing the source.
+  - id: complex_object_parser_coverage
+    scale: 0-1
+    description: Office parser coverage for charts, formulas, diagrams, and other complex objects.
+  - id: formula_context
+    scale: 0-1
+    description: XLSX formula cells have adjacent row or column labels that explain the calculation context.
+  - id: equation_context
+    scale: 0-1
+    description: DOCX/PPTX equation paragraphs include nearby text that explains the equation's purpose or meaning.
+  - id: deterministic_rule_coverage
+    scale: 0-1
+    description: Existing checker-rule fallback coverage before calibrated rubric judging is available.

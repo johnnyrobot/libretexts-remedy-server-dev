@@ -1,0 +1,481 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://projectremedy.ai/schemas/corpus-annotation-1.0.json",
+  "title": "Remedy Corpus Accessibility Quality Annotation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "doc_id",
+    "format",
+    "source_path",
+    "document_class",
+    "edge_case_flags",
+    "gold_remediation_path",
+    "known_bad_artifact_paths",
+    "artifact_hashes",
+    "annotator",
+    "annotated_at",
+    "annotation_version",
+    "provenance",
+    "applicable_dimensions",
+    "dimensions",
+    "pairwise_comparisons",
+    "format_specific"
+  ],
+  "properties": {
+    "doc_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "format": {
+      "type": "string",
+      "enum": ["pdf", "docx", "pptx", "xlsx"]
+    },
+    "source_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "document_class": {
+      "type": "string",
+      "minLength": 1,
+      "examples": [
+        "form",
+        "paper",
+        "slide_deck",
+        "marketing",
+        "data_report",
+        "spreadsheet_workbook"
+      ]
+    },
+    "edge_case_flags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "gold_remediation_path": {
+      "type": "string"
+    },
+    "known_bad_artifact_paths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "artifact_hashes": {
+      "$ref": "#/$defs/artifact_hashes"
+    },
+    "annotator": {
+      "type": "string",
+      "minLength": 1
+    },
+    "annotated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "annotation_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$"
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    },
+    "applicable_dimensions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/dimension"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/dimension_annotation"
+      }
+    },
+    "pairwise_comparisons": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pairwise_comparison"
+      }
+    },
+    "format_specific": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "pdf": {
+          "$ref": "#/$defs/pdf_specific"
+        },
+        "docx": {
+          "$ref": "#/$defs/docx_specific"
+        },
+        "pptx": {
+          "$ref": "#/$defs/pptx_specific"
+        },
+        "xlsx": {
+          "$ref": "#/$defs/xlsx_specific"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "format": {
+            "const": "pdf"
+          }
+        },
+        "required": ["format"]
+      },
+      "then": {
+        "properties": {
+          "format_specific": {
+            "required": ["pdf"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "format": {
+            "const": "docx"
+          }
+        },
+        "required": ["format"]
+      },
+      "then": {
+        "properties": {
+          "format_specific": {
+            "required": ["docx"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "format": {
+            "const": "pptx"
+          }
+        },
+        "required": ["format"]
+      },
+      "then": {
+        "properties": {
+          "format_specific": {
+            "required": ["pptx"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "format": {
+            "const": "xlsx"
+          }
+        },
+        "required": ["format"]
+      },
+      "then": {
+        "properties": {
+          "format_specific": {
+            "required": ["xlsx"]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256_or_empty": {
+      "type": "string",
+      "pattern": "^$|^[a-f0-9]{64}$"
+    },
+    "artifact_hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_sha256", "gold_remediation_sha256", "known_bad_sha256"],
+      "properties": {
+        "source_sha256": {
+          "$ref": "#/$defs/sha256_or_empty"
+        },
+        "gold_remediation_sha256": {
+          "$ref": "#/$defs/sha256_or_empty"
+        },
+        "known_bad_sha256": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/sha256_or_empty"
+          }
+        }
+      }
+    },
+    "dimension": {
+      "type": "string",
+      "enum": [
+        "alt_text",
+        "reading_order",
+        "heading_semantics",
+        "table_structure",
+        "link_text",
+        "decorative",
+        "complex_content",
+        "sheet_organization",
+        "slide_title"
+      ]
+    },
+    "dimension_annotation": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["score"],
+      "properties": {
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "notes": {
+          "type": "string"
+        },
+        "per_image": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/image_annotation"
+          }
+        },
+        "per_table": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/table_annotation"
+          }
+        },
+        "per_link": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/link_annotation"
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gold_standard_source", "human_verified", "candidate_seed_model"],
+      "properties": {
+        "gold_standard_source": {
+          "type": "string",
+          "const": "human_specialist"
+        },
+        "human_verified": {
+          "type": "boolean",
+          "const": true
+        },
+        "candidate_seed_model": {
+          "type": "string"
+        },
+        "candidate_seed_notes": {
+          "type": "string"
+        }
+      }
+    },
+    "image_annotation": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["image_id", "gold_alt_text"],
+      "properties": {
+        "image_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gold_alt_text": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "table_annotation": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "table_id": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "link_annotation": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "link_id": {
+          "type": "string"
+        },
+        "display_text": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "pairwise_comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["a_path", "a_sha256", "b_path", "b_sha256", "winner", "dimension", "rationale"],
+      "properties": {
+        "a_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "a_sha256": {
+          "$ref": "#/$defs/sha256_or_empty"
+        },
+        "b_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "b_sha256": {
+          "$ref": "#/$defs/sha256_or_empty"
+        },
+        "winner": {
+          "type": "string",
+          "enum": ["a", "b", "tied"]
+        },
+        "dimension": {
+          "$ref": "#/$defs/dimension"
+        },
+        "rationale": {
+          "type": "string"
+        }
+      }
+    },
+    "pdf_specific": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "page_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "docx_specific": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "section_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "pptx_specific": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "slide_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "per_slide": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pptx_slide_annotation"
+          }
+        }
+      }
+    },
+    "xlsx_specific": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "sheet_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "per_sheet": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/xlsx_sheet_annotation"
+          }
+        }
+      }
+    },
+    "pptx_slide_annotation": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["slide_index", "title", "applicable_dimensions", "dimensions"],
+      "properties": {
+        "slide_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string"
+        },
+        "applicable_dimensions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dimension"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/dimension_annotation"
+          }
+        }
+      }
+    },
+    "xlsx_sheet_annotation": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["sheet_name", "applicable_dimensions", "dimensions"],
+      "properties": {
+        "sheet_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sheet_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "purpose": {
+          "type": "string"
+        },
+        "applicable_dimensions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dimension"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/dimension_annotation"
+          }
+        }
+      }
+    }
+  }
+}

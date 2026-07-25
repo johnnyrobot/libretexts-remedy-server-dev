@@ -1,0 +1,18 @@
+{
+  "annotation_sha256": "f9da43c7fe44a13258bcb6922b2899511564eeb17b1cb4f12c2abff8a01986c6",
+  "captured_at": "2026-05-09T18:21:12.879701+00:00",
+  "default_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "default_response_metadata": {
+    "quality": false
+  },
+  "default_response_sha256": "0fdf89807580a7f23927f548eb0f08a190002a15fa00735daa4fcb05e53fe9ae",
+  "doc_id": "pdf_026",
+  "endpoint": "/v1/remediate",
+  "final_job_status": "done",
+  "format": "pdf",
+  "job_id": "synthetic-ab0aa4af5c12429aa8e95536fb1f2a40",
+  "quality_false": true,
+  "quality_result_absent": true,
+  "source_path": "tools/corpus_annotations/v1/artifacts/pdf/pdf_026_source.pdf",
+  "source_sha256": "228450d6a526ff2b5911138e3cc0457541b96f59838aafcf74bf594f8b79924d"
+}

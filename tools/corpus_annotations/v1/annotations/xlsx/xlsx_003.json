@@ -1,0 +1,76 @@
+{
+  "annotated_at": "2026-05-09T18:21:12.867326+00:00",
+  "annotation_version": "1.0",
+  "annotator": "automated_bootstrap",
+  "applicable_dimensions": [
+    "alt_text",
+    "table_structure",
+    "link_text",
+    "complex_content",
+    "sheet_organization"
+  ],
+  "artifact_hashes": {
+    "gold_remediation_sha256": "82338a0d0505f8afa7aa55d93bba35c3e1c59d5b74eb49941dc4aee23137feb4",
+    "known_bad_sha256": {
+      "tools/corpus_annotations/v1/artifacts/xlsx/xlsx_003_bad.xlsx": "c71da94a26e2b57141091e0c2ec44f260b98f3b99520305ed047147bfb9823f8"
+    },
+    "source_sha256": "33ef6a51cc7242ed6e486473666d76e1ec8bec44a7ed0df33217881f1453e909"
+  },
+  "dimensions": {
+    "alt_text": {
+      "notes": "",
+      "score": 0.9
+    },
+    "complex_content": {
+      "notes": "",
+      "score": 0.9
+    },
+    "link_text": {
+      "notes": "",
+      "score": 0.9
+    },
+    "sheet_organization": {
+      "notes": "",
+      "score": 0.9
+    },
+    "table_structure": {
+      "notes": "",
+      "score": 0.9
+    }
+  },
+  "doc_id": "xlsx_003",
+  "document_class": "spreadsheet",
+  "edge_case_flags": [],
+  "format": "xlsx",
+  "format_specific": {
+    "xlsx": {
+      "per_sheet": [
+        {
+          "applicable_dimensions": [
+            "alt_text"
+          ],
+          "dimensions": {
+            "alt_text": {
+              "score": 0.9
+            }
+          },
+          "sheet_index": 1,
+          "sheet_name": "Sheet1"
+        }
+      ],
+      "sheet_count": 1
+    }
+  },
+  "gold_remediation_path": "tools/corpus_annotations/v1/artifacts/xlsx/xlsx_003_gold.xlsx",
+  "known_bad_artifact_paths": [
+    "tools/corpus_annotations/v1/artifacts/xlsx/xlsx_003_bad.xlsx"
+  ],
+  "pairwise_comparisons": [],
+  "provenance": {
+    "candidate_seed_model": "",
+    "candidate_seed_notes": "",
+    "gold_standard_source": "human_specialist",
+    "human_verified": true
+  },
+  "source_path": "tools/corpus_annotations/v1/artifacts/xlsx/xlsx_003_source.xlsx"
+}

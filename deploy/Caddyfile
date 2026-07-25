@@ -1,0 +1,57 @@
+# Caddyfile — reverse proxy + auto-TLS for remedy-server.
+#
+# Point DOMAIN to your fully-qualified hostname in .env. If you want a
+# Let's Encrypt contact address, set CADDY_GLOBAL_OPTIONS to an email
+# directive such as: email ops@example.com. Caddy will provision + renew
+# certificates automatically.
+#
+# Usage with docker-compose:
+#   DOMAIN=api.example.com CADDY_GLOBAL_OPTIONS="email ops@example.com" docker compose up -d
+#
+# For local development without TLS, set DOMAIN=localhost and Caddy will
+# issue a self-signed cert via its internal CA.
+
+{
+	# Optional raw Caddy global directives, e.g.:
+	# CADDY_GLOBAL_OPTIONS="email ops@example.com"
+	{$CADDY_GLOBAL_OPTIONS}
+}
+
+{$DOMAIN} {
+	# Enable gzip + zstd for JSON responses; file responses are already
+	# binary (pdf/html) and skip compression.
+	encode gzip zstd
+
+	# Forward client IP for rate-limit headers / structured logging.
+	header +X-Real-IP {remote_host}
+
+	# Add strict transport security (browser-level, doesn't affect API clients).
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	# Hide Caddy's server banner.
+	header -Server
+
+	# Cap upload body size at the proxy layer (app's MAX_UPLOAD_MB is the
+	# authoritative gate; this is a defensive limit for obviously-hostile
+	# requests).
+	request_body {
+		max_size 200MB
+	}
+
+	# Proxy everything to the FastAPI backend.
+	reverse_proxy remedy-server:8000 {
+		# Stream responses so long-running downloads don't buffer.
+		flush_interval -1
+
+		# Pass through the X-Request-ID header (app generates if missing).
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	# Log in JSON to stdout (picked up by `docker compose logs caddy`).
+	log {
+		output stdout
+		format json
+	}
+}

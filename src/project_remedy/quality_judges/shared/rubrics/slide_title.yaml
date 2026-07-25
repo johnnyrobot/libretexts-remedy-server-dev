@@ -1,0 +1,28 @@
+dimension: slide_title
+version: rubric_v1
+applies_to: [pptx]
+criteria:
+  - id: title_presence
+    scale: 0-1
+    description: Each semantic slide has a real title placeholder or equivalent title text.
+  - id: title_descriptiveness
+    scale: 1-5
+    description: Slide titles distinguish slide purpose and are not generic or duplicated.
+  - id: title_navigation
+    scale: 0-1
+    description: Body content can be located from the slide title list with retained answer accuracy.
+  - id: slide_title_quality
+    scale: 0-1
+    description: Aggregate PPTX slide-title quality score.
+  - id: slide_title_presence
+    scale: 0-1
+    description: PPTX score for title placeholder or title text presence.
+  - id: slide_title_descriptiveness
+    scale: 0-1
+    description: PPTX score for specific, non-generic title text.
+  - id: slide_title_uniqueness
+    scale: 0-1
+    description: PPTX score for avoiding duplicate slide titles.
+  - id: deterministic_rule_coverage
+    scale: 0-1
+    description: Existing checker-rule fallback coverage before calibrated rubric judging is available.

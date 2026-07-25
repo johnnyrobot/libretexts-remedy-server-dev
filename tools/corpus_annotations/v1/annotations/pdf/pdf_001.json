@@ -1,0 +1,72 @@
+{
+  "annotated_at": "2026-05-09T18:21:12.784540+00:00",
+  "annotation_version": "1.0",
+  "annotator": "automated_bootstrap",
+  "applicable_dimensions": [
+    "alt_text",
+    "reading_order",
+    "heading_semantics",
+    "table_structure",
+    "link_text",
+    "decorative",
+    "complex_content"
+  ],
+  "artifact_hashes": {
+    "gold_remediation_sha256": "23c0fc82b5f43f903e205d4f09ea0d3fa2dce061c1beed7412bd250e23ccd8e8",
+    "known_bad_sha256": {
+      "tools/corpus_annotations/v1/artifacts/pdf/pdf_001_bad.pdf": "2215384ab0e0d1b23492de2adc9cdec686191632b0b1bdaee673fb95c3416eec"
+    },
+    "source_sha256": "77e16e5fd137646e1b60aab938015d0c2e04c9495cb6dd74f8e7c69ce44dc9bd"
+  },
+  "dimensions": {
+    "alt_text": {
+      "notes": "",
+      "score": 0.9
+    },
+    "complex_content": {
+      "notes": "",
+      "score": 0.9
+    },
+    "decorative": {
+      "notes": "",
+      "score": 0.9
+    },
+    "heading_semantics": {
+      "notes": "",
+      "score": 0.9
+    },
+    "link_text": {
+      "notes": "",
+      "score": 0.9
+    },
+    "reading_order": {
+      "notes": "",
+      "score": 0.9
+    },
+    "table_structure": {
+      "notes": "",
+      "score": 0.9
+    }
+  },
+  "doc_id": "pdf_001",
+  "document_class": "form",
+  "edge_case_flags": [],
+  "format": "pdf",
+  "format_specific": {
+    "pdf": {
+      "page_count": 1
+    }
+  },
+  "gold_remediation_path": "tools/corpus_annotations/v1/artifacts/pdf/pdf_001_gold.pdf",
+  "known_bad_artifact_paths": [
+    "tools/corpus_annotations/v1/artifacts/pdf/pdf_001_bad.pdf"
+  ],
+  "pairwise_comparisons": [],
+  "provenance": {
+    "candidate_seed_model": "",
+    "candidate_seed_notes": "",
+    "gold_standard_source": "human_specialist",
+    "human_verified": true
+  },
+  "source_path": "tools/corpus_annotations/v1/artifacts/pdf/pdf_001_source.pdf"
+}

@@ -1,0 +1,28 @@
+dimension: reading_order
+version: rubric_v1
+applies_to: [pdf, docx, pptx]
+criteria:
+  - id: semantic_sequence
+    scale: 1-5
+    description: Content is announced in the order needed to understand the document or slide.
+  - id: context_preservation
+    scale: 1-5
+    description: Captions, labels, sidebars, footnotes, and tables remain near their related content.
+  - id: comprehension_retention
+    scale: 0-1
+    description: Candidate transcript retains baseline answer accuracy for generated comprehension questions.
+  - id: transcript_comprehension_proxy
+    scale: 0-1
+    description: PDF behavioral proxy score for reading-order comprehension over serialized transcript text.
+  - id: linear_document_order_proxy
+    scale: 0-1
+    description: DOCX mostly-linear reading-order proxy score.
+  - id: shape_order_title_first
+    scale: 0-1
+    description: PPTX per-slide parser-backed signal that title content precedes body content.
+  - id: shape_order_visual_sequence
+    scale: 0-1
+    description: PPTX per-slide parser-backed signal that same-column and same-row objects do not visually backtrack in shape order.
+  - id: deterministic_rule_coverage
+    scale: 0-1
+    description: Existing checker-rule fallback coverage before calibrated rubric judging is available.

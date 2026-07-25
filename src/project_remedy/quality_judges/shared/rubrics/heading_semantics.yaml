@@ -1,0 +1,40 @@
+dimension: heading_semantics
+version: rubric_v1
+applies_to: [pdf, docx, pptx]
+criteria:
+  - id: hierarchy_correctness
+    scale: 1-5
+    description: Heading levels or slide-title hierarchy match the visible and semantic document structure.
+  - id: navigability
+    scale: 1-5
+    description: A user can locate body content from the heading outline or slide title list.
+  - id: descriptive_labels
+    scale: 1-5
+    description: Heading or title text is specific enough to distinguish sections or slides.
+  - id: outline_navigation
+    scale: 0-1
+    description: Heading-outline navigation proxy score.
+  - id: heading_label_descriptiveness
+    scale: 0-1
+    description: PDF heading labels are specific enough to distinguish sections.
+  - id: heading_label_uniqueness
+    scale: 0-1
+    description: PDF heading labels avoid duplicate labels that make navigation ambiguous.
+  - id: visual_heading_semantics
+    scale: 0-1
+    description: DOCX visually heading-like paragraphs use semantic Word heading or outline styles.
+  - id: slide_title_navigation
+    scale: 0-1
+    description: PPTX slide-title navigation proxy score.
+  - id: slide_title_presence
+    scale: 0-1
+    description: PPTX title placeholder or title text presence score reused for heading semantics.
+  - id: slide_title_descriptiveness
+    scale: 0-1
+    description: PPTX title text specificity score reused for heading semantics.
+  - id: slide_title_uniqueness
+    scale: 0-1
+    description: PPTX duplicate-title avoidance score reused for heading semantics.
+  - id: deterministic_rule_coverage
+    scale: 0-1
+    description: Existing checker-rule fallback coverage before calibrated rubric judging is available.

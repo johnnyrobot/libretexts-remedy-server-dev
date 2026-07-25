@@ -1,0 +1,58 @@
+[Unit]
+Description=Remedy Server — PDF/Office accessibility remediation API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=remedy
+Group=remedy
+
+# Base directory of the checked-out repo. Adjust if you deploy elsewhere.
+WorkingDirectory=/opt/remedy-server
+
+# Pick up APP_API_KEY, OLLAMA_API_KEY, etc. from a root-readable env file
+# rather than hardcoding secrets in the unit.
+EnvironmentFile=/etc/remedy-server/env
+
+# Adjust the venv path to match your setup (uv creates .venv by default).
+Environment=PATH=/opt/remedy-server/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=APP_ENV=production
+Environment=APP_DOCS_ENABLED=false
+Environment=JOB_STORE_PATH=/var/lib/remedy-server/jobs.db
+Environment=JOB_DIR=/var/lib/remedy-server/job_data
+Environment=JOB_BACKUP_DIR=/var/lib/remedy-server/job_backups
+Environment=OUTPUT_DIR=/var/lib/remedy-server/output
+Environment=LOG_DIR=/var/lib/remedy-server/logs
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=LOG_FORMAT=json
+
+ExecStart=/opt/remedy-server/.venv/bin/uvicorn \
+    backend.app.main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 1 \
+    --proxy-headers \
+    --forwarded-allow-ips 127.0.0.1
+
+# Graceful shutdown so in-flight jobs get a chance to finish.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=always
+RestartSec=5
+
+# Hardening.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/remedy-server
+LimitNOFILE=65535
+
+# Resource limits — tune to your box.
+MemoryMax=4G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target

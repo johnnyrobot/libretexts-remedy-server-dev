@@ -1,0 +1,91 @@
+{
+  "annotated_at": "2026-05-09T18:21:12.856931+00:00",
+  "annotation_version": "1.0",
+  "annotator": "automated_bootstrap",
+  "applicable_dimensions": [
+    "alt_text",
+    "reading_order",
+    "heading_semantics",
+    "table_structure",
+    "link_text",
+    "decorative",
+    "complex_content",
+    "slide_title"
+  ],
+  "artifact_hashes": {
+    "gold_remediation_sha256": "2f004123b76fcaf830675afde7c191dcd1526248b1f3b46f1d919b364fd81835",
+    "known_bad_sha256": {
+      "tools/corpus_annotations/v1/artifacts/pptx/pptx_005_bad.pptx": "c428a5c1124d7cb01e884dc19ad72c50913006db0db71f5c8a196159167f6de1"
+    },
+    "source_sha256": "da32d8c04a107a730069cafedec6f2331097aa0543763afffdc389a51071fd24"
+  },
+  "dimensions": {
+    "alt_text": {
+      "notes": "",
+      "score": 0.9
+    },
+    "complex_content": {
+      "notes": "",
+      "score": 0.9
+    },
+    "decorative": {
+      "notes": "",
+      "score": 0.9
+    },
+    "heading_semantics": {
+      "notes": "",
+      "score": 0.9
+    },
+    "link_text": {
+      "notes": "",
+      "score": 0.9
+    },
+    "reading_order": {
+      "notes": "",
+      "score": 0.9
+    },
+    "slide_title": {
+      "notes": "",
+      "score": 0.9
+    },
+    "table_structure": {
+      "notes": "",
+      "score": 0.9
+    }
+  },
+  "doc_id": "pptx_005",
+  "document_class": "presentation",
+  "edge_case_flags": [],
+  "format": "pptx",
+  "format_specific": {
+    "pptx": {
+      "per_slide": [
+        {
+          "applicable_dimensions": [
+            "alt_text"
+          ],
+          "dimensions": {
+            "alt_text": {
+              "score": 0.9
+            }
+          },
+          "slide_index": 1,
+          "title": "synthetic"
+        }
+      ],
+      "slide_count": 1
+    }
+  },
+  "gold_remediation_path": "tools/corpus_annotations/v1/artifacts/pptx/pptx_005_gold.pptx",
+  "known_bad_artifact_paths": [
+    "tools/corpus_annotations/v1/artifacts/pptx/pptx_005_bad.pptx"
+  ],
+  "pairwise_comparisons": [],
+  "provenance": {
+    "candidate_seed_model": "",
+    "candidate_seed_notes": "",
+    "gold_standard_source": "human_specialist",
+    "human_verified": true
+  },
+  "source_path": "tools/corpus_annotations/v1/artifacts/pptx/pptx_005_source.pptx"
+}

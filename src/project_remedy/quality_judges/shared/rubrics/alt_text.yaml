@@ -1,0 +1,37 @@
+dimension: alt_text
+version: rubric_v1
+applies_to: [pdf, docx, pptx, xlsx]
+criteria:
+  - id: accuracy
+    scale: 1-5
+    description: Alt text preserves the visual fact or data needed by the surrounding content.
+  - id: specificity
+    scale: 1-5
+    description: Alt text names the relevant object, trend, chart value, or relationship rather than a generic image type.
+  - id: contextual_usefulness
+    scale: 1-5
+    description: Alt text supports the task a screen-reader user would perform in this document.
+  - id: concision
+    scale: 1-5
+    description: Alt text is concise enough to be usable while retaining required information.
+  - id: substitutive_alt_text
+    scale: 0-1
+    description: PDF behavioral proxy score for whether figure alt text can substitute for image content.
+  - id: ooxml_alt_text_presence
+    scale: 0-1
+    description: DOCX/PPTX OOXML parser-backed score for object alt text presence.
+  - id: ooxml_alt_text_specificity
+    scale: 0-1
+    description: DOCX/PPTX OOXML parser-backed score for non-generic, non-duplicated object alternate text.
+  - id: xlsx_drawing_alt_text_parser_coverage
+    scale: 0-1
+    description: XLSX drawing parser coverage for chart/image alt text checks.
+  - id: drawing_alt_text_presence
+    scale: 0-1
+    description: XLSX drawing score for available chart/image alternate text.
+  - id: drawing_alt_text_specificity
+    scale: 0-1
+    description: XLSX drawing score for non-generic, non-duplicated chart/image alternate text.
+  - id: deterministic_rule_coverage
+    scale: 0-1
+    description: Existing checker-rule fallback coverage before calibrated rubric judging is available.

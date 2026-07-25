@@ -1,0 +1,51 @@
+# Git + GitHub
+.git
+.github
+.gitignore
+
+# Python / uv caches
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+*.egg-info
+dist
+build
+
+# Test + dev artifacts
+tests
+docs
+benchmarks
+exports
+output
+reports
+data
+logs
+tmp
+job_data
+jobs.db*
+pipeline.db*
+
+# Editor / OS noise
+.vscode
+.idea
+.DS_Store
+*.swp
+*.swo
+
+# Env files (never bake secrets into the image)
+.env
+.env.*
+
+# Docker config (don't recurse into self)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Deploy-system sources (copied separately if needed)
+deploy
+
+# Playwright cache — built inside the image
+.playwright-mcp
+.firecrawl

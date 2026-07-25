@@ -1,0 +1,89 @@
+services:
+  remedy-server:
+    build:
+      context: .
+      target: runtime          # swap to runtime-slim if you don't need HTML endpoints
+    image: remedy-server:latest
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 2m
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      APP_DOCS_ENABLED: "false"
+      APP_API_KEY: ${APP_API_KEY:?Set APP_API_KEY in .env}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:?Set OLLAMA_API_KEY in .env}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-https://ollama.com/v1}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-kimi-k2.7-code:cloud}
+      OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL:-kimi-k2.7-code:cloud}
+      OLLAMA_ESCALATION_MODEL: ${OLLAMA_ESCALATION_MODEL:-kimi-k2.7-code:cloud}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:?Set CORS_ALLOW_ORIGINS in .env}
+      JOB_DIR: /app/job_data
+      JOB_STORE_PATH: /app/state/jobs.db
+      JOB_BACKUP_DIR: /app/state/job_backups
+      OUTPUT_DIR: /app/state/output
+      LOG_DIR: /app/state/logs
+      LOG_FORMAT: json
+      # Trust X-Forwarded-* only from Caddy on the dedicated `edge` network
+      # (passed to uvicorn --forwarded-allow-ips). The image default is
+      # 127.0.0.1 (correct for the bare-metal systemd unit); inside compose the
+      # proxy is a separate container, so without this override the app would see
+      # Caddy's bridge IP as the client and collapse per-IP rate limiting onto a
+      # single key. Override to a tighter single proxy IP if desired.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.31.83.0/24}
+    volumes:
+      - job_data:/app/job_data
+      - job_state:/app/state
+    expose:
+      - "8000"
+    networks:
+      - edge
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Uncomment to publish on the host directly (bypassing Caddy):
+    # ports:
+    #   - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/readyz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      remedy-server:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"          # HTTP/3
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      CADDY_GLOBAL_OPTIONS: ${CADDY_GLOBAL_OPTIONS:-}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - edge
+
+volumes:
+  job_data:
+  job_state:                   # SQLite, backups, and engine output artefacts
+  caddy_data:
+  caddy_config:
+
+networks:
+  # Dedicated bridge with a fixed subnet so the app can trust X-Forwarded-*
+  # headers from Caddy (FORWARDED_ALLOW_IPS) without resorting to "*".
+  edge:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.83.0/24

@@ -1,0 +1,18 @@
+{
+  "annotation_sha256": "621e65b96417eb0ee8ab17f8a0480d2d60fd7fbd1a30d4ffad8e089529c6661b",
+  "captured_at": "2026-05-09T18:21:12.880658+00:00",
+  "default_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "default_response_metadata": {
+    "quality": false
+  },
+  "default_response_sha256": "0fdf89807580a7f23927f548eb0f08a190002a15fa00735daa4fcb05e53fe9ae",
+  "doc_id": "docx_001",
+  "endpoint": "/v1/office/remediate",
+  "final_job_status": "done",
+  "format": "docx",
+  "job_id": "synthetic-c2e1c37f7fa5487c91eb6ae851451fcd",
+  "quality_false": true,
+  "quality_result_absent": true,
+  "source_path": "tools/corpus_annotations/v1/artifacts/docx/docx_001_source.docx",
+  "source_sha256": "c7b83079444233ff2fe48036568872fc0aab54b4f182019997ee1ef9e0ee6391"
+}

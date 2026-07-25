@@ -1,0 +1,18 @@
+{
+  "annotation_sha256": "581d15c76eb8218880ce9f3c731ad3284fba46ed9b8e7f8603f92394ab5ceb54",
+  "captured_at": "2026-05-09T18:21:12.883499+00:00",
+  "default_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "default_response_metadata": {
+    "quality": false
+  },
+  "default_response_sha256": "0fdf89807580a7f23927f548eb0f08a190002a15fa00735daa4fcb05e53fe9ae",
+  "doc_id": "xlsx_001",
+  "endpoint": "/v1/office/remediate",
+  "final_job_status": "done",
+  "format": "xlsx",
+  "job_id": "synthetic-4d3b5b19188d49029ce65103113a703d",
+  "quality_false": true,
+  "quality_result_absent": true,
+  "source_path": "tools/corpus_annotations/v1/artifacts/xlsx/xlsx_001_source.xlsx",
+  "source_sha256": "22a04d220d6ab6ec15230ea148c046af641b921c21d24c56a3b992c1ce2c6702"
+}

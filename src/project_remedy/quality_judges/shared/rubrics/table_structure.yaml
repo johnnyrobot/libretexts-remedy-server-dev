@@ -1,0 +1,46 @@
+dimension: table_structure
+version: rubric_v1
+applies_to: [pdf, docx, pptx, xlsx]
+criteria:
+  - id: header_association
+    scale: 1-5
+    description: Row and column headers are present and correctly associated with data cells.
+  - id: cell_lookup_accuracy
+    scale: 0-1
+    description: Screen-reader-style table serialization preserves sampled row-column answers.
+  - id: data_table_disambiguation
+    scale: 1-5
+    description: True data tables are preserved while layout tables are not over-labeled as data.
+  - id: cell_lookup_structure
+    scale: 0-1
+    description: PDF table cell lookup proxy score.
+  - id: repeated_header_rows
+    scale: 0-1
+    description: DOCX repeated header row quality signal.
+  - id: non_empty_header_cells
+    scale: 0-1
+    description: DOCX table header text quality signal.
+  - id: pptx_table_shape_parser_coverage
+    scale: 0-1
+    description: PPTX parser coverage for table-as-shape checks.
+  - id: pptx_table_header_row_presence
+    scale: 0-1
+    description: PPTX table-shape score for explicit first-row header semantics.
+  - id: table_header_cells_present
+    scale: 0-1
+    description: PPTX table-shape header-cell score.
+  - id: excel_table_presence
+    scale: 0-1
+    description: XLSX score for presence of true Excel Table structures.
+  - id: header_row_presence
+    scale: 0-1
+    description: XLSX score for table header rows.
+  - id: banded_rows
+    scale: 0-1
+    description: XLSX score for banded row structure on Excel Tables.
+  - id: total_row_presence
+    scale: 0-1
+    description: XLSX score for configured total rows when spreadsheet tables require summaries.
+  - id: deterministic_rule_coverage
+    scale: 0-1
+    description: Existing checker-rule fallback coverage before calibrated rubric judging is available.

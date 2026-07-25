@@ -1,0 +1,83 @@
+strategies:
+  improve_alt_text:
+    name_pattern: "^improve_alt_text_.+$"
+    dimension: "alt_text"
+    target: "planner_prompt"
+    hook: "alt_text_action_examples"
+    targets:
+      - file: "vision_planner/harness.py"
+        method: "VisionPlannerHarness.build_planner_prompt"
+        hook: "alt_text_action_examples"
+      - file: "vision.py"
+        method: "VisionProcessor.generate_alt_text"
+        hook: "alt_text_generation_prompt"
+    description: "Add document-class-specific alt text informativeness guidance."
+  tighten_reading_order:
+    name_pattern: "^tighten_reading_order_.+$"
+    dimension: "reading_order"
+    target: "grounder_prompt"
+    hook: "reading_order_region_detection"
+    targets:
+      - file: "vision_planner/harness.py"
+        method: "VisionPlannerHarness.build_grounder_prompt"
+        hook: "reading_order_region_detection"
+      - file: "vision_planner/harness.py"
+        method: "VisionPlannerHarness.build_planner_prompt"
+        hook: "fix_reading_order_action_guidance"
+    description: "Add multi-column and sidebar reading-order guidance."
+  improve_heading_semantics:
+    name_pattern: "^improve_heading_semantics_.+$"
+    dimension: "heading_semantics"
+    target: "planner_prompt"
+    hook: "heading_level_assignment"
+    targets:
+      - file: "vision_planner/harness.py"
+        method: "VisionPlannerHarness.build_planner_prompt"
+        hook: "heading_level_assignment"
+    description: "Add semantic-vs-visual heading examples."
+  tighten_decorative_classification:
+    name_pattern: "^tighten_decorative_classification$"
+    dimension: "decorative"
+    target: "grounder_prompt"
+    hook: "region_type_classification"
+    targets:
+      - file: "vision_planner/harness.py"
+        method: "VisionPlannerHarness.build_grounder_prompt"
+        hook: "region_type_classification"
+    description: "Use stricter decorative classification criteria."
+  improve_complex_content_description:
+    name_pattern: "^improve_complex_content_description$"
+    dimension: "complex_content"
+    target: "planner_prompt"
+    hook: "complex_content_description"
+    targets:
+      - file: "vision_planner/harness.py"
+        method: "VisionPlannerHarness.build_planner_prompt"
+        hook: "complex_content_description"
+      - file: "vision.py"
+        method: "VisionProcessor.recreate_chart_as_svg"
+        hook: "chart_data_description_prompt"
+      - file: "vision.py"
+        method: "VisionProcessor.describe_diagram"
+        hook: "diagram_structure_description_prompt"
+    description: "Require data-level chart, equation, and diagram descriptions."
+  improve_table_structure:
+    name_pattern: "^improve_table_structure_.+$"
+    dimension: "table_structure"
+    target: "planner_prompt"
+    hook: "table_reconstruction"
+    targets:
+      - file: "vision_planner/harness.py"
+        method: "VisionPlannerHarness.build_planner_prompt"
+        hook: "table_reconstruction"
+    description: "Distinguish data tables from layout and infer headers."
+  improve_link_text:
+    name_pattern: "^improve_link_text$"
+    dimension: "link_text"
+    target: "planner_prompt"
+    hook: "link_text_rewriting"
+    targets:
+      - file: "vision_planner/harness.py"
+        method: "VisionPlannerHarness.build_planner_prompt"
+        hook: "link_text_rewriting"
+    description: "Replace non-descriptive link text with context-aware text."

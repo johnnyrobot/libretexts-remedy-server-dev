@@ -1,0 +1,25 @@
+dimension: decorative
+version: rubric_v1
+applies_to: [pdf, docx, pptx]
+criteria:
+  - id: decorative_classification
+    scale: 1-5
+    description: Objects marked decorative are genuinely non-informative in context.
+  - id: information_equivalence
+    scale: 0-1
+    description: Transcripts with decorative objects skipped remain information-equivalent to transcripts including them.
+  - id: accessible_text_consistency
+    scale: 0-1
+    description: Decorative objects do not carry meaningful accessible text that would be lost when skipped.
+  - id: safe_decorative_skips
+    scale: 0-1
+    description: PDF decorative-skip proxy score for empty-alt skipped figures.
+  - id: decorative_flag_parser_coverage
+    scale: 0-1
+    description: Office OOXML decorative-flag parser coverage.
+  - id: decorative_skip_semantics
+    scale: 0-1
+    description: Office decorative-skip semantic score from OOXML flags and optional answer-retention checks.
+  - id: deterministic_rule_coverage
+    scale: 0-1
+    description: Existing checker-rule fallback coverage before calibrated rubric judging is available.

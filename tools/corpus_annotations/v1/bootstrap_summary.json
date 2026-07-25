@@ -1,0 +1,13 @@
+{
+  "artifacts_root": "tools/corpus_annotations/v1/artifacts",
+  "behavioral_results": "tools/corpus_annotations/v1/behavioral_results.jsonl",
+  "calibrations_source": "tools/corpus_annotations/v1/judge_results.jsonl",
+  "counts": {
+    "docx": 7,
+    "pdf": 30,
+    "pptx": 7,
+    "xlsx": 6
+  },
+  "judge_results": "tools/corpus_annotations/v1/judge_results.jsonl",
+  "total": 50
+}

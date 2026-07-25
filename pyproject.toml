@@ -1,0 +1,78 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "remedy-server"
+version = "1.0.0"
+description = "Remedy Server — PDF accessibility remediation HTTP API backend"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    { name = "Remedy Server" },
+]
+
+dependencies = [
+    # HTTP API
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.31",
+
+    # Engine
+    "pikepdf>=9.0.0",
+    "pypdf>=6.13.3",
+    "pymupdf>=1.25.0",
+    "python-docx>=1.1.0",
+    "python-pptx>=0.6.23",
+    "openpyxl>=3.1.0",
+    "beautifulsoup4>=4.12.0",
+    "httpx>=0.27.0",
+    "cryptography>=48.0.1",
+    "defusedxml>=0.7.1",
+    "lxml>=6.1.0",
+    "pillow>=12.2.0",
+
+    # HTML conversion path (extractor → converter → vision → validator → html_to_pdf)
+    "playwright>=1.40.0",
+    "aiosqlite>=0.20.0",
+
+    # faithful_rebuild / font work
+    "fonttools>=4.50.0",
+    "reportlab>=4.0.0",
+
+    # Config / glue
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+    "click>=8.1.0",
+    "markdown-it-py>=3.0.0",
+    "pygments>=2.20.0",
+    "rich>=13.7.0",
+
+    # Production ops
+    "slowapi>=0.1.9",
+    "structlog>=24.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=7.1.0",
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+remedy-pdf = "project_remedy.cli_pdf:pdf_group"
+remedy-office = "project_remedy.cli_office:office_group"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/project_remedy", "backend"]
+
+[tool.hatch.build.targets.editable]
+packages = ["src/project_remedy", "backend"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["src", "."]

@@ -1,0 +1,15 @@
+{
+  "passed": true,
+  "reason": "controlled A/B success criterion met",
+  "regressions": {},
+  "required_experiments": 3,
+  "run_ids": [
+    "holdout-ab-docx-01",
+    "holdout-ab-docx-02",
+    "holdout-ab-docx-03"
+  ],
+  "strategy_name": "improve_alt_text_report",
+  "successful_experiments": 3,
+  "target_dimension": "alt_text",
+  "total_experiments": 3
+}

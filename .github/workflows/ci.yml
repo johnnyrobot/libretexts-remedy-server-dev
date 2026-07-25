@@ -1,0 +1,304 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    # The test suite itself is gitignored (local-only per repo policy),
+    # so this job only verifies that shipped sources compile and that no
+    # banned vendor names slipped in.
+    name: compile + scrub
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a  # v4.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ripgrep
+
+      - name: Install project + dev deps
+        run: uv sync --extra dev
+
+      - name: Compile Python sources
+        run: uv run python -m compileall -q backend src tools
+
+      - name: Verify Gemini scrub
+        run: |
+          ! rg -n -i "gemini|google[_-]?generative|generativeai|ai studio" \
+            src backend pyproject.toml README.md config.example.yaml .env.example Dockerfile docker-compose.yml
+
+      - name: Check whitespace
+        run: git diff --check
+
+  unit-tests:
+    # Committed unit tests live in tests/unit/ (the rest of tests/ is
+    # gitignored / local-only per repo policy). This job runs only that
+    # committed subtree.
+    name: unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install project + dev deps
+        run: uv sync --extra dev
+
+      - name: Run committed unit tests
+        run: uv run pytest tests/unit -v
+
+  quality-checks:
+    name: quality layer checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a  # v4.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ripgrep
+
+      - name: Install project + dev deps
+        run: uv sync --extra dev
+
+      - name: Compile quality layer sources
+        run: |
+          uv run python -m compileall -q \
+            backend/app/quality_routes.py \
+            backend/app/quality_calibration.py \
+            src/project_remedy/quality_judges \
+            src/project_remedy/behavioral_proxies \
+            src/project_remedy/vision_planner/scorer.py \
+            src/project_remedy/vision_planner/experiment_store.py \
+            src/project_remedy/vision_planner/proposer.py \
+            src/project_remedy/vision_planner/quality_evaluation.py \
+            tools/annotate_corpus.py \
+            tools/calibrate_judges.py \
+            tools/capture_corpus_snapshots.py \
+            tools/quality_coverage.py \
+            tools/sample_quality_reviews.py \
+            tools/verify_behavioral_corpus.py \
+            tools/verify_corpus_snapshots.py
+
+      - name: Validate corpus annotation schema
+        run: |
+          uv run python tools/annotate_corpus.py validate \
+            --root tools/corpus_annotations/v1 \
+            --allow-empty
+
+      - name: Report corpus coverage readiness
+        continue-on-error: true
+        run: |
+          uv run python tools/annotate_corpus.py coverage \
+            --root tools/corpus_annotations/v1 \
+            --json
+
+      - name: Report snapshot gate readiness
+        continue-on-error: true
+        run: |
+          uv run python tools/verify_corpus_snapshots.py check \
+            --root tools/corpus_annotations/v1 \
+            --json
+
+      - name: Report behavioral corpus readiness
+        continue-on-error: true
+        run: |
+          uv run python tools/verify_behavioral_corpus.py check \
+            --root tools/corpus_annotations/v1 \
+            --results tools/corpus_annotations/v1/behavioral_results.jsonl \
+            --json
+
+      - name: Report calibration readiness
+        continue-on-error: true
+        run: |
+          uv run python tools/calibrate_judges.py calibrate \
+            --root tools/corpus_annotations/v1 \
+            --store quality_experiments.db \
+            --dry-run \
+            --json
+
+      - name: Enforce readiness when corpus annotations exist
+        run: |
+          if [ -d tools/corpus_annotations/v1/annotations ] && \
+             find tools/corpus_annotations/v1/annotations \
+               -maxdepth 3 \
+               -type f -name '*.json' | grep -q .; then
+            uv run python tools/annotate_corpus.py coverage \
+              --root tools/corpus_annotations/v1 \
+              --json
+            uv run python tools/verify_corpus_snapshots.py check \
+              --root tools/corpus_annotations/v1 \
+              --json
+            uv run python tools/verify_behavioral_corpus.py check \
+              --root tools/corpus_annotations/v1 \
+              --results tools/corpus_annotations/v1/behavioral_results.jsonl \
+              --json
+            uv run python tools/calibrate_judges.py calibrate \
+              --root tools/corpus_annotations/v1 \
+              --store quality_experiments.db \
+              --judge-results tools/corpus_annotations/v1/judge_results.jsonl \
+              --enforce-readiness \
+              --json
+          else
+            echo "No corpus annotations committed yet; readiness remains advisory."
+            uv run python tools/calibrate_judges.py calibrate \
+              --root tools/corpus_annotations/v1 \
+              --store quality_experiments.db \
+              --dry-run \
+              --json
+          fi
+
+      - name: Run quality-focused tests
+        run: |
+          # Heavy corpus/integration tests are local-only per the .gitignore
+          # policy (see commit "Stop tracking local quality artifacts"): tests/
+          # is ignored except tests/unit/*.py. Run these only when present so CI
+          # stays green on the committed tree, and automatically exercises them
+          # once/if they are committed.
+          if [ -f tests/corpus/test_quality_artifact_tracking.py ]; then
+            uv run pytest tests/corpus/test_quality_artifact_tracking.py
+          else
+            echo "tests/corpus/test_quality_artifact_tracking.py not committed (local-only per .gitignore); skipping."
+          fi
+
+      - name: Run phase G holdout tests
+        run: |
+          # Same local-only policy as above (tests/vision_planner/ is ignored).
+          holdout=""
+          for f in tests/vision_planner/test_quality_evaluation.py \
+                   tests/vision_planner/test_proposer_dimension_aware.py; do
+            [ -f "$f" ] && holdout="$holdout $f"
+          done
+          if [ -n "$holdout" ]; then
+            uv run pytest $holdout
+          else
+            echo "phase G holdout tests not committed (local-only per .gitignore); skipping."
+          fi
+
+  security:
+    name: pip-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a  # v4.2.0
+
+      - name: Sync deps
+        run: uv sync
+
+      - name: Run pip-audit
+        run: |
+          uv pip install --upgrade pip pip-audit
+          # No fixed pip release is published for CVE-2026-3219 yet.
+          uv run pip-audit --skip-editable --ignore-vuln CVE-2026-3219
+
+  docker-build:
+    name: docker image (smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Only on main pushes — PRs would eat CI minutes.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+
+      - name: Fetch veraPDF installer
+        run: |
+          curl -fsSLo verapdf-installer.zip \
+            https://software.verapdf.org/releases/1.30/verapdf-greenfield-1.30.1-installer.zip
+          test -s verapdf-installer.zip
+
+      - name: Build slim target (smoke)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
+        with:
+          context: .
+          target: runtime-slim
+          push: false
+          load: true
+          tags: remedy-server:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke-test the image
+        run: |
+          set +e
+          # Drop --rm so the container persists for log inspection on failure.
+          docker run -d --name remedy-smoke -p 18080:8000 \
+            -e APP_ENV=production \
+            -e APP_API_KEY=ci-smoke-key \
+            -e OLLAMA_API_KEY=ci-ollama-key \
+            -e CORS_ALLOW_ORIGINS=https://ci.example.invalid \
+            remedy-server:ci
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:18080/readyz >/dev/null 2>&1; then
+              echo "readyz OK after ${i}s"
+              docker logs remedy-smoke 2>&1 | tail -40
+              docker rm -f remedy-smoke >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "readyz never responded after 60s"
+          echo "--- docker ps -a ---"
+          docker ps -a
+          echo "--- docker logs (last 200) ---"
+          docker logs --tail 200 remedy-smoke 2>&1 || echo "(container gone before logs)"
+          echo "--- docker inspect (state) ---"
+          docker inspect --format '{{json .State}}' remedy-smoke 2>&1 || true
+          docker rm -f remedy-smoke >/dev/null 2>&1
+          exit 1

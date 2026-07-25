@@ -1,0 +1,28 @@
+dimension: sheet_organization
+version: rubric_v1
+applies_to: [xlsx]
+criteria:
+  - id: tab_name_clarity
+    scale: 1-5
+    description: Sheet tab names describe purpose or content rather than default labels such as Sheet1.
+  - id: purpose_alignment
+    scale: 1-5
+    description: Sheet names and order align with sampled worksheet content and workbook purpose.
+  - id: navigability
+    scale: 1-5
+    description: A user can choose the right sheet from the tab list and purpose summary.
+  - id: sheet_name_descriptiveness
+    scale: 0-1
+    description: XLSX score for descriptive workbook tab names.
+  - id: sheet_purpose_alignment
+    scale: 0-1
+    description: XLSX score for alignment between tab names and sampled sheet content.
+  - id: sheet_ordering
+    scale: 0-1
+    description: XLSX score for workbook overview or summary sheets appearing before detail sheets.
+  - id: visible_data_sheets
+    scale: 0-1
+    description: XLSX score for workbook sheets with visible sampled data.
+  - id: deterministic_rule_coverage
+    scale: 0-1
+    description: Existing checker-rule fallback coverage before calibrated rubric judging is available.

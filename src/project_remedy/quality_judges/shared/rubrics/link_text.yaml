@@ -1,0 +1,22 @@
+dimension: link_text
+version: rubric_v1
+applies_to: [pdf, docx, pptx, xlsx]
+criteria:
+  - id: destination_clarity
+    scale: 1-5
+    description: Link text describes the destination or action without relying on surrounding prose.
+  - id: non_generic_text
+    scale: 0-1
+    description: Link text avoids raw URLs, "click here", "read more", and similar generic labels.
+  - id: context_fit
+    scale: 1-5
+    description: Link wording fits the document context and does not misrepresent the target.
+  - id: descriptive_link_text
+    scale: 0-1
+    description: Parser-backed score for non-generic, non-raw-URL link display text.
+  - id: link_text_parser_coverage
+    scale: 0-1
+    description: Office OOXML hyperlink parser coverage for link-text scoring.
+  - id: deterministic_rule_coverage
+    scale: 0-1
+    description: Existing checker-rule fallback coverage before calibrated rubric judging is available.

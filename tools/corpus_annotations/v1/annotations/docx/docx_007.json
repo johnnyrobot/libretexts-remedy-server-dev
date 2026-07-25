@@ -1,0 +1,70 @@
+{
+  "annotated_at": "2026-05-09T18:21:12.847120+00:00",
+  "annotation_version": "1.0",
+  "annotator": "automated_bootstrap",
+  "applicable_dimensions": [
+    "alt_text",
+    "reading_order",
+    "heading_semantics",
+    "table_structure",
+    "link_text",
+    "decorative",
+    "complex_content"
+  ],
+  "artifact_hashes": {
+    "gold_remediation_sha256": "a9e1bb8bdea77b7d74845793e08ebde6f86460b4e326af83a9bc34d2063f34ec",
+    "known_bad_sha256": {
+      "tools/corpus_annotations/v1/artifacts/docx/docx_007_bad.docx": "21836bbbd7195d37830f756f62c00b84690ef9bb700c1f167c0d65ee9f0e6a86"
+    },
+    "source_sha256": "eeeeba44f5fc92fc7c990523215f0e1fb173e6608a21c1639d74194a12f8664e"
+  },
+  "dimensions": {
+    "alt_text": {
+      "notes": "",
+      "score": 0.9
+    },
+    "complex_content": {
+      "notes": "",
+      "score": 0.9
+    },
+    "decorative": {
+      "notes": "",
+      "score": 0.9
+    },
+    "heading_semantics": {
+      "notes": "",
+      "score": 0.9
+    },
+    "link_text": {
+      "notes": "",
+      "score": 0.9
+    },
+    "reading_order": {
+      "notes": "",
+      "score": 0.9
+    },
+    "table_structure": {
+      "notes": "",
+      "score": 0.9
+    }
+  },
+  "doc_id": "docx_007",
+  "document_class": "report",
+  "edge_case_flags": [],
+  "format": "docx",
+  "format_specific": {
+    "docx": {}
+  },
+  "gold_remediation_path": "tools/corpus_annotations/v1/artifacts/docx/docx_007_gold.docx",
+  "known_bad_artifact_paths": [
+    "tools/corpus_annotations/v1/artifacts/docx/docx_007_bad.docx"
+  ],
+  "pairwise_comparisons": [],
+  "provenance": {
+    "candidate_seed_model": "",
+    "candidate_seed_notes": "",
+    "gold_standard_source": "human_specialist",
+    "human_verified": true
+  },
+  "source_path": "tools/corpus_annotations/v1/artifacts/docx/docx_007_source.docx"
+}
