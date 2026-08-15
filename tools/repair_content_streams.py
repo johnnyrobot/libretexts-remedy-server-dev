@@ -9,11 +9,11 @@ struct tree (PDF/UA-1 compliance preserved). Idempotent.
 
 Examples
 --------
-    # fix every PDF in the remediated corpus, in place
-    python tools/repair_content_streams.py ***REMOVED***
+    # fix every PDF in a remediated corpus, in place
+    python tools/repair_content_streams.py /path/to/remediated_pdfs
 
     # see how many files / ops would change, without writing
-    python tools/repair_content_streams.py ***REMOVED*** --dry-run
+    python tools/repair_content_streams.py /path/to/remediated_pdfs --dry-run
 """
 
 from __future__ import annotations

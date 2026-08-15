@@ -28,6 +28,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -51,17 +52,32 @@ from project_remedy.faithful_rebuild.font_analysis import (
 from project_remedy.faithful_rebuild.multifont_replacer import MultiFontReplacer
 from project_remedy.faithful_rebuild.pua_handler import should_skip_font_for_pua
 
-# --- Fixed paths -----------------------------------------------------------
-SCRATCH = Path(
-    "***REMOVED***"
-    "***REMOVED***/scratchpad"
-)
+def _env_path(name: str, default: str | None = None) -> Path:
+    """Resolve a directory from the environment, failing loudly if unset.
+
+    These tools run against a local corpus of delivered PDFs, so the caller
+    supplies the locations; nothing is baked into the repo.
+    """
+    raw = os.environ.get(name) or default
+    if not raw:
+        raise SystemExit(
+            f"{name} is not set. Point it at your local corpus, e.g.\n"
+            f"    export {name}=/path/to/remediated_pdfs"
+        )
+    return Path(raw).expanduser()
+
+
+# --- paths (environment-driven) --------------------------------------------
+# REMEDY_SRC_DIR      delivered PDFs to read; never mutated
+# REMEDY_SCRATCH_DIR  working area for copies, veraPDF output, and result JSON
+SRC_DIR = _env_path("REMEDY_SRC_DIR")
+SCRATCH = _env_path("REMEDY_SCRATCH_DIR", "./.scratch")
 SWEEP_JSON = SCRATCH / "verapdf_sweep_results.json"
 OUT_DIR = SCRATCH / "font_fixed"
 REPORT_JSON = SCRATCH / "font_fixed_results.json"
-SRC_DIR = Path("***REMOVED***")
 
-VERAPDF_BIN = "/opt/homebrew/bin/verapdf"
+# Override if veraPDF lives elsewhere (Linux/Intel-mac installs differ).
+VERAPDF_BIN = os.environ.get("VERAPDF_BIN", "verapdf")
 
 
 # --- veraPDF: failed-clause extraction -------------------------------------

@@ -9,7 +9,13 @@ import xml.etree.ElementTree as ET
 import pikepdf
 from fontTools.ttLib import TTFont
 
-PDIR = os.path.expanduser("***REMOVED***")
+PDIR = os.environ.get("REMEDY_SRC_DIR")
+if not PDIR:
+    raise SystemExit(
+        "REMEDY_SRC_DIR is not set. Point it at your local corpus, e.g.\n"
+        "    export REMEDY_SRC_DIR=/path/to/remediated_pdfs"
+    )
+PDIR = os.path.expanduser(PDIR)
 
 # (filename, clauses-per-handoff-appendix) — clauses only used as a cross-check
 TARGETS = [
