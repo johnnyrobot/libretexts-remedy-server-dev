@@ -58,6 +58,10 @@ services:
       - remedy_bridge_state:/data
     networks:
       - remedy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     depends_on:
       remedy-server:
         condition: service_started
@@ -84,6 +88,16 @@ services:
       - "5176"
     networks:
       - remedy
+    # Chromium keeps its own sandbox under these restrictions: Playwright uses
+    # unprivileged user namespaces, not the setuid sandbox helper, so dropping
+    # all capabilities does not force CHROMIUM_NO_SANDBOX=1. Verified by
+    # launching a sandboxed browser in this image with both options applied.
+    # If a host kernel disables unprivileged user namespaces, Chromium will
+    # fail to start — relax `cap_drop` there rather than disabling the sandbox.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     depends_on:
       remedy-server:
         condition: service_started
