@@ -9,11 +9,11 @@ pipeline leaves behind, without re-running any model.
 
 Examples
 --------
-    # fix every PDF in the remediated corpus, in place
-    python tools/apply_adobe_compliance.py ***REMOVED***
+    # fix every PDF in a remediated corpus, in place
+    python tools/apply_adobe_compliance.py /path/to/remediated_pdfs
 
     # see what *would* change, without touching any file
-    python tools/apply_adobe_compliance.py ***REMOVED*** --dry-run
+    python tools/apply_adobe_compliance.py /path/to/remediated_pdfs --dry-run
 
     # one file
     python tools/apply_adobe_compliance.py path/to/doc.pdf

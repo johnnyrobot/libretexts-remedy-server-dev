@@ -28,6 +28,7 @@ Run from the repo root via the project venv:
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
@@ -37,13 +38,28 @@ import pikepdf
 
 from project_remedy.pdf_fixer import fix_optional_content_config_names
 
-# --- fixed paths -----------------------------------------------------------
-SCRATCH = Path(
-    "***REMOVED***"
-    "***REMOVED***/scratchpad"
-)
+
+def _env_path(name: str, default: str | None = None) -> Path:
+    """Resolve a directory from the environment, failing loudly if unset.
+
+    These tools run against a local corpus of delivered PDFs, so the caller
+    supplies the locations; nothing is baked into the repo.
+    """
+    raw = os.environ.get(name) or default
+    if not raw:
+        raise SystemExit(
+            f"{name} is not set. Point it at your local corpus, e.g.\n"
+            f"    export {name}=/path/to/remediated_pdfs"
+        )
+    return Path(raw).expanduser()
+
+
+# --- paths (environment-driven) --------------------------------------------
+# REMEDY_SRC_DIR      delivered PDFs to read; never mutated
+# REMEDY_SCRATCH_DIR  working area for copies, veraPDF output, and result JSON
+SRC_DIR = _env_path("REMEDY_SRC_DIR")
+SCRATCH = _env_path("REMEDY_SCRATCH_DIR", "./.scratch")
 SWEEP_JSON = SCRATCH / "verapdf_sweep_results.json"
-SRC_DIR = Path("***REMOVED***")
 OUT_DIR = SCRATCH / "ocg_fixed"
 RESULTS_JSON = SCRATCH / "ocg_fixed_results.json"
 
