@@ -136,3 +136,6 @@ graphify-out/
 tests/*
 !tests/unit/
 !tests/unit/*.py
+
+# Generated routing table from tools/reclassify_font_residue.py
+.scratch/
