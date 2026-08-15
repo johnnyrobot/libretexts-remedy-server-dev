@@ -1,0 +1,108 @@
+# LibreTexts Remedy — full stack (server + CXone bridge + ADAPT scanner).
+#
+# Run from THIS directory:
+#   docker compose up -d --build
+#
+# Build contexts are resolved relative to this file, so the three repositories
+# must be cloned as siblings with these exact directory names:
+#
+#   remedy/
+#   ├── libretexts-remedy-server/   <- you are in deploy/stack/ inside this one
+#   ├── libretexts-remedy-bridge/
+#   └── adapt-a11y-scanner/
+#
+# See README.md in this directory for the full walkthrough.
+
+services:
+  remedy-server:
+    build:
+      context: ../..
+      # `runtime`, NOT `runtime-slim`. Slim disables /v1/validate/html (503),
+      # which is exactly what adapt-scanner posts to.
+      target: runtime
+    image: libretexts-remedy-server:local
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 2m
+    env_file:
+      - ./env/remedy-server.env
+    ports:
+      - "127.0.0.1:8090:8000"
+    volumes:
+      - remedy_job_data:/app/job_data
+      - remedy_job_state:/app/state
+    networks:
+      - remedy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/readyz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  remedy-bridge:
+    build:
+      context: ../../../libretexts-remedy-bridge
+    image: libretexts-remedy-bridge:local
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ./env/remedy-bridge.env
+    ports:
+      - "127.0.0.1:8092:5175"
+    volumes:
+      - remedy_bridge_state:/data
+    networks:
+      - remedy
+    depends_on:
+      remedy-server:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5175/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  adapt-scanner:
+    build:
+      context: ../../../adapt-a11y-scanner
+    image: libretexts-adapt-a11y-scanner:local
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ./env/adapt-scanner.env
+    # Long-lived HTTP service. To use it as a one-shot CLI job instead, drop
+    # `restart` and run:
+    #   docker compose run --rm adapt-scanner node dist/index.js assignment 1234
+    entrypoint: ["node", "dist/server.js"]
+    expose:
+      - "5176"
+    networks:
+      - remedy
+    depends_on:
+      remedy-server:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5176/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  remedy:
+    # Shared with Conductor, which also declares it external, so that neither
+    # stack owns it and `docker compose down` cannot delete it out from under
+    # the other. Pre-create once:  docker network create libretexts_remedy
+    name: libretexts_remedy
+    external: true
+
+volumes:
+  remedy_job_data:
+  remedy_job_state:
+  remedy_bridge_state:

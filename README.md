@@ -6,6 +6,14 @@ Every tool, checker, fixer, and pipeline lives behind FastAPI at `/v1/*`. No fro
 
 Names: distribution / service / container / Docker image label is `remedy-server`. The Python import package remains `project_remedy` (e.g. `from project_remedy.pdf_checker import ...`), and the dev CLI script is `remedy-pdf`. Public API paths under `/v1/*` and SQLite identifiers are unchanged.
 
+> ### Deploying the full Remedy stack?
+> This server is the hub of a three-repository stack — it plus
+> `libretexts-remedy-bridge` (CXone pages) and `adapt-a11y-scanner` (ADAPT
+> questions). **[`deploy/stack/README.md`](deploy/stack/README.md)** is the
+> single entry point: what each repo does, which ones you actually need, a
+> portable compose file for all three, and the failure modes that are not
+> obvious. Start there rather than wiring them together by hand.
+
 ---
 
 ## Quick start (local dev)
@@ -31,20 +39,24 @@ curl http://127.0.0.1:8000/openapi.json   # full schema
 ### Local Conductor + LibreTexts Remedy testing
 
 For local CXone page remediation, run `remedy-server` as the stable API surface
-and forward the page-specific work to the `libretexts_remedy` Node bridge:
+and forward the page-specific work to the **`libretexts-remedy-bridge`** Node
+bridge (cloned as a sibling directory):
 
 ```bash
-# Terminal 1: libretexts_remedy CXone bridge
-cd ../libretexts_remedy
+# Terminal 1: CXone bridge
+cd ../libretexts-remedy-bridge
 npm run dev:api --workspace @libretexts/remedy-conductor-panel
 # -> http://127.0.0.1:5175
 
 # Terminal 2: remedy-server
-cd ../remedy-server
+cd ../libretexts-remedy-server
 CXONE_BRIDGE_BASE_URL=http://127.0.0.1:5175 \
 ./.venv/bin/uvicorn backend.app.main:app --reload
 # -> http://127.0.0.1:8000
 ```
+
+> To run the whole stack (server + bridge + ADAPT scanner) in containers
+> instead, see **[`deploy/stack/README.md`](deploy/stack/README.md)**.
 
 Point Conductor at `remedy-server`:
 
@@ -59,7 +71,7 @@ This enables:
 |---|---|---|
 | `POST` | `/v1/cxone/page/scan` | Scan a CXone page URL/id and return Conductor criteria + findings. |
 | `POST` | `/v1/cxone/page/preview-fix` | Preview selected deterministic fixes, or page-wide pipeline fixes with `fix_mode=pipeline`. |
-| `POST` | `/v1/cxone/page/apply-fix` | Apply the approved preview through the `libretexts_remedy` guardrails. |
+| `POST` | `/v1/cxone/page/apply-fix` | Apply the approved preview through the `libretexts-remedy-bridge` guardrails. |
 
 ## Deploy (single-node)
 
