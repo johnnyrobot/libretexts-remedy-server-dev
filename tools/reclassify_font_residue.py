@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Reclassify the 33 LAMC font-residue files by REAL veraPDF rule + font identity.
+"""Reclassify font-residue files by REAL veraPDF rule + font identity.
 
-Read-only. Produces a per-file routing table so the deterministic passes
-(width rewrite, cmap-inversion ToUnicode) can run before any OCR.
+Read-only. Runs over every PDF in the corpus given by REMEDY_SRC_DIR and
+produces a per-file routing table so the deterministic passes (width rewrite,
+cmap-inversion ToUnicode) can run before any OCR.
+
+The routing table is written to REMEDY_SCRATCH_DIR (default ./.scratch) — it is
+generated output and does not belong in the repo.
 """
 import subprocess, sys, os, re, io, json
 import xml.etree.ElementTree as ET
@@ -17,22 +21,7 @@ if not PDIR:
     )
 PDIR = os.path.expanduser(PDIR)
 
-# (filename, clauses-per-handoff-appendix) — clauses only used as a cross-check
-TARGETS = [
- "***REMOVED***","***REMOVED***",
- "***REMOVED***","***REMOVED***","***REMOVED***",
- "***REMOVED***","***REMOVED***","***REMOVED***",
- "***REMOVED***","***REMOVED***",
- "***REMOVED***","***REMOVED***",
- "***REMOVED***","***REMOVED***",
- "***REMOVED***","***REMOVED***","***REMOVED***",
- "***REMOVED***","***REMOVED***","***REMOVED***",
- "***REMOVED***","***REMOVED***",
- "***REMOVED***","***REMOVED***","***REMOVED***",
- "***REMOVED***","***REMOVED***","***REMOVED***","***REMOVED***",
- "***REMOVED***","***REMOVED***",
- "***REMOVED***","***REMOVED***",
-]
+SCRATCH = os.path.expanduser(os.environ.get("REMEDY_SCRATCH_DIR", "./.scratch"))
 
 SYMBOL_HINTS = ("wingding","dingbat","symbol","zapf","cmsy","cmmi","cmex","marlett","webding",
                 "mingliu","simsun","mincho","gothic","batang","gulim","mssong","stsong","stkaiti")
@@ -46,12 +35,13 @@ def is_symbolish(name):
     n = name.lower()
     return any(h in n for h in SYMBOL_HINTS)
 
-# ---------- 1. run veraPDF once over all present files ----------
-present = [f for f in TARGETS if os.path.isfile(os.path.join(PDIR,f))]
-missing = [f for f in TARGETS if f not in present]
+# ---------- 1. run veraPDF once over every PDF in the corpus ----------
+present = sorted(f for f in os.listdir(PDIR)
+                 if f.lower().endswith(".pdf") and os.path.isfile(os.path.join(PDIR, f)))
+if not present:
+    raise SystemExit(f"no PDFs found in {PDIR}")
 paths = [os.path.join(PDIR,f) for f in present]
-print(f"# veraPDF sweep: {len(present)} present, {len(missing)} missing", file=sys.stderr)
-if missing: print("MISSING:", missing, file=sys.stderr)
+print(f"# veraPDF sweep: {len(present)} file(s) in {PDIR}", file=sys.stderr)
 
 proc = subprocess.run(["verapdf","-f","ua1","--format","xml",*paths],
                       capture_output=True, text=True, timeout=1200)
@@ -193,6 +183,7 @@ tc=Counter(r["tier"] for r in rows)
 print("\n## Tier summary\n")
 for t in ("DETERMINISTIC","SEMI-AUTO","OCR-TAIL"):
     print(f"- **{t}**: {tc.get(t,0)}")
-outp=os.path.join(os.path.dirname(__file__),"routing.json")
+os.makedirs(SCRATCH, exist_ok=True)
+outp=os.path.join(SCRATCH,"routing.json")
 json.dump(rows, open(outp,"w"), indent=2)
 print(f"\nrouting.json -> {outp}")
