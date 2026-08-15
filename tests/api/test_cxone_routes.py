@@ -15,6 +15,8 @@ class _FakeBridgeResponse:
         self._data = data
 
     def json(self) -> Any:
+        if isinstance(self._data, Exception):
+            raise self._data
         return self._data
 
 
@@ -41,6 +43,10 @@ class _RecordingAsyncClient:
         )
         return self.response
 
+    async def get(self, path: str):
+        self.calls.append({"path": path, "client_kwargs": self.kwargs})
+        return self.response
+
 
 def _configure_import_env(monkeypatch, tmp_path: Path) -> None:
     state_dir = tmp_path / "import-state"
@@ -53,22 +59,118 @@ def _configure_import_env(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("JOB_BACKUP_DIR", str(state_dir / "job_backups"))
 
 
-def _settings(tmp_path: Path, *, api_key: str = "") -> Settings:
+def _settings(
+    tmp_path: Path,
+    *,
+    api_key: str = "",
+    cxone_integration_enabled: bool = True,
+) -> Settings:
     return Settings(
         api_key=api_key,
         ollama_api_key="test-ollama-key",
         job_store_path=tmp_path / "state" / "jobs.db",
         job_dir=tmp_path / "job_data",
         backup_dir=tmp_path / "job_backups",
+        cxone_integration_enabled=cxone_integration_enabled,
         cxone_bridge_base_url="http://bridge.local",
         cxone_bridge_timeout_seconds=12.0,
     )
 
 
-def _create_test_app(tmp_path: Path, monkeypatch, *, api_key: str = ""):
+def _create_test_app(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    api_key: str = "",
+    cxone_integration_enabled: bool = True,
+):
     _configure_import_env(monkeypatch, tmp_path)
     main = importlib.import_module("backend.app.main")
-    return main.create_app(_settings(tmp_path, api_key=api_key))
+    return main.create_app(_settings(
+        tmp_path,
+        api_key=api_key,
+        cxone_integration_enabled=cxone_integration_enabled,
+    ))
+
+
+def test_cxone_is_disabled_by_default_without_affecting_core_health(monkeypatch, tmp_path):
+    import httpx
+
+    _RecordingAsyncClient.calls = []
+    monkeypatch.setattr(httpx, "AsyncClient", _RecordingAsyncClient)
+    app = _create_test_app(
+        tmp_path,
+        monkeypatch,
+        cxone_integration_enabled=False,
+    )
+
+    with TestClient(app) as client:
+        health = client.get("/healthz")
+        ready = client.get("/readyz")
+        integration = client.get("/v1/cxone/health")
+        scan = client.post(
+            "/v1/cxone/page/scan",
+            json={"page_id": 123},
+        )
+
+    assert health.status_code == 200
+    assert ready.status_code == 200
+    assert integration.status_code == 200
+    assert integration.json() == {
+        "ok": True,
+        "state": "disabled",
+        "enabled": False,
+        "write_scope": {
+            "host": "dev.libretexts.org",
+            "root": "Sandboxes/johnnyphung",
+        },
+    }
+    assert scan.status_code == 503
+    assert scan.json()["detail"]["error"] == "cxone_integration_disabled"
+    assert _RecordingAsyncClient.calls == []
+
+
+def test_cxone_health_reports_bridge_state_without_changing_core_readiness(monkeypatch, tmp_path):
+    import httpx
+
+    _RecordingAsyncClient.calls = []
+    _RecordingAsyncClient.response = _FakeBridgeResponse(
+        200,
+        {"ok": False, "state": "misconfigured", "error": "cxone_configuration_invalid"},
+    )
+    monkeypatch.setattr(httpx, "AsyncClient", _RecordingAsyncClient)
+    app = _create_test_app(tmp_path, monkeypatch)
+
+    with TestClient(app) as client:
+        integration = client.get("/v1/cxone/health")
+        ready = client.get("/readyz")
+
+    assert integration.status_code == 200
+    assert integration.json()["state"] == "misconfigured"
+    assert integration.json()["ok"] is False
+    assert ready.status_code == 200
+    assert _RecordingAsyncClient.calls == [{
+        "path": "/healthz",
+        "client_kwargs": {"base_url": "http://bridge.local", "timeout": 5.0},
+    }]
+
+
+def test_cxone_health_maps_non_json_bridge_response_to_degraded(monkeypatch, tmp_path):
+    import httpx
+
+    _RecordingAsyncClient.calls = []
+    _RecordingAsyncClient.response = _FakeBridgeResponse(200, ValueError("not json"))
+    monkeypatch.setattr(httpx, "AsyncClient", _RecordingAsyncClient)
+    app = _create_test_app(tmp_path, monkeypatch)
+
+    with TestClient(app) as client:
+        integration = client.get("/v1/cxone/health")
+        core_health = client.get("/healthz")
+
+    assert integration.status_code == 200
+    assert integration.json()["state"] == "degraded"
+    assert integration.json()["error"] == "cxone_bridge_unavailable"
+    assert core_health.status_code == 200
 
 
 def test_cxone_scan_route_forwards_to_configured_bridge(monkeypatch, tmp_path):
