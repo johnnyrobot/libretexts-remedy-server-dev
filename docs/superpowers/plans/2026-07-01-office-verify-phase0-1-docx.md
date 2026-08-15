@@ -67,8 +67,8 @@
 - [ ] **Step 1: Copy the PRD into the worktree and commit it**
 
 ```bash
-cp ***REMOVED*** .
-cp ***REMOVED*** docs/superpowers/plans/ 2>/dev/null || true
+cp <source-checkout>/PRD_ooxml_a11y_validator.md .
+cp <source-checkout>/docs/superpowers/plans/2026-07-01-office-verify-phase0-1-docx.md docs/superpowers/plans/ 2>/dev/null || true
 git add PRD_ooxml_a11y_validator.md docs/superpowers/plans/2026-07-01-office-verify-phase0-1-docx.md
 git commit -m "docs: commit office-verify PRD + Phase 0/1 implementation plan
 

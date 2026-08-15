@@ -61,7 +61,7 @@
 - [ ] **Step 1: Copy + commit the spec and decisions doc**
 
 ```bash
-cp ***REMOVED*** .
+cp <source-checkout>/PRD_typst_backend.md .
 cp docs/superpowers/plans/2026-07-02-typst-backend-phase-t0.md docs/superpowers/plans/ 2>/dev/null || true
 ```
 

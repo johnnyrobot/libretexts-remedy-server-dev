@@ -3,7 +3,7 @@
 **Status:** Draft for review
 **Owner:** remedy-server engineering
 **Prepared:** 2026-07-01
-**Repo:** `remedy-server` (`***REMOVED***`)
+**Repo:** `remedy-server` (local checkout)
 **Related:** `RESEARCH_remedy_server_ADA_refactor.md` (§5 Remediation-Level taxonomy, §7.1 component specs, §9/9.1 OSS-alternatives research)
 
 ---
