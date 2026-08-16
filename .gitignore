@@ -94,6 +94,13 @@ scripts/laccd_smoke_batch.py
 
 # Clean seed repo exclusions
 *.md
+# Packaging/handover docs must survive the blanket *.md rule above — without
+# these, adding documentation to this repo silently does nothing.
+!README.md
+!THIRD-PARTY.md
+!DEPLOY.md
+!deploy/**/*.md
+!docs/**/*.md
 !src/project_remedy/behavioral_proxies/**/prompts/
 !src/project_remedy/behavioral_proxies/**/prompts/*.md
 !src/project_remedy/quality_judges/**/prompts/
