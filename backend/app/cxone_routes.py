@@ -39,6 +39,20 @@ class CxoneApplyRequest(CxonePreviewRequest):
     preview_token: str | None = None
 
 
+class CxoneRestorePreviewRequest(CxoneScanRequest):
+    snapshot_timestamp: str
+
+
+class CxoneRestoreRequest(CxoneScanRequest):
+    preview_hash: str
+    preview_token: str
+
+
+class CxoneReviseRequest(CxoneScanRequest):
+    preview_token: str
+    alt_edits: list[dict[str, str]]
+
+
 def build_router(settings: Settings) -> APIRouter:
     router = APIRouter()
     require_key = Depends(require_api_key_dependency(settings))
@@ -112,6 +126,22 @@ def build_router(settings: Settings) -> APIRouter:
     @router.post("/v1/cxone/page/apply-fix", dependencies=[require_key])
     async def apply_fix(body: CxoneApplyRequest) -> Any:
         return await _forward(settings, "/v1/cxone/page/apply-fix", _payload(body))
+
+    @router.post("/v1/cxone/page/snapshots", dependencies=[require_key])
+    async def snapshots(body: CxoneScanRequest) -> Any:
+        return await _forward(settings, "/v1/cxone/page/snapshots", _payload(body))
+
+    @router.post("/v1/cxone/page/restore-preview", dependencies=[require_key])
+    async def restore_preview(body: CxoneRestorePreviewRequest) -> Any:
+        return await _forward(settings, "/v1/cxone/page/restore-preview", _payload(body))
+
+    @router.post("/v1/cxone/page/restore", dependencies=[require_key])
+    async def restore(body: CxoneRestoreRequest) -> Any:
+        return await _forward(settings, "/v1/cxone/page/restore", _payload(body))
+
+    @router.post("/v1/cxone/page/revise-preview", dependencies=[require_key])
+    async def revise_preview(body: CxoneReviseRequest) -> Any:
+        return await _forward(settings, "/v1/cxone/page/revise-preview", _payload(body))
 
     return router
 
