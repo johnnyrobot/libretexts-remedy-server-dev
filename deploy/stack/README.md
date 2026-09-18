@@ -173,6 +173,50 @@ none are shipped in these repositories.
 
 ---
 
+## Reproducing the demo
+
+The demo video that accompanies these repositories shows the Conductor accessibility matrix on an
+82-page book cloned into a CXone sandbox: scan results per page and WCAG criterion, a targeted-fix
+preview with an HTML diff, and a work item whose evidence was cleared by a bridge tag restore. To
+reproduce it:
+
+1. **Bring up all three services** (steps 1–5 above) and confirm `/readyz`, `/healthz` and the
+   scanner health all answer.
+2. **Patch Conductor** with `conductor-remedy-patch` (three `git am` patches: CXone page ids on
+   review sections, scan/preview/apply endpoints, WCAG matrix scoring). Set
+   `LIBRETEXTS_TOC_ORIGIN` (bite 5) and point Conductor's Remedy client at the bridge.
+3. **Point the bridge at a sandbox you own.** The bridge refuses any write outside the path in its
+   env file; the demo used `dev.libretexts.org/Sandboxes/<user>`. Clone a public book into it
+   first so there is something to scan.
+4. **Scan.** Open `/projects/<id>/accessibility` in Conductor, run the page scans, read the matrix.
+   The score counts automatic checks only; manual and untested columns are the human backlog.
+5. **Preview one targeted fix.** On a page row, open *Fix*, keep only the `duplicate-id` findings,
+   *Preview changes*, *Show HTML diff*. Apply is a separate, confirmed step; the demo stops at the
+   preview.
+6. **Restore page tags with the bridge** (the change behind the demo's `link-name` 82 → 0). Build a
+   manifest with `tools/build-biology-tag-manifest.mjs` (or write one for your book — the shape is
+   `fixtures/biology-tag-restore.json` in the bridge repo), then:
+
+   ```bash
+   docker compose exec remedy-bridge node packages/cli/dist/index.js \
+     tags-restore --manifest fixtures/biology-tag-restore.json --dry-run       # per-page diff, no writes
+   docker compose exec remedy-bridge node packages/cli/dist/index.js \
+     tags-restore --manifest fixtures/biology-tag-restore.json --page <id>    # one-page trial
+   ```
+
+   Restore only the tags the failing component reads. On CXone a tag prefix is a site-template
+   trigger, not inert metadata: `article:*` pulls in templates that may not exist on the target
+   site, `authorname:*` renders an author box with an empty-alt image. `tags-revert
+   --snapshot-path` undoes a page from the snapshot the restore took first.
+7. **Rescan** and compare. What remains on the demo site is the shared reader skin (header, footer,
+   menu contrast and link styling) — outside any sandbox and outside this stack's write guard.
+
+Not reproducible from the shared repositories yet: the **Remediation work queue** panel under the
+matrix (work items with status, owner and scan evidence). It exists on the demo deployment but its
+Conductor patches are not in `conductor-remedy-patch` at the time of writing.
+
+---
+
 ## Naming, because the history is confusing
 
 The same components appear under older names in commit history, code comments,
