@@ -182,9 +182,10 @@ reproduce it:
 
 1. **Bring up all three services** (steps 1–5 above) and confirm `/readyz`, `/healthz` and the
    scanner health all answer.
-2. **Patch Conductor** with `conductor-remedy-patch` (three `git am` patches: CXone page ids on
-   review sections, scan/preview/apply endpoints, WCAG matrix scoring). Set
-   `LIBRETEXTS_TOC_ORIGIN` (bite 5) and point Conductor's Remedy client at the bridge.
+2. **Patch Conductor** with `conductor-remedy-patch` (twelve `git am` patches: the matrix,
+   the remediation work queue with per-page bridge actions, the WCAG verification panel, and
+   a CORS fix for browser-driven scans). Set `LIBRETEXTS_TOC_ORIGIN` (bite 5) and point
+   Conductor's Remedy client at the bridge.
 3. **Point the bridge at a sandbox you own.** The bridge refuses any write outside the path in its
    env file; the demo used `dev.libretexts.org/Sandboxes/<user>`. Clone a public book into it
    first so there is something to scan.
@@ -211,9 +212,9 @@ reproduce it:
 7. **Rescan** and compare. What remains on the demo site is the shared reader skin (header, footer,
    menu contrast and link styling) — outside any sandbox and outside this stack's write guard.
 
-Not reproducible from the shared repositories yet: the **Remediation work queue** panel under the
-matrix (work items with status, owner and scan evidence). It exists on the demo deployment but its
-Conductor patches are not in `conductor-remedy-patch` at the time of writing.
+The **Remediation work queue** panel under the matrix (work items with status, owner and scan
+evidence) and the **WCAG verification** panel come from patches 0004–0010 of
+`conductor-remedy-patch`; applying only 0001–0003 gives the matrix without them.
 
 ---
 
