@@ -64,9 +64,9 @@ names and layout matter:
 
 ```bash
 mkdir remedy && cd remedy
-git clone https://github.com/johnnylibretexts/libretexts-remedy-server-dev.git   libretexts-remedy-server
-git clone https://github.com/johnnylibretexts/libretexts-remedy-bridge-dev.git   libretexts-remedy-bridge
-git clone https://github.com/johnnylibretexts/adapt-a11y-scanner-dev.git         adapt-a11y-scanner
+git clone https://github.com/johnnylibretexts-ai/libretexts-remedy-server-dev.git   libretexts-remedy-server
+git clone https://github.com/johnnylibretexts-ai/libretexts-remedy-bridge-dev.git   libretexts-remedy-bridge
+git clone https://github.com/johnnylibretexts-ai/adapt-a11y-scanner-dev.git         adapt-a11y-scanner
 ```
 
 > The GitHub repositories carry a `-dev` suffix; the local directories must not.
