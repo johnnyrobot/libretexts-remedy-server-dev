@@ -218,16 +218,21 @@ class AccessibilityValidator:
             if isinstance(result, ValidatorDependencyError):
                 raise result
 
-        # Handle individual tool failures gracefully
+        # Handle individual tool failures without claiming the tool passed:
+        # an unrun checker is unknown, not clean, so it fails closed.
+        failed_tools: list[str] = []
         if isinstance(axe, Exception):
             logger.error("axe-core validation failed: %s", axe)
-            axe = ValidationResult(tool="axe", violations=[], passed=True)
+            failed_tools.append("axe-core")
+            axe = ValidationResult(tool="axe", violations=[], passed=False)
         if isinstance(pa11y, Exception):
             logger.error("pa11y validation failed: %s", pa11y)
-            pa11y = ValidationResult(tool="pa11y", violations=[], passed=True)
+            failed_tools.append("pa11y")
+            pa11y = ValidationResult(tool="pa11y", violations=[], passed=False)
         if isinstance(lh, Exception):
             logger.error("Lighthouse validation failed: %s", lh)
-            lh = ValidationResult(tool="lighthouse", score=0, violations=[], passed=True)
+            failed_tools.append("Lighthouse")
+            lh = ValidationResult(tool="lighthouse", score=0, violations=[], passed=False)
 
         visual = None
 
@@ -247,7 +252,7 @@ class AccessibilityValidator:
             v for v in all_violations
             if v.get("impact") in ("critical", "serious")
         ]
-        passed = len(critical_serious) == 0
+        passed = len(critical_serious) == 0 and not failed_tools
 
         lh_score = lh.score if lh.score is not None else 0.0
 
@@ -261,6 +266,11 @@ class AccessibilityValidator:
             f"Critical/serious: {len(critical_serious)}",
             f"Result: {'PASS' if passed else 'FAIL'}",
         ]
+        if failed_tools:
+            summary_parts.insert(
+                0,
+                "Checker did not run: " + ", ".join(failed_tools),
+            )
 
         return ValidationReport(
             axe_result=axe,
