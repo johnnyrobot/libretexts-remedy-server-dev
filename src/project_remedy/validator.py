@@ -10,6 +10,7 @@ correction (up to ``max_remediation_cycles``).
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 import functools
 import http.server
 import json
@@ -591,9 +592,11 @@ class AccessibilityValidator:
                 "pa11y CLI not found. Install with: npm install -g pa11y"
             ) from exc
         except asyncio.TimeoutError as exc:
-            if proc.returncode is None:
-                proc.kill()
-            await proc.communicate()
+            with suppress(ProcessLookupError):
+                if proc.returncode is None:
+                    proc.kill()
+            with suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(proc.communicate(), timeout=5)
             raise RuntimeError("pa11y timed out after 60s") from exc
         except (json.JSONDecodeError, ValueError) as exc:
             raise RuntimeError("pa11y returned invalid JSON results") from exc
@@ -708,9 +711,11 @@ class AccessibilityValidator:
                 "lighthouse CLI not found. Install with: npm install -g lighthouse"
             ) from exc
         except asyncio.TimeoutError as exc:
-            if proc.returncode is None:
-                proc.kill()
-            await proc.communicate()
+            with suppress(ProcessLookupError):
+                if proc.returncode is None:
+                    proc.kill()
+            with suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(proc.communicate(), timeout=5)
             raise RuntimeError("lighthouse timed out after 120s") from exc
         except (json.JSONDecodeError, ValueError) as exc:
             raise RuntimeError("lighthouse returned invalid JSON results") from exc

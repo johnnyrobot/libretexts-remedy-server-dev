@@ -73,17 +73,20 @@ async def test_clean_run_still_passes() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tool", ["pa11y", "lighthouse"])
-async def test_checker_timeout_does_not_report_success(monkeypatch, tool) -> None:
+@pytest.mark.parametrize("cleanup", ["normal", "pipe-stuck", "exit-race"])
+async def test_checker_timeout_does_not_report_success(monkeypatch, tool, cleanup) -> None:
     class Process:
         returncode = None
 
         async def communicate(self):
-            if self.returncode is None:
+            if self.returncode is None or cleanup == "pipe-stuck":
                 raise asyncio.TimeoutError
             return b"", b""
 
         def kill(self):
             self.returncode = -9
+            if cleanup == "exit-race":
+                raise ProcessLookupError
 
     process = Process()
 
