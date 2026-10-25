@@ -237,13 +237,14 @@ jobs:
         uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a  # v4.2.0
 
       - name: Sync deps
-        run: uv sync
+        run: uv sync --frozen
 
       - name: Run pip-audit
         run: |
-          uv pip install --upgrade pip pip-audit
-          # No fixed pip release is published for CVE-2026-3219 yet.
-          uv run pip-audit --skip-editable --ignore-vuln CVE-2026-3219
+          # Audit the deployed lock, without audit-tool dependencies upgrading
+          # packages in the environment and hiding vulnerable locked versions.
+          uv export --frozen --no-dev --no-emit-project --no-hashes --no-header > /tmp/remedy-requirements.txt
+          uvx pip-audit --requirement /tmp/remedy-requirements.txt --no-deps --disable-pip
 
   docker-build:
     name: docker image (smoke)

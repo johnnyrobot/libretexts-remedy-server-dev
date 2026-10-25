@@ -331,7 +331,11 @@ class AccessibilityValidator:
         await self._log_page_results(job.id, 0, page, current_results)
 
         cycle = 0
-        while not current_report.passed and cycle < self._max_cycles:
+        while (
+            not current_report.passed
+            and current_report.all_violations
+            and cycle < self._max_cycles
+        ):
             cycle += 1
             corrected = await self._remediate_html(current_html, current_report)
             corrected = self._cleanup_remediated_html(corrected)
@@ -362,7 +366,8 @@ class AccessibilityValidator:
         if not current_report.passed:
             error_message = (
                 f"{page.title} failed validation after {cycle} remediation cycle(s). "
-                f"{len(current_report.all_violations)} violation(s) remain."
+                f"{len(current_report.all_violations)} violation(s) remain. "
+                f"{current_report.summary}"
             )
 
         return PageValidationOutcome(
@@ -405,7 +410,11 @@ class AccessibilityValidator:
         )
         cycle = 0
 
-        while not current_report.passed and cycle < self._max_cycles:
+        while (
+            not current_report.passed
+            and current_report.all_violations
+            and cycle < self._max_cycles
+        ):
             cycle += 1
             corrected = await self._remediate_html(current_html, current_report)
             corrected = self._cleanup_remediated_html(corrected)
@@ -551,8 +560,14 @@ class AccessibilityValidator:
             )
 
             # pa11y exits with code 2 when issues are found — that is expected
+            if proc.returncode not in (0, 2):
+                raise RuntimeError("pa11y exited unsuccessfully")
+            if not stdout:
+                raise ValueError("pa11y returned no JSON output")
             if stdout:
                 raw = json.loads(stdout.decode("utf-8", errors="replace"))
+                if not isinstance(raw, list):
+                    raise ValueError("pa11y output must be a JSON array")
                 if isinstance(raw, list):
                     for issue in raw:
                         impact = _pa11y_type_to_impact(
@@ -575,10 +590,13 @@ class AccessibilityValidator:
             raise ValidatorDependencyError(
                 "pa11y CLI not found. Install with: npm install -g pa11y"
             ) from exc
-        except asyncio.TimeoutError:
-            logger.warning("pa11y timed out after 60s for %s", html_path.name)
+        except asyncio.TimeoutError as exc:
+            if proc.returncode is None:
+                proc.kill()
+            await proc.communicate()
+            raise RuntimeError("pa11y timed out after 60s") from exc
         except (json.JSONDecodeError, ValueError) as exc:
-            logger.warning("pa11y output parse error: %s", exc)
+            raise RuntimeError("pa11y returned invalid JSON results") from exc
 
         has_critical = any(
             v.get("impact") in ("critical", "serious") for v in violations
@@ -650,16 +668,25 @@ class AccessibilityValidator:
                 stderr=asyncio.subprocess.PIPE,
             )
             await asyncio.wait_for(proc.communicate(), timeout=120)
+            if proc.returncode != 0:
+                raise RuntimeError("lighthouse exited unsuccessfully")
 
             output_file = Path(output_path)
+            if not output_file.exists():
+                raise ValueError("lighthouse returned no output file")
             if output_file.exists():
                 raw = json.loads(output_file.read_text(encoding="utf-8"))
                 output_file.unlink(missing_ok=True)
+                if not isinstance(raw, dict) or raw.get("runtimeError"):
+                    raise ValueError("lighthouse did not complete successfully")
 
                 # Extract accessibility score
                 categories = raw.get("categories", {})
                 acc_cat = categories.get("accessibility", {})
-                score = (acc_cat.get("score") or 0) * 100
+                raw_score = acc_cat.get("score")
+                if isinstance(raw_score, bool) or not isinstance(raw_score, (int, float)) or not 0 <= raw_score <= 1:
+                    raise ValueError("lighthouse returned no valid accessibility score")
+                score = raw_score * 100
 
                 # Extract failing audits
                 audits = raw.get("audits", {})
@@ -680,14 +707,16 @@ class AccessibilityValidator:
             raise ValidatorDependencyError(
                 "lighthouse CLI not found. Install with: npm install -g lighthouse"
             ) from exc
-        except asyncio.TimeoutError:
-            logger.warning(
-                "Lighthouse timed out after 120s for %s", html_path.name
-            )
+        except asyncio.TimeoutError as exc:
+            if proc.returncode is None:
+                proc.kill()
+            await proc.communicate()
+            raise RuntimeError("lighthouse timed out after 120s") from exc
         except (json.JSONDecodeError, ValueError) as exc:
-            logger.warning("Lighthouse output parse error: %s", exc)
+            raise RuntimeError("lighthouse returned invalid JSON results") from exc
         finally:
             httpd.shutdown()
+            httpd.server_close()
             Path(output_path).unlink(missing_ok=True)
 
         has_critical = any(
@@ -1172,7 +1201,11 @@ class AccessibilityValidator:
         current_report = report
         cycle = 0
 
-        while not current_report.passed and cycle < self._max_cycles:
+        while (
+            not current_report.passed
+            and current_report.all_violations
+            and cycle < self._max_cycles
+        ):
             cycle += 1
             logger.info(
                 "Auto-remediation cycle %d/%d for job %s",
@@ -1240,7 +1273,8 @@ class AccessibilityValidator:
             job.status = JobStatus.FLAGGED
             job.error_message = (
                 f"Failed validation after {cycle} remediation cycle(s). "
-                f"{len(current_report.all_violations)} violation(s) remain."
+                f"{len(current_report.all_violations)} violation(s) remain. "
+                f"{current_report.summary}"
             )
             logger.warning(
                 "Job %s FLAGGED after %d remediation cycle(s) with %d violation(s)",
