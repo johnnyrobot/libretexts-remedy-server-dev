@@ -10,6 +10,7 @@ correction (up to ``max_remediation_cycles``).
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 import functools
 import http.server
 import json
@@ -218,16 +219,21 @@ class AccessibilityValidator:
             if isinstance(result, ValidatorDependencyError):
                 raise result
 
-        # Handle individual tool failures gracefully
+        # Handle individual tool failures without claiming the tool passed:
+        # an unrun checker is unknown, not clean, so it fails closed.
+        failed_tools: list[str] = []
         if isinstance(axe, Exception):
             logger.error("axe-core validation failed: %s", axe)
-            axe = ValidationResult(tool="axe", violations=[], passed=True)
+            failed_tools.append("axe-core")
+            axe = ValidationResult(tool="axe", violations=[], passed=False)
         if isinstance(pa11y, Exception):
             logger.error("pa11y validation failed: %s", pa11y)
-            pa11y = ValidationResult(tool="pa11y", violations=[], passed=True)
+            failed_tools.append("pa11y")
+            pa11y = ValidationResult(tool="pa11y", violations=[], passed=False)
         if isinstance(lh, Exception):
             logger.error("Lighthouse validation failed: %s", lh)
-            lh = ValidationResult(tool="lighthouse", score=0, violations=[], passed=True)
+            failed_tools.append("Lighthouse")
+            lh = ValidationResult(tool="lighthouse", score=0, violations=[], passed=False)
 
         visual = None
 
@@ -247,7 +253,7 @@ class AccessibilityValidator:
             v for v in all_violations
             if v.get("impact") in ("critical", "serious")
         ]
-        passed = len(critical_serious) == 0
+        passed = len(critical_serious) == 0 and not failed_tools
 
         lh_score = lh.score if lh.score is not None else 0.0
 
@@ -261,6 +267,11 @@ class AccessibilityValidator:
             f"Critical/serious: {len(critical_serious)}",
             f"Result: {'PASS' if passed else 'FAIL'}",
         ]
+        if failed_tools:
+            summary_parts.insert(
+                0,
+                "Checker did not run: " + ", ".join(failed_tools),
+            )
 
         return ValidationReport(
             axe_result=axe,
@@ -321,7 +332,11 @@ class AccessibilityValidator:
         await self._log_page_results(job.id, 0, page, current_results)
 
         cycle = 0
-        while not current_report.passed and cycle < self._max_cycles:
+        while (
+            not current_report.passed
+            and current_report.all_violations
+            and cycle < self._max_cycles
+        ):
             cycle += 1
             corrected = await self._remediate_html(current_html, current_report)
             corrected = self._cleanup_remediated_html(corrected)
@@ -352,7 +367,8 @@ class AccessibilityValidator:
         if not current_report.passed:
             error_message = (
                 f"{page.title} failed validation after {cycle} remediation cycle(s). "
-                f"{len(current_report.all_violations)} violation(s) remain."
+                f"{len(current_report.all_violations)} violation(s) remain. "
+                f"{current_report.summary}"
             )
 
         return PageValidationOutcome(
@@ -395,7 +411,11 @@ class AccessibilityValidator:
         )
         cycle = 0
 
-        while not current_report.passed and cycle < self._max_cycles:
+        while (
+            not current_report.passed
+            and current_report.all_violations
+            and cycle < self._max_cycles
+        ):
             cycle += 1
             corrected = await self._remediate_html(current_html, current_report)
             corrected = self._cleanup_remediated_html(corrected)
@@ -541,8 +561,14 @@ class AccessibilityValidator:
             )
 
             # pa11y exits with code 2 when issues are found — that is expected
+            if proc.returncode not in (0, 2):
+                raise RuntimeError("pa11y exited unsuccessfully")
+            if not stdout:
+                raise ValueError("pa11y returned no JSON output")
             if stdout:
                 raw = json.loads(stdout.decode("utf-8", errors="replace"))
+                if not isinstance(raw, list):
+                    raise ValueError("pa11y output must be a JSON array")
                 if isinstance(raw, list):
                     for issue in raw:
                         impact = _pa11y_type_to_impact(
@@ -565,10 +591,15 @@ class AccessibilityValidator:
             raise ValidatorDependencyError(
                 "pa11y CLI not found. Install with: npm install -g pa11y"
             ) from exc
-        except asyncio.TimeoutError:
-            logger.warning("pa11y timed out after 60s for %s", html_path.name)
+        except asyncio.TimeoutError as exc:
+            with suppress(ProcessLookupError):
+                if proc.returncode is None:
+                    proc.kill()
+            with suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(proc.communicate(), timeout=5)
+            raise RuntimeError("pa11y timed out after 60s") from exc
         except (json.JSONDecodeError, ValueError) as exc:
-            logger.warning("pa11y output parse error: %s", exc)
+            raise RuntimeError("pa11y returned invalid JSON results") from exc
 
         has_critical = any(
             v.get("impact") in ("critical", "serious") for v in violations
@@ -640,16 +671,25 @@ class AccessibilityValidator:
                 stderr=asyncio.subprocess.PIPE,
             )
             await asyncio.wait_for(proc.communicate(), timeout=120)
+            if proc.returncode != 0:
+                raise RuntimeError("lighthouse exited unsuccessfully")
 
             output_file = Path(output_path)
+            if not output_file.exists():
+                raise ValueError("lighthouse returned no output file")
             if output_file.exists():
                 raw = json.loads(output_file.read_text(encoding="utf-8"))
                 output_file.unlink(missing_ok=True)
+                if not isinstance(raw, dict) or raw.get("runtimeError"):
+                    raise ValueError("lighthouse did not complete successfully")
 
                 # Extract accessibility score
                 categories = raw.get("categories", {})
                 acc_cat = categories.get("accessibility", {})
-                score = (acc_cat.get("score") or 0) * 100
+                raw_score = acc_cat.get("score")
+                if isinstance(raw_score, bool) or not isinstance(raw_score, (int, float)) or not 0 <= raw_score <= 1:
+                    raise ValueError("lighthouse returned no valid accessibility score")
+                score = raw_score * 100
 
                 # Extract failing audits
                 audits = raw.get("audits", {})
@@ -670,14 +710,18 @@ class AccessibilityValidator:
             raise ValidatorDependencyError(
                 "lighthouse CLI not found. Install with: npm install -g lighthouse"
             ) from exc
-        except asyncio.TimeoutError:
-            logger.warning(
-                "Lighthouse timed out after 120s for %s", html_path.name
-            )
+        except asyncio.TimeoutError as exc:
+            with suppress(ProcessLookupError):
+                if proc.returncode is None:
+                    proc.kill()
+            with suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(proc.communicate(), timeout=5)
+            raise RuntimeError("lighthouse timed out after 120s") from exc
         except (json.JSONDecodeError, ValueError) as exc:
-            logger.warning("Lighthouse output parse error: %s", exc)
+            raise RuntimeError("lighthouse returned invalid JSON results") from exc
         finally:
             httpd.shutdown()
+            httpd.server_close()
             Path(output_path).unlink(missing_ok=True)
 
         has_critical = any(
@@ -1162,7 +1206,11 @@ class AccessibilityValidator:
         current_report = report
         cycle = 0
 
-        while not current_report.passed and cycle < self._max_cycles:
+        while (
+            not current_report.passed
+            and current_report.all_violations
+            and cycle < self._max_cycles
+        ):
             cycle += 1
             logger.info(
                 "Auto-remediation cycle %d/%d for job %s",
@@ -1230,7 +1278,8 @@ class AccessibilityValidator:
             job.status = JobStatus.FLAGGED
             job.error_message = (
                 f"Failed validation after {cycle} remediation cycle(s). "
-                f"{len(current_report.all_violations)} violation(s) remain."
+                f"{len(current_report.all_violations)} violation(s) remain. "
+                f"{current_report.summary}"
             )
             logger.warning(
                 "Job %s FLAGGED after %d remediation cycle(s) with %d violation(s)",
