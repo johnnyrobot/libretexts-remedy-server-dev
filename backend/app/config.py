@@ -113,6 +113,7 @@ class Settings:
     quality_review_queue_path: Path = Path("./quality_review_queue.jsonl")
     quality_review_submission_path: Path = Path("./quality_review_submissions.jsonl")
     quality_corpus_root_path: Path = Path("./tools/corpus_annotations/v1")
+    quality_evidence_approval_path: Path | None = None
     reviewer_keys: list[str] = field(default_factory=list)
     quality_require_calibration: bool = False
     quality_min_cohens_kappa: float = 0.8
@@ -221,6 +222,8 @@ def load_settings(env_path: Path | None = None) -> Settings:
         quality_corpus_root_path=Path(
             _env("QUALITY_CORPUS_ROOT_PATH", "./tools/corpus_annotations/v1")
         ),
+        quality_evidence_approval_path=(Path(_env("QUALITY_EVIDENCE_APPROVAL_PATH", ""))
+                                        if _env("QUALITY_EVIDENCE_APPROVAL_PATH", "") else None),
         reviewer_keys=_env_list("APP_REVIEWER_KEYS", []),
         quality_require_calibration=_env_bool(
             "QUALITY_REQUIRE_CALIBRATION",

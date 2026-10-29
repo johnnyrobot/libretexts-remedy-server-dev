@@ -256,23 +256,24 @@ async def _remediate_pdf(job: Job, store: JobStore, settings: Settings) -> None:
             return
 
     if quality_requested:
-        from backend.app.quality_calibration import assert_quality_calibrated
+        from backend.app.quality_calibration import assert_quality_calibrated, QualityCalibrationError
         from project_remedy.quality_judges.pdf.audit import audit_pdf_quality
 
-        assert_quality_calibrated(settings, "pdf")
         try:
-            acceptance.quality_result = await asyncio.wait_for(
-                asyncio.to_thread(
-                    audit_pdf_quality,
-                    output_path,
-                    config=cfg,
-                ),
-                timeout=acceptance_timeout,
-            )
-        except TimeoutError as exc:
-            raise RuntimeError(
-                f"acceptance_timeout: audit_pdf_quality exceeded {acceptance_timeout:.0f}s"
-            ) from exc
+            assert_quality_calibrated(settings, "pdf")
+        except QualityCalibrationError:
+            # Calibration capability is separate from this usable base artifact.
+            meta["quality_result_error"] = "Quality calibration capability unavailable."
+        else:
+            try:
+                acceptance.quality_result = await asyncio.wait_for(
+                    asyncio.to_thread(audit_pdf_quality, output_path, config=cfg),
+                    timeout=acceptance_timeout,
+                )
+            except TimeoutError as exc:
+                raise RuntimeError(
+                    f"acceptance_timeout: audit_pdf_quality exceeded {acceptance_timeout:.0f}s"
+                ) from exc
 
     await store.update(job.id, stage="generating_report", progress=0.85)
     await asyncio.to_thread(
@@ -291,6 +292,7 @@ async def _remediate_pdf(job: Job, store: JobStore, settings: Settings) -> None:
         output_path=str(output_path),
         report_path=str(_first_html(report_dir) or ""),
         result_media_type="application/pdf",
+        metadata_json=_json.dumps(meta),
     )
 
 

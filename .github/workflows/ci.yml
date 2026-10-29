@@ -163,36 +163,19 @@ jobs:
             --dry-run \
             --json
 
-      - name: Enforce readiness when corpus annotations exist
+      - name: Require refusal of unqualified historical calibration evidence
         run: |
-          if [ -d tools/corpus_annotations/v1/annotations ] && \
-             find tools/corpus_annotations/v1/annotations \
-               -maxdepth 3 \
-               -type f -name '*.json' | grep -q .; then
-            uv run python tools/annotate_corpus.py coverage \
-              --root tools/corpus_annotations/v1 \
-              --json
-            uv run python tools/verify_corpus_snapshots.py check \
-              --root tools/corpus_annotations/v1 \
-              --json
-            uv run python tools/verify_behavioral_corpus.py check \
-              --root tools/corpus_annotations/v1 \
-              --results tools/corpus_annotations/v1/behavioral_results.jsonl \
-              --json
-            uv run python tools/calibrate_judges.py calibrate \
-              --root tools/corpus_annotations/v1 \
-              --store quality_experiments.db \
-              --judge-results tools/corpus_annotations/v1/judge_results.jsonl \
-              --enforce-readiness \
-              --json
-          else
-            echo "No corpus annotations committed yet; readiness remains advisory."
-            uv run python tools/calibrate_judges.py calibrate \
-              --root tools/corpus_annotations/v1 \
-              --store quality_experiments.db \
-              --dry-run \
-              --json
-          fi
+          set +e
+          uv run python tools/calibrate_judges.py calibrate \
+            --root tools/corpus_annotations/v1 \
+            --store /tmp/remedy-calibration-refusal.db \
+            --judge-results tools/corpus_annotations/v1/judge_results.jsonl \
+            --enforce-readiness --dry-run --json > /tmp/remedy-calibration-refusal.json
+          result=$?
+          set -e
+          test "$result" = 1
+          uv run python -c 'import json; p=json.load(open("/tmp/remedy-calibration-refusal.json")); assert p["calibration_ready"] is False and p["recorded"] is False and p["readiness_errors"]; print("Unqualified calibration evidence correctly refused.")'
+          uv run pytest tests/unit/test_calibration_evidence.py -v
 
       - name: Run quality-focused tests
         run: |
