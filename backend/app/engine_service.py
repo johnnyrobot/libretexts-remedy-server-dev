@@ -119,16 +119,25 @@ def is_office(ft: FileType) -> bool:
 async def run_job(job: Job, store: JobStore, settings: Settings) -> None:
     """Route *job* to the correct engine handler based on ``job.kind``."""
     kind = job.kind
+    # Provider/parser exceptions can include paths, source text or credentials.
+    # These job kinds expose a stable error; detailed diagnostics stay in logs.
+    outcome_handlers = {
+        JOB_KIND_REMEDIATE_OFFICE: (_remediate_office, "Office remediation failed."),
+        JOB_KIND_CONVERT_OFFICE_TO_HTML: (_convert_office_to_html, "Office-to-HTML conversion failed."),
+        JOB_KIND_CONVERT_HTML_TO_PDF: (_convert_html_to_pdf, "HTML-to-PDF conversion failed."),
+    }
+    if kind in outcome_handlers:
+        handler, message = outcome_handlers[kind]
+        try:
+            await handler(job, store, settings)
+        except Exception:
+            log.exception("Job %s: %s", job.id, message)
+            raise RuntimeError(message) from None
+        return
     if kind == JOB_KIND_REMEDIATE_PDF:
         await _remediate_pdf(job, store, settings)
-    elif kind == JOB_KIND_REMEDIATE_OFFICE:
-        await _remediate_office(job, store, settings)
     elif kind == JOB_KIND_CONVERT_PDF_TO_HTML:
         await _convert_pdf_to_html(job, store, settings)
-    elif kind == JOB_KIND_CONVERT_OFFICE_TO_HTML:
-        await _convert_office_to_html(job, store, settings)
-    elif kind == JOB_KIND_CONVERT_HTML_TO_PDF:
-        await _convert_html_to_pdf(job, store, settings)
     elif kind == JOB_KIND_VISION_PLAN_RUN:
         await _vision_plan_run(job, store, settings)
     else:
@@ -296,7 +305,15 @@ async def _remediate_office(job: Job, store: JobStore, settings: Settings) -> No
 
     await store.update(job.id, stage="remediating", progress=0.30)
     remediator = OfficeRemediator()
-    await remediator.remediate(input_path, output_path, title=input_path.stem)
+    result = await remediator.remediate(input_path, output_path, title=input_path.stem)
+    if not result.success:
+        raise RuntimeError("Office remediator did not succeed.")
+    _require_output_file(output_path)
+    from project_remedy.office_acceptance import validate_office_package
+
+    package = await asyncio.to_thread(validate_office_package, output_path, ft)
+    if not package.passed:
+        raise RuntimeError("Produced Office package is not readable.")
 
     try:
         meta = _json.loads(job.metadata_json or "{}")
@@ -318,17 +335,12 @@ async def _remediate_office(job: Job, store: JobStore, settings: Settings) -> No
             )
             meta["acceptance"] = summarize_office_acceptance(acceptance)
         except Exception as exc:  # noqa: BLE001 - gate failure must not lose the output
-            meta["acceptance"] = {"passed": False, "error": str(exc)}
+            log.warning("Office acceptance unavailable for job %s: %s", job.id, type(exc).__name__)
+            meta["acceptance"] = {"passed": False, "error": "Acceptance evaluation unavailable."}
     else:
         meta["acceptance"] = {"passed": False, "error": f"unsupported legacy type {ft.value}"}
 
     if meta.get("quality"):
-        # NOTE: ``ft`` may be a legacy Office type (FileType.DOC/PPT/XLS) when
-        # the upload's suffix matched a legacy extension. Neither
-        # ``quality_calibration_status`` (via ``DIMENSIONS_BY_FORMAT``) nor
-        # ``audit_office_quality`` (via ``_FORMAT_BY_FILE_TYPE``) accepts those
-        # values, so the quality opt-in path currently raises on legacy
-        # uploads. No suffix-level guard exists here yet.
         from backend.app.quality_calibration import assert_quality_calibrated
         from project_remedy.quality_judges.office.audit import audit_office_quality
 
@@ -342,7 +354,8 @@ async def _remediate_office(job: Job, store: JobStore, settings: Settings) -> No
             )
             meta["quality_result"] = asdict(quality_result)
         except Exception as exc:  # noqa: BLE001 - quality is advisory; never lose the output
-            meta["quality_result_error"] = str(exc)
+            log.warning("Office quality unavailable for job %s: %s", job.id, type(exc).__name__)
+            meta["quality_result_error"] = "Quality evaluation unavailable."
 
     await store.update(
         job.id,
@@ -389,6 +402,13 @@ async def _doc_to_html(
         html = await converter.convert(doc_job)
 
         output_path.write_text(html, encoding="utf-8")
+        if job.kind == JOB_KIND_CONVERT_OFFICE_TO_HTML:
+            _require_output_file(output_path)
+            from bs4 import BeautifulSoup
+
+            document = BeautifulSoup(output_path.read_text(encoding="utf-8"), "html.parser")
+            if document.html is None or document.body is None:
+                raise RuntimeError("Produced HTML lacks a document/body structure.")
 
         await store.update(
             job.id,
@@ -487,11 +507,20 @@ async def _convert_html_to_pdf(job: Job, store: JobStore, settings: Settings) ->
 
     await store.update(job.id, stage="rendering", progress=0.3)
     converter = HTMLToPDFConverter(max_concurrent=1)
-    await converter.start()
     try:
-        await converter.convert(html_content, output_path, title=input_path.stem)
+        await converter.start()
+        result = await converter.convert(html_content, output_path, title=input_path.stem)
     finally:
         await converter.close()
+
+    if not result.success:
+        raise RuntimeError("HTML renderer did not succeed.")
+    _require_output_file(output_path)
+    import pikepdf
+
+    with pikepdf.open(output_path) as pdf:
+        if not pdf.pages:
+            raise RuntimeError("Produced PDF has no pages.")
 
     await store.update(
         job.id,
@@ -506,6 +535,15 @@ async def _convert_html_to_pdf(job: Job, store: JobStore, settings: Settings) ->
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _require_output_file(path: Path) -> None:
+    """Reject missing/partial output independently of advisory acceptance."""
+    if path.is_symlink() or not path.is_file() or path.stat().st_size == 0:
+        raise RuntimeError("No usable output file was produced.")
+    with path.open("rb") as stream:
+        if not stream.read(1):
+            raise RuntimeError("No usable output file was produced.")
 
 
 def _first_html(directory: Path) -> Path | None:

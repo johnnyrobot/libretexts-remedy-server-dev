@@ -153,8 +153,8 @@ curl -X POST http://127.0.0.1:8000/v1/convert/pdf-to-html -F "file=@input.pdf"
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/v1/remediate` | Upload PDF **or** Office (DOCX/PPTX/XLSX/DOC/PPT/XLS) → async remediation. |
-| `POST` | `/v1/office/remediate` | Office-only variant of the above. |
+| `POST` | `/v1/remediate` | Upload PDF **or** modern Office (DOCX/PPTX/XLSX) → async remediation. Legacy DOC/PPT/XLS return 415. |
+| `POST` | `/v1/office/remediate` | Modern Office-only variant of the above (DOCX/PPTX/XLSX). |
 | `POST` | `/v1/convert/pdf-to-html` | PDF → accessible HTML (async). |
 | `POST` | `/v1/convert/office-to-html` | Office → accessible HTML (async). |
 | `POST` | `/v1/convert/html-to-pdf` | HTML → tagged PDF (async, via Playwright). |
@@ -163,6 +163,26 @@ curl -X POST http://127.0.0.1:8000/v1/convert/pdf-to-html -F "file=@input.pdf"
 | `GET` | `/v1/jobs/{id}/result` | Download the produced file (media type depends on job kind). |
 | `GET` | `/v1/jobs/{id}/report` | HTML conformance report (when available). |
 | `DELETE` | `/v1/jobs/{id}` | Remove job + on-disk artifacts. |
+
+HTTP 202 means the upload was accepted, not that conversion succeeded. Poll the
+job until `done` or `failed`. Office remediation and HTML conversion publish
+`done` only after successful processing and independent structural validation
+of the produced file. A readable file stays downloadable when accessibility
+acceptance or optional quality checks have advisory findings/errors; see job
+metadata. Structural readability does not certify accessibility or fidelity.
+
+Result download responses:
+
+| Status | Meaning |
+|---|---|
+| 200 | Completed job artifact available; response media type matches the output. |
+| 404 | Job does not exist. |
+| 409 | Job is queued, running or failed; no result is available. |
+| 410 | Job completed, but its artifact is now missing, empty or unreadable. |
+
+Legacy Office admission on checking, markdown extraction and Office-to-HTML
+has not changed. Those paths use modern native parsers and do not provide a
+supported legacy converter. Convert legacy files to DOCX/PPTX/XLSX first.
 
 ### Synchronous: PDF analysis
 
@@ -315,6 +335,15 @@ curl http://127.0.0.1:8000/openapi.json | jq '.paths | keys'
 ```
 
 Use `./.venv/bin/python -m pytest` in this repo. `uv run pytest` can resolve to miniconda's Python and miss the project dependencies.
+
+Committed HTTP/lifespan/worker regressions live in `tests/unit/test_job_outcomes_http.py`.
+With Playwright Chromium installed, run the genuine HTML-to-PDF case using
+`REMEDY_FULL_RUNTIME_TESTS=1 ./.venv/bin/python -m pytest tests/unit/test_job_outcomes_http.py`.
+CI also builds the `runtime-test` target from the full Linux runtime and runs
+these tests as the non-root application user with networking disabled. It
+substitutes external AI responses and controlled fault cases, while the real
+render test uses Chromium and parses the downloaded PDF. This is separate from
+the slim image smoke and does not establish cross-stack deployment readiness.
 
 ### Layout
 

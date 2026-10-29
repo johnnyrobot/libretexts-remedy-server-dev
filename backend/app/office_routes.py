@@ -21,7 +21,7 @@ from backend.app.auth import require_api_key_dependency
 from backend.app.config import Settings
 from backend.app.engine_service import filetype_for_suffix, is_office, media_type_for
 from backend.app.jobs import JOB_KIND_REMEDIATE_OFFICE, JobStore, JobWorker
-from backend.app.routes import _finalize_upload_and_enqueue  # reuse helper
+from backend.app.routes import _MODERN_OFFICE, _finalize_upload_and_enqueue
 from project_remedy.models import FileType
 
 
@@ -29,13 +29,16 @@ _ZIP_MAGIC = b"PK\x03\x04"
 _OLE2_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 
 
-async def _stage_office(file: UploadFile, settings: Settings) -> tuple[Path, FileType]:
+async def _stage_office(
+    file: UploadFile, settings: Settings, *, modern_only: bool = False,
+) -> tuple[Path, FileType]:
     suffix = Path(file.filename or "").suffix.lower()
     ft = filetype_for_suffix(suffix)
-    if ft is None or not is_office(ft):
+    if ft is None or not is_office(ft) or (modern_only and ft not in _MODERN_OFFICE):
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Accepts .docx/.doc/.pptx/.ppt/.xlsx/.xls only.",
+            detail=("Accepts .docx/.pptx/.xlsx only for remediation." if modern_only
+                    else "Accepts .docx/.doc/.pptx/.ppt/.xlsx/.xls only."),
         )
     max_bytes = settings.max_upload_mb * 1024 * 1024
     contents = await file.read(max_bytes + 1)
@@ -67,7 +70,10 @@ def build_router(
     require_key = Depends(require_api_key_dependency(settings))
     upload_limit = limiter.limit(upload_rate_limit)
 
-    @router.post("/remediate", dependencies=[require_key])
+    @router.post(
+        "/remediate", dependencies=[require_key], status_code=202,
+        responses={415: {"description": "Accepts DOCX/PPTX/XLSX; legacy Office is unsupported."}},
+    )
     @upload_limit
     async def office_remediate(
         request: Request,
@@ -77,10 +83,11 @@ def build_router(
             description="Opt in to attaching quality-layer audit results to Office remediation metadata.",
         ),
     ) -> JSONResponse:
-        """Office-only remediate endpoint. Alias for /v1/remediate when you
-        want the 415 message to be Office-specific.
+        """DOCX/PPTX/XLSX remediation alias for /v1/remediate.
+
+        Legacy DOC/PPT/XLS are rejected with 415 before staging or enqueue.
         """
-        staging, ft = await _stage_office(file, settings)
+        staging, ft = await _stage_office(file, settings, modern_only=True)
         body = await _finalize_upload_and_enqueue(
             store, worker, settings, staging, Path(file.filename or "").suffix,
             kind=JOB_KIND_REMEDIATE_OFFICE, result_media_type=media_type_for(ft),

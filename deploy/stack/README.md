@@ -6,6 +6,15 @@ Remedy is three separately-versioned services that ship as one stack. This
 directory contains the only `docker-compose.yml` that runs all three, plus the
 environment templates for each.
 
+**Release integration gate (LT-111/LT-112):** this is not yet a verified deployment
+bundle. The current `CXONE_BRIDGE_BASE_URL=http://remedy-bridge:5175` cannot reach
+a bridge bound to container-local `127.0.0.1`. Keep that loopback guard. Do not
+bind the bridge to `0.0.0.0`, publish its staff panel, or use a public proxy to
+work around it. A shared private network namespace is a proposed transport,
+pending Chief-approved design and Linux integration proof. Signed reviewer
+assertion forwarding also awaits the Bridge contract. The setup/demo commands
+below are historical assembly guidance, not evidence that these gates passed.
+
 ---
 
 ## The three repositories
@@ -185,7 +194,8 @@ reproduce it:
 2. **Patch Conductor** with `conductor-remedy-patch` (twelve `git am` patches: the matrix,
    the remediation work queue with per-page bridge actions, the WCAG verification panel, and
    a CORS fix for browser-driven scans). Set `LIBRETEXTS_TOC_ORIGIN` (bite 5) and point
-   Conductor's Remedy client at the bridge.
+   Conductor's Remedy client at the Server's guarded `/v1/cxone/*` routes.
+   Direct public bridge access is not an approved production topology.
 3. **Point the bridge at a sandbox you own.** The bridge refuses any write outside the path in its
    env file; the demo used `dev.libretexts.org/Sandboxes/<user>`. Clone a public book into it
    first so there is something to scan.
@@ -236,9 +246,11 @@ unchanged by any of these renames.
 
 ## Reverse proxy
 
-`deploy/Caddyfile` (one level up) terminates TLS for **remedy-server** only. In
-the LibreTexts.dev reference deployment the public hostname
-`remedy.<domain>` points at the **bridge** on `127.0.0.1:8092`, and the server
-is not publicly exposed at all — the scanner reaches it over the internal
-Docker network. Choose deliberately; exposing `/v1/*` publicly means
-`APP_API_KEY` is the only thing in front of the remediation engine.
+`deploy/Caddyfile` (one level up) describes TLS for **remedy-server**. Do not
+proxy the bridge or expose its staff panel publicly: a host-loopback port
+mapping does not turn a container-loopback listener into a reachable service,
+and a reverse proxy does not supply reviewer authorization. Production wiring
+must preserve Bridge loopback policy and use the reviewed Conductor → Server
+→ Bridge authorization contract before write routes are enabled. Exact
+origins, proxy trust, ports and compatible component versions remain part of
+the LT-111 deployment-bundle gate; this first outcome fix does not settle them.
