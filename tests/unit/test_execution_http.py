@@ -878,8 +878,10 @@ def child_delays_shared_lock(connection, function, args, parent_pid, ownership_p
             settings.backup_dir.mkdir(parents=True, exist_ok=True)
             import json
             from tests.unit.owned_process_fixture import start_ticks
-            (settings.backup_dir / "shared-lock.waiting").write_text(json.dumps(
-                {"pid": os.getpid(), "start_ticks": start_ticks(os.getpid())}))
+            marker = settings.backup_dir / "shared-lock.waiting"
+            temporary = marker.with_suffix(".tmp")
+            temporary.write_text(json.dumps({"pid": os.getpid(), "start_ticks": start_ticks(os.getpid())}))
+            temporary.replace(marker)
             while not (settings.backup_dir / "shared-lock.release").exists():
                 time.sleep(.01)
         return original(lock, operation)
@@ -897,6 +899,7 @@ async def test_parent_death_during_shared_lock_handoff_never_starts_old_work(exe
     import multiprocessing
     from backend.app.main import create_app
     settings = execution_settings
+    settings.backup_dir.mkdir(parents=True, exist_ok=True)
     owner = multiprocessing.get_context("spawn").Process(target=owner_with_delayed_child_lock, args=(settings,))
     owner.start()
     child = None
@@ -937,7 +940,13 @@ async def test_parent_death_during_shared_lock_handoff_never_starts_old_work(exe
                 owner.join(timeout=5)
         finally:
             try:
-                owner.close()
+                # Unblock a pre-fork child only after its API parent is dead;
+                # even an early observer failure must not authorize old work.
+                if not owner.is_alive():
+                    (settings.backup_dir / "shared-lock.release").touch()
             finally:
-                if child_handle is not None:
-                    cleanup_pinned(child_handle)
+                try:
+                    owner.close()
+                finally:
+                    if child_handle is not None:
+                        cleanup_pinned(child_handle)

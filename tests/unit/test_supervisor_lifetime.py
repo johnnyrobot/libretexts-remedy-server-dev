@@ -132,7 +132,9 @@ async def _guarded_cleanup(info):
 @pytest.mark.parametrize("mode", ["buffer-result", "term-spawn", "rapid-orphan"])
 async def test_descendants_stop_before_terminal_and_next_actual_engine(execution_settings, monkeypatch, mode):
     from backend.app.main import create_app
-    settings = replace(execution_settings, job_total_timeout_seconds=1 if mode == "term-spawn" else 12)
+    # Startup has a declared bound, independent of the TERM-phase deadline.
+    # The preserved 1s red case expired before any compute/handler entry.
+    settings = replace(execution_settings, job_total_timeout_seconds=30 if mode == "term-spawn" else 12)
     app = create_app(settings, job_entrypoint=lifetime_engine)
     if mode == "buffer-result":
         update = app.state.store.update
@@ -148,6 +150,14 @@ async def test_descendants_stop_before_terminal_and_next_actual_engine(execution
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture.invalid",
                                          headers={"X-API-Key": "fixture-key"}) as client:
                 job_id = (await post_mode(client, mode)).json()["id"]
+                if mode == "term-spawn":
+                    await wait_for_file(settings.backup_dir / "handler.ready")
+                    assert (settings.backup_dir / (job_id + ".started")).exists()
+                    assert (await client.get("/v1/jobs/" + job_id)).json()["status"] == "running"
+                    reservation = app.state.worker.reservation_for(job_id)
+                    assert reservation.deadline > time.monotonic()
+                    reservation.deadline = time.monotonic() - 1
+                    await wait_for_file(settings.backup_dir / "term-helper-created")
                 await wait_for_file(settings.backup_dir / "helper.identity")
                 record = json.loads((settings.backup_dir / "helper.identity").read_text())
                 helper = process_snapshot().get(record["pid"])
@@ -162,14 +172,40 @@ async def test_descendants_stop_before_terminal_and_next_actual_engine(execution
                 assert not (settings.backup_dir / "late-write").exists()
                 assert not list(app.state.execution._unresolved.iterdir())
     finally:
-        if os.environ.get("REMEDY_SANDBOX_AUDIT_DIR") and job_id is not None:
-            from pathlib import Path
-            job = await app.state.store.get(job_id)
-            (Path(os.environ["REMEDY_SANDBOX_AUDIT_DIR"]) / f"supervisor-{mode}-diagnostic.json").write_text(
-                json.dumps({"job": job.to_dict() if job else None,
-                            "markers": sorted(path.name for path in settings.backup_dir.glob("*"))}, indent=2))
-        if helper is not None:
-            await _guarded_cleanup(helper)
+        try:
+            if os.environ.get("REMEDY_SANDBOX_AUDIT_DIR") and job_id is not None:
+                from pathlib import Path
+                job = await app.state.store.get(job_id)
+                (Path(os.environ["REMEDY_SANDBOX_AUDIT_DIR"]) / f"supervisor-{mode}-diagnostic.json").write_text(
+                    json.dumps({"job": job.to_dict() if job else None,
+                                "markers": sorted(path.name for path in settings.backup_dir.glob("*"))}, indent=2))
+        finally:
+            if helper is not None:
+                await _guarded_cleanup(helper)
+
+
+@linux
+async def test_diagnostic_write_failure_still_invokes_known_identity_cleanup(execution_settings, monkeypatch, tmp_path):
+    """Run the real lifetime fixture, fault only its diagnostic filesystem I/O."""
+    from pathlib import Path
+    audit = tmp_path / "audit"
+    audit.mkdir()
+    monkeypatch.setenv("REMEDY_SANDBOX_AUDIT_DIR", str(audit))
+    cleaned = []
+    original_cleanup = _guarded_cleanup
+    async def observed_cleanup(info):
+        cleaned.append(info.identity)
+        await original_cleanup(info)
+    monkeypatch.setattr(sys.modules[__name__], "_guarded_cleanup", observed_cleanup)
+    write = Path.write_text
+    def unavailable(path, *args, **kwargs):
+        if path == audit / "supervisor-buffer-result-diagnostic.json":
+            raise OSError("synthetic diagnostic storage failure")
+        return write(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "write_text", unavailable)
+    with pytest.raises(OSError, match="synthetic diagnostic storage failure"):
+        await test_descendants_stop_before_terminal_and_next_actual_engine(execution_settings, monkeypatch, "buffer-result")
+    assert len(cleaned) == 1
 
 
 @linux
