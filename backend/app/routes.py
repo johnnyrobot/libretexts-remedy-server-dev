@@ -235,12 +235,20 @@ def build_router(
         )
         return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=body)
 
-    @router.post("/v1/convert/office-to-html", dependencies=[require_key])
+    @router.post(
+        "/v1/convert/office-to-html", dependencies=[require_key], status_code=202,
+        responses={415: {"description": "Accepts Office suffixes; legacy inputs have no native converter."}},
+    )
     @upload_limit
     async def convert_office_to_html(
         request: Request,
         file: UploadFile = File(...),
     ) -> JSONResponse:
+        """Convert DOCX/PPTX/XLSX to HTML asynchronously.
+
+        Legacy DOC/PPT/XLS admission is retained, but the extraction path uses
+        modern native parsers and provides no supported legacy converter.
+        """
         staging, ft, _ = await _stage_upload(file, settings, _OFFICE_ONLY)
         body = await _finalize_upload_and_enqueue(
             store, worker, settings, staging, Path(file.filename or "").suffix,
@@ -248,13 +256,16 @@ def build_router(
         )
         return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=body)
 
-    @router.post("/v1/convert/html-to-pdf", dependencies=[require_key])
+    @router.post(
+        "/v1/convert/html-to-pdf", dependencies=[require_key], status_code=202,
+        responses={415: {"description": "Accepts .html/.htm containing an HTML document."}},
+    )
     @upload_limit
     async def convert_html_to_pdf(
         request: Request,
         file: UploadFile = File(...),
     ) -> JSONResponse:
-        """Upload an HTML file → async tagged-PDF conversion."""
+        """Upload .html or .htm → async tagged-PDF conversion."""
         suffix = Path(file.filename or "").suffix.lower()
         if suffix not in (".html", ".htm"):
             raise HTTPException(

@@ -65,6 +65,15 @@ async def terminal(client, job_id):
             await asyncio.sleep(0.01)
 
 
+def office_fixture(tmp_path, suffix):
+    path = tmp_path / f"valid.{suffix}"
+    if suffix == "docx":
+        return make_docx(path, body_paragraphs=["Retained sentinel"])
+    if suffix == "pptx":
+        return make_pptx(path)
+    return make_xlsx(path)
+
+
 @pytest.mark.parametrize("route", ["/v1/remediate", "/v1/office/remediate"])
 @pytest.mark.parametrize("suffix", ["docx", "pptx", "xlsx"])
 async def test_corrupt_office_fails_then_valid_job_downloads(api, tmp_path, route, suffix):
@@ -75,13 +84,7 @@ async def test_corrupt_office_fails_then_valid_job_downloads(api, tmp_path, rout
     assert "output_path" not in failed
     assert (await client.get(f"/v1/jobs/{failed['id']}/result")).status_code == 409
 
-    path = tmp_path / f"valid.{suffix}"
-    if suffix == "docx":
-        make_docx(path, body_paragraphs=["Retained sentinel"])
-    elif suffix == "pptx":
-        make_pptx(path)
-    else:
-        make_xlsx(path)
+    path = office_fixture(tmp_path, suffix)
     valid = await submit(client, route, path.name, path.read_bytes())
     assert valid["status"] == "done", valid
     result = await client.get(f"/v1/jobs/{valid['id']}/result")
@@ -299,13 +302,7 @@ async def test_office_html_real_extraction_generation_after_corrupt_input(api, t
     failed = await submit(client, "/v1/convert/office-to-html", f"bad.{suffix}", b"PK\x03\x04broken")
     assert failed["status"] == "failed"
     assert (await client.get(f"/v1/jobs/{failed['id']}/result")).status_code == 409
-    source = tmp_path / f"valid.{suffix}"
-    if suffix == "docx":
-        make_docx(source, body_paragraphs=["Retained sentinel"])
-    elif suffix == "pptx":
-        make_pptx(source)
-    else:
-        make_xlsx(source)
+    source = office_fixture(tmp_path, suffix)
     job = await submit(client, "/v1/convert/office-to-html", source.name, source.read_bytes())
     assert job["status"] == "done", job
     result = await client.get(f"/v1/jobs/{job['id']}/result")
