@@ -65,6 +65,48 @@ async def test_real_local_checker_evaluates_embedded_document_without_network(tm
 
 
 @pytest.mark.parametrize("tool", ["axe", "pa11y", "lighthouse"])
+async def test_actual_checkers_find_accessibility_defects(tmp_path, tool):
+    from project_remedy.validator import AccessibilityValidator
+    from project_remedy.config import PipelineConfig
+    from project_remedy.database import DatabaseManager
+    path = tmp_path / "missing-label.html"
+    path.write_text('<!doctype html><html lang="en"><title>Missing label</title><body><main><h1>Form</h1><input type="text"></main></body></html>')
+    result = await getattr(AccessibilityValidator(PipelineConfig(), None, DatabaseManager()), "validate_with_" + tool)(path)
+    assert result.passed is False
+    assert result.violations
+    assert any("label" in (finding.get("id", "") + finding.get("description", "")).lower() for finding in result.violations)
+
+
+async def test_unicode_document_transport_retains_original_bytes(monkeypatch):
+    from project_remedy.html_browser import run_html_checker
+    from playwright.async_api import async_playwright
+    payloads = []
+    class Process:
+        returncode = 0
+        async def communicate(self, request):
+            payloads.append(request)
+            return b'{"violations":[]}', b''
+    async def spawn(*args, **kwargs):
+        return Process()
+    # Resolve the actual browser first, then replace only the external Node IPC.
+    async with async_playwright() as playwright:
+        executable = playwright.chromium.executable_path
+    import playwright.async_api
+    from types import SimpleNamespace
+    class Driver:
+        async def __aenter__(self):
+            return SimpleNamespace(chromium=SimpleNamespace(executable_path=executable))
+        async def __aexit__(self, *args):
+            return None
+    monkeypatch.setattr(playwright.async_api, "async_playwright", Driver)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    html = '<html><body>' + '\U0001f9ed' * 750000 + '</body></html>'
+    await run_html_checker("axe", html)
+    assert json.loads(payloads[0])["html"] == html
+    assert len(payloads[0]) < 4 * 1024 * 1024
+
+
+@pytest.mark.parametrize("tool", ["axe", "pa11y", "lighthouse"])
 @pytest.mark.parametrize("probe", ["image", "redirect", "script", "file", "metadata"])
 async def test_actual_checkers_refuse_prohibited_resources_without_contact(tmp_path, tool, probe):
     from project_remedy.html_browser import run_html_checker

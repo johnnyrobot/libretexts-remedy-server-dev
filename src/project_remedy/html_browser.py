@@ -100,7 +100,7 @@ async def run_html_checker(tool: str, html: str):
         executable = playwright.chromium.executable_path
     if not Path(executable).is_file():
         raise HTMLCheckerDependencyError("The pinned Chromium installation is unavailable.")
-    request = json.dumps({"tool": tool, "html": html, "executablePath": executable}).encode()
+    request = json.dumps({"tool": tool, "html": html, "executablePath": executable}, ensure_ascii=False).encode()
     directory = Path(__file__).with_name("html_tools")
     with tempfile.TemporaryDirectory(prefix="remedy-checker-") as temporary:
         env = browser_environment() | {"HOME": temporary}

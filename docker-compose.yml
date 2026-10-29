@@ -6,6 +6,7 @@ services:
     image: remedy-server:latest
     restart: unless-stopped
     init: true
+    shm_size: 256m
     stop_grace_period: 2m
     env_file:
       - .env

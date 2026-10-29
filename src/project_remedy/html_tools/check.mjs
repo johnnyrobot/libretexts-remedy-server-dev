@@ -17,9 +17,10 @@ for (const [asset, expected] of Object.entries(manifest)) {
 }
 
 let source = '';
+process.stdin.setEncoding('utf8'); // preserve multibyte characters across pipe chunks
 for await (const chunk of process.stdin) {
   source += chunk;
-  if (Buffer.byteLength(source) > policy.max_document_bytes * 2) throw new Error('Input limit exceeded');
+  if (Buffer.byteLength(source) > policy.max_document_bytes * 6 + 4096) throw new Error('Input limit exceeded');
 }
 const {html, tool, executablePath} = JSON.parse(source);
 if (Buffer.byteLength(html) > policy.max_document_bytes) throw new Error('HTML byte limit exceeded');
