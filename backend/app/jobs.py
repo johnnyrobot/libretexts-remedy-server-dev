@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Awaitable, Callable, Iterable
 
-from backend.app.execution import OwnedExecution, Reservation, ExecutionDeadline
+from backend.app.execution import OwnedExecution, Reservation, ExecutionDeadline, ExecutionStopped
 
 
 log = logging.getLogger("project_remedy.backend.jobs")
@@ -533,6 +533,14 @@ class JobWorker:
     def reservation_for(self, job_id: str) -> Reservation:
         return self._reservations[job_id]
 
+    async def begin_dispatch(self, job_id: str) -> None:
+        """Called by the runner only after actual shared capacity is acquired."""
+        if self.job_dir is not None:
+            if await self.store.claim_upload(job_id, self.job_dir) is None:
+                raise ExecutionStopped("Submission is not dispatchable; input retained.")
+        else:
+            await self.store.update(job_id, status="running", stage="starting", progress=.05)
+
     async def _loop(self, _worker_index: int) -> None:
         while self.execution.accepting:
             job_id = await self.queue.get()
@@ -550,17 +558,13 @@ class JobWorker:
                 reservation = self._reservations[job_id]
                 if reservation.deadline <= time.monotonic():
                     raise ExecutionDeadline("Engine total deadline exceeded while queued.")
-                if self.job_dir is not None:
-                    job = await self.store.claim_upload(job_id, self.job_dir)
-                    if job is None:
-                        continue
-                else:
-                    await self.store.update(job_id, status="running", stage="starting", progress=0.05)
                 await self.runner(job)
             except asyncio.CancelledError:
                 # runner cancellation finishes owned-process termination first.
-                await self.store.update(job_id, status="failed", stage="interrupted",
-                                        error="Engine execution interrupted by shutdown.")
+                current = await self.store.get(job_id)
+                if current is not None and current.status == "running":
+                    await self.store.update(job_id, status="failed", stage="interrupted",
+                                            error="Engine execution interrupted by shutdown.")
                 raise
             except ExecutionDeadline:
                 await self.store.update(job_id, status="failed", stage="timed_out",
@@ -569,6 +573,11 @@ class JobWorker:
                 log.error("Job %s failed (%s)", job_id, type(exc).__name__)
                 reservation = self._reservations.get(job_id)
                 retained = reservation is not None and reservation.retained
+                current = await self.store.get(job_id)
+                if current is not None and current.stage == "submission_quarantined" and not retained:
+                    continue  # preserve the explicit journal failure, not a generic failure
+                if current is not None and current.status == "queued" and not self.execution.accepting and not retained:
+                    return  # never-dispatched work remains eligible for safe cold recovery
                 await self.store.update(job_id, status="running" if retained else "failed",
                                         stage="termination_failed" if retained else "failed",
                                         error="Engine termination failed; service unavailable." if retained else "Engine operation failed.")

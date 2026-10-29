@@ -113,7 +113,8 @@ class OwnedExecution:
         return reservation
 
     async def run(self, function: Callable, args: tuple, reservation: Reservation,
-                  *, on_update: Callable | None = None, operation_timeouts: dict | None = None) -> Any:
+                  *, on_update: Callable | None = None, operation_timeouts: dict | None = None,
+                  on_acquired: Callable | None = None) -> Any:
         if not self.accepting:
             raise ExecutionStopped("Engine admission has stopped.")
         task = asyncio.current_task()
@@ -127,6 +128,12 @@ class OwnedExecution:
             except TimeoutError:
                 raise ExecutionDeadline("Engine total deadline exceeded while queued.") from None
             try:
+                if reservation.deadline <= time.monotonic():
+                    raise ExecutionDeadline("Engine total deadline exceeded while queued.")
+                if not self.accepting:
+                    raise ExecutionStopped("Engine admission has stopped.")
+                if on_acquired is not None:
+                    await on_acquired()
                 if not self.accepting:
                     raise ExecutionStopped("Engine admission has stopped.")
                 return await self._run_process(function, args, reservation, on_update, operation_timeouts or {})
@@ -405,7 +412,8 @@ async def execute_http(settings, wire_scope, body, *, emit):
         scope["state"]["view_rate_limit"] = None  # parent injects its authoritative rate headers
         await app(scope, receive, send)
     query = wire_scope["query_string"].decode("ascii")
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=owned_app), base_url="http://owned.invalid") as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=owned_app),
+                                base_url=f"{wire_scope['scheme']}://owned.invalid", follow_redirects=False) as client:
         response = await client.request(wire_scope["method"], wire_scope["path"] + ("?" + query if query else ""),
                                         headers=wire_scope["headers"], content=body)
     return response.status_code, list(response.headers.raw), response.content

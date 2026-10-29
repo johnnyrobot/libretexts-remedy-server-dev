@@ -39,6 +39,15 @@ Expired queued jobs fail without executing; inputs remain available. Existing
 PDF remediation/acceptance/quality deadlines are upper bounds inside the total
 budget. Internal retries consume the remaining time.
 
+Dequeueing is not dispatch. A durable upload stays `queued` while a direct
+request owns the shared execution slot. Only after slot acquisition can the
+parent publish `running` and begin the supervised startup. Shutdown preserves
+never-dispatched queued rows and their original input/options/deadline for cold
+recovery. Expired queued rows still fail without work; unresolved prior
+ownership still blocks restart/recovery entirely. A running row is never
+automatically replayed. Submission journaling must claim dispatch at this same
+slot-acquisition seam, not at queue removal.
+
 ## Lifetime proof and publication
 
 The API exclusively locks `<database>.execution.lock.owner` and holds a shared

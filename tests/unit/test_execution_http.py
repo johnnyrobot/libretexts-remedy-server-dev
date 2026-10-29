@@ -96,6 +96,66 @@ async def controlled_direct(settings, wire_scope, body, *, emit):
     return 200, [(b"content-type", b"application/json")], b'{"ok":true}'
 
 
+async def held_direct(settings, wire_scope, body, *, emit):
+    settings.backup_dir.mkdir(parents=True, exist_ok=True)
+    (settings.backup_dir / "direct.started").write_text(str(os.getpid()))
+    while not (settings.backup_dir / "direct.release").exists():
+        await asyncio.sleep(.01)
+    return 200, [(b"content-type", b"application/json")], b'{"ok":true}'
+
+
+async def test_direct_held_slot_keeps_upload_queued_through_shutdown_and_cold_recovery(execution_settings):
+    import json
+    from dataclasses import replace
+    from backend.app.main import create_app
+    settings = replace(execution_settings, job_total_timeout_seconds=60)
+    app = create_app(settings, job_entrypoint=controlled_job, direct_entrypoint=held_direct)
+    waiting = asyncio.Event()
+    original = app.state.worker.runner
+    async def observe_entry(job):
+        waiting.set()
+        return await original(job)  # actual production execution-slot path
+    app.state.worker.runner = observe_entry
+    source = b"%PDF-1.7\nsynthetic fast queue fixture"
+    request = None
+    try:
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture.invalid",
+                                         headers={"X-API-Key": "fixture-key"}) as client:
+                request = asyncio.create_task(client.post("/v1/pdf/check", content=b"held direct fixture"))
+                await wait_for_file(settings.backup_dir / "direct.started")
+                response = await client.post("/v1/remediate?quality=true", files={"file": ("input.pdf", source)})
+                assert response.status_code == 202
+                job_id = response.json()["id"]
+                await asyncio.wait_for(waiting.wait(), 5)
+                job = (await client.get("/v1/jobs/" + job_id)).json()
+                assert job["status"] == "queued"
+                assert json.loads(job["metadata_json"])["quality"] is True
+                assert not (settings.backup_dir / (job_id + ".started")).exists()
+                assert (await client.get("/v1/jobs/" + job_id + "/result")).status_code == 409
+                assert (await asyncio.wait_for(client.get("/healthz"), .5)).status_code == 200
+        if request is not None:
+            await asyncio.gather(request, return_exceptions=True)
+        stored = await app.state.store.get(job_id)
+        assert stored.status == "queued" and Path(stored.input_path).read_bytes() == source
+        assert json.loads(stored.metadata_json)["quality"] is True
+        restarted = create_app(settings, job_entrypoint=controlled_job)
+        async with restarted.router.lifespan_context(restarted):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=restarted), base_url="http://fixture.invalid",
+                                         headers={"X-API-Key": "fixture-key"}) as client:
+                assert (await get_terminal(client, job_id))["status"] == "done"
+                assert (await client.get("/v1/jobs/" + job_id + "/result")).status_code == 200
+        marker = (settings.backup_dir / (job_id + ".started")).read_bytes()
+        restarted_again = create_app(settings, job_entrypoint=controlled_job)
+        async with restarted_again.router.lifespan_context(restarted_again):
+            assert (await restarted_again.state.store.get(job_id)).status == "done"
+            assert (settings.backup_dir / (job_id + ".started")).read_bytes() == marker
+            assert restarted_again.state.worker.queue.empty()
+    finally:
+        if request is not None:
+            await asyncio.gather(request, return_exceptions=True)
+
+
 async def wait_for_file(path):
     async with asyncio.timeout(10):
         while not path.exists():
@@ -852,7 +912,12 @@ def child_delays_shared_lock(connection, function, args, parent_pid, ownership_p
     def delayed(lock, operation):
         if operation == (fcntl.LOCK_SH | fcntl.LOCK_NB):
             settings.backup_dir.mkdir(parents=True, exist_ok=True)
-            (settings.backup_dir / "shared-lock.waiting").write_text(str(os.getpid()))
+            import json
+            from tests.unit.owned_process_fixture import start_ticks
+            marker = settings.backup_dir / "shared-lock.waiting"
+            temporary = marker.with_suffix(".tmp")
+            temporary.write_text(json.dumps({"pid": os.getpid(), "start_ticks": start_ticks(os.getpid())}))
+            temporary.replace(marker)
             while not (settings.backup_dir / "shared-lock.release").exists():
                 time.sleep(.01)
         return original(lock, operation)
@@ -870,13 +935,19 @@ async def test_parent_death_during_shared_lock_handoff_never_starts_old_work(exe
     import multiprocessing
     from backend.app.main import create_app
     settings = execution_settings
+    settings.backup_dir.mkdir(parents=True, exist_ok=True)
     owner = multiprocessing.get_context("spawn").Process(target=owner_with_delayed_child_lock, args=(settings,))
     owner.start()
     child = None
+    child_handle = None
     try:
         await wait_for_file(settings.backup_dir / "shared-lock.waiting")
         await wait_for_file(settings.backup_dir / "owner.job")
-        child = int((settings.backup_dir / "shared-lock.waiting").read_text())
+        import json
+        from tests.unit.owned_process_fixture import pin_process, cleanup_pinned
+        identity = json.loads((settings.backup_dir / "shared-lock.waiting").read_text())
+        child = identity["pid"]
+        child_handle = pin_process(child, identity["start_ticks"])
         job_id = (settings.backup_dir / "owner.job").read_text()
         owner.kill()
         async with asyncio.timeout(5):
@@ -899,12 +970,19 @@ async def test_parent_death_during_shared_lock_handoff_never_starts_old_work(exe
             async with replacement.router.lifespan_context(replacement):
                 pass
     finally:
-        if owner.is_alive():
-            owner.kill()
-            owner.join(timeout=5)
-        owner.close()
-        if child is not None:
+        try:
+            if owner.is_alive():
+                owner.kill()
+                owner.join(timeout=5)
+        finally:
             try:
-                os.kill(child, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+                # Unblock a pre-fork child only after its API parent is dead;
+                # even an early observer failure must not authorize old work.
+                if not owner.is_alive():
+                    (settings.backup_dir / "shared-lock.release").touch()
+            finally:
+                try:
+                    owner.close()
+                finally:
+                    if child_handle is not None:
+                        cleanup_pinned(child_handle)

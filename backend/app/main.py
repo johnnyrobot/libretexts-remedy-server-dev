@@ -47,6 +47,8 @@ def create_app(settings: Settings | None = None, *, job_entrypoint=execute_job,
                                settings.job_total_timeout_seconds)
 
     async def _runner(job):
+        async def acquired():
+            await worker.begin_dispatch(job.id)
         async def progress(updates):
             # Output paths/terminal state are private until every owned process exits.
             visible = {key: value for key, value in updates.items() if key in {"stage", "progress"}}
@@ -63,7 +65,7 @@ def create_app(settings: Settings | None = None, *, job_entrypoint=execute_job,
             ]:
                 timeouts[stage] = operation_timeout(variable, default)
         result = await execution.run(job_entrypoint, (job, settings), worker.reservation_for(job.id),
-                                     on_update=progress, operation_timeouts=timeouts)
+                                     on_update=progress, operation_timeouts=timeouts, on_acquired=acquired)
         if result.get("status") not in {"done", "failed"}:
             raise RuntimeError("Engine returned without a terminal outcome.")
         if result["status"] == "failed":

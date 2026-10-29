@@ -185,12 +185,56 @@ async def prepared_upload(tmp_path, ready=True):
     return store, root, staging, job
 
 
+async def test_public_finalization_preserves_case_insensitive_office_admission(tmp_path):
+    from backend.app.routes import _finalize_upload_and_enqueue
+    settings = Settings(job_store_path=tmp_path / "jobs.db", job_dir=tmp_path / "jobs")
+    settings.job_dir.mkdir()
+    staging = settings.job_dir / "_staging-synthetic.docx"
+    from tests.unit.office_fixtures import make_docx
+    make_docx(staging, body_paragraphs=["Synthetic mixed-case admission"])
+    source = staging.read_bytes()
+    store = JobStore(settings.job_store_path)
+    published = []
+    class Worker:
+        async def enqueue(self, job_id, reservation):
+            published.append(job_id)
+    response = await _finalize_upload_and_enqueue(store, Worker(), settings, staging, ".DOCX",
+        kind="remediate_office", result_media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        metadata_json=OPTIONS)
+    assert published == [response["id"]]
+    job = await store.get(response["id"])
+    assert Path(job.input_path).suffix == ".docx"
+    assert Path(job.input_path).read_bytes() == source and json.loads(job.metadata_json) == json.loads(OPTIONS)
+
+
 async def test_prepared_intent_is_not_dispatch_eligible(tmp_path):
     store, root, staging, job = await prepared_upload(tmp_path, ready=False)
     assert await store.claim_upload(job.id, root) is None
     assert (await store.get(job.id)).stage == "submission_quarantined"
     assert staging.read_bytes() == SOURCE
     assert await store.recover_uploads(root, 9) == []
+
+
+async def test_dequeue_waiting_for_capacity_does_not_claim_durable_dispatch(tmp_path):
+    from types import SimpleNamespace
+    import time
+    from backend.app.jobs import JobWorker
+    store, root, staging, job = await prepared_upload(tmp_path)
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def waiting_runner(_job):
+        entered.set()
+        await release.wait()
+    worker = JobWorker(store, waiting_runner, execution=SimpleNamespace(accepting=True), job_dir=root)
+    ticket = SimpleNamespace(deadline=time.monotonic()+30, transferred=False, retained=False, release=lambda: None)
+    worker.start()
+    try:
+        await worker.enqueue(job.id, ticket)
+        await asyncio.wait_for(entered.wait(), 2)
+        intent, persisted = await store._submission(job.id)
+        assert intent["phase"] == "ready" and persisted.status == "queued"
+    finally:
+        await worker.stop()
+    assert [entry.id for entry in await JobStore(tmp_path / "jobs.db").recover_uploads(root, 9)] == [job.id]
 
 
 @pytest.mark.parametrize("fault", ["bytes", "options", "missing", "symlink", "owned-path"])

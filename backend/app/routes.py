@@ -122,7 +122,7 @@ async def _finalize_upload_and_enqueue(
         seconds=reservation.deadline - time.monotonic())).isoformat() if reservation is not None else ""
     job = None
     try:
-        job = await store.prepare_upload(staging, settings.job_dir, suffix, kind=kind,
+        job = await store.prepare_upload(staging, settings.job_dir, suffix.lower(), kind=kind,
             result_media_type=result_media_type, deadline_at=deadline_at,
             metadata_json=metadata_json if metadata_json is not None else "{}")
         ready = await store.finish_upload(job.id, settings.job_dir)
