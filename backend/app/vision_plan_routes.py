@@ -40,7 +40,7 @@ async def _stage_pdf(file: UploadFile, settings: Settings) -> Path:
     if not contents.startswith(_PDF_MAGIC):
         raise HTTPException(415, "Not a valid PDF.")
     settings.job_dir.mkdir(parents=True, exist_ok=True)
-    staging = settings.job_dir / f"_vp-{uuid.uuid4().hex}.pdf"
+    staging = settings.job_dir / f"_staging-{uuid.uuid4().hex}.pdf"
     staging.write_bytes(contents)
     return staging
 
@@ -73,6 +73,7 @@ def build_router(
         staging = await _stage_pdf(file, settings)
         body = await _finalize_upload_and_enqueue(
             store, worker, settings, staging, ".pdf",
+            reservation=request.state.engine_reservation,
             kind=JOB_KIND_VISION_PLAN_RUN, result_media_type="application/pdf",
         )
         return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=body)

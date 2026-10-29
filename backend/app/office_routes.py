@@ -54,7 +54,7 @@ async def _stage_office(
         if not contents.startswith(_OLE2_MAGIC):
             raise HTTPException(415, "Not a valid OLE2 (legacy Office) file.")
     settings.job_dir.mkdir(parents=True, exist_ok=True)
-    staging = settings.job_dir / f"_office-{uuid.uuid4().hex}{suffix}"
+    staging = settings.job_dir / f"_staging-{uuid.uuid4().hex}{suffix}"
     staging.write_bytes(contents)
     return staging, ft
 
@@ -90,6 +90,7 @@ def build_router(
         staging, ft = await _stage_office(file, settings, modern_only=True)
         body = await _finalize_upload_and_enqueue(
             store, worker, settings, staging, Path(file.filename or "").suffix,
+            reservation=request.state.engine_reservation,
             kind=JOB_KIND_REMEDIATE_OFFICE, result_media_type=media_type_for(ft),
             metadata_json=json.dumps({"quality": True}) if quality else None,
         )

@@ -143,9 +143,13 @@ async def test_actual_checkers_refuse_prohibited_resources_without_contact(tmp_p
         await listener.wait_closed()
 
 
+def kernel_start_ticks(pid):
+    return (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()[19]
+
+
 async def shipping_process_evidence(pid):
     directory = Path(os.environ["REMEDY_SANDBOX_AUDIT_DIR"])
-    ticks = (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()[19]
+    ticks = kernel_start_ticks(pid)
     request_id = f"{os.getpid()}-{pid}-{time.monotonic_ns()}"
     temporary = directory / f"{request_id}.request.tmp"
     temporary.write_text(json.dumps({"pid": pid, "requestId": request_id, "startTicks": ticks}))
@@ -160,7 +164,7 @@ async def shipping_process_evidence(pid):
 
 
 @pytest.mark.parametrize("tool", ["render", "axe", "pa11y", "lighthouse"])
-async def test_actual_tool_launch_preserves_shipping_linux_sandbox(tmp_path, tool):
+async def test_actual_tool_launch_preserves_shipping_linux_sandbox(tmp_path, tool, monkeypatch):
     if os.environ.get("REMEDY_FULL_RUNTIME_TESTS") != "1":
         pytest.skip("shipping Linux namespace proof requires the isolated image and host observer")
     import platform
@@ -184,25 +188,126 @@ async def test_actual_tool_launch_preserves_shipping_linux_sandbox(tmp_path, too
             assert result.success, result.error_message
         else:
             await run_html_checker(tool, source)
-    started = time.time()
+    # Hold the actual navigated context until both host observations return.
+    # This is test-only instrumentation; the shipping adapter is unmodified.
+    from contextlib import asynccontextmanager
+    from project_remedy import html_to_pdf
+    ready, release = tmp_path / "observation-ready", tmp_path / "observation-release"
+    original_page = html_to_pdf.offline_page
+    @asynccontextmanager
+    async def retained_page(*args, **kwargs):
+        async with original_page(*args, **kwargs) as page:
+            ready.touch()
+            async with asyncio.timeout(15):
+                while not release.exists():
+                    await asyncio.sleep(.01)
+            yield page
+    monkeypatch.setattr(html_to_pdf, "offline_page", retained_page)
+    preload = tmp_path / "retain-context.mjs"
+    preload.write_text("""
+import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
+import {access, writeFile} from 'node:fs/promises';
+import path from 'node:path';
+const require = createRequire(path.join(process.env.REMEDY_HTML_TOOLS_ROOT, 'package.json'));
+const pa11yRequire = createRequire(require.resolve('pa11y/package.json'));
+const puppeteer = (await import(pathToFileURL(pa11yRequire.resolve('puppeteer')).href)).default;
+const launch = puppeteer.launch.bind(puppeteer);
+puppeteer.launch = async (...args) => {
+  const browser = await launch(...args);
+  const newPage = browser.newPage.bind(browser);
+  browser.newPage = async (...options) => {
+    const page = await newPage(...options);
+    const goto = page.goto.bind(page);
+    page.goto = async (...navigation) => {
+      const result = await goto(...navigation);
+      await writeFile(READY_PATH, 'navigated');
+      const deadline = performance.now() + 15000;
+      for (;;) {
+        try { await access(RELEASE_PATH); break; }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+        if (performance.now() >= deadline) throw new Error('Observation barrier expired');
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      return result;
+    };
+    return page;
+  };
+  return browser;
+};
+""".replace('READY_PATH', json.dumps(str(ready))).replace('RELEASE_PATH', json.dumps(str(release))))
+    spawn = asyncio.create_subprocess_exec
+    async def instrumented_spawn(*args, **kwargs):
+        if len(args) > 1 and args[0] == "node" and str(args[1]).endswith("/html_tools/check.mjs"):
+            args = (args[0], "--import", preload.as_uri(), *args[1:])
+        return await spawn(*args, **kwargs)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", instrumented_spawn)
+    # Linux /proc birth times and time.time() have different precision/origins:
+    # the retained census in CI 40930595751 rejects every real browser on that
+    # comparison. Exclude identities already owned before launch instead.
+    initial_children = set()
+    for process in psutil.Process().children(recursive=True):
+        try:
+            ticks = kernel_start_ticks(process.pid)
+            initial_children.add((process.pid, ticks))
+        except (psutil.NoSuchProcess, FileNotFoundError):
+            continue
+    started = time.time()  # diagnostics only; never a process identity predicate
     task = asyncio.create_task(execute())
     observed = {}
+    candidates = {}
+    candidate_ticks = {}
+    census = []
     try:
-        async with asyncio.timeout(70):
-            while not task.done() and not {"browser", "renderer"} <= observed.keys():
-                for process in psutil.Process().children(recursive=True):
-                    try:
-                        if process.create_time() < started or "chrome" not in process.name().lower():
-                            continue
-                        args = process.cmdline()
-                        kind = "renderer" if "--type=renderer" in args else (
-                            "browser" if not any(arg.startswith("--type=") for arg in args) else None)
-                        if kind is not None and kind not in observed:
-                            observed[kind] = await shipping_process_evidence(process.pid)
-                    except (psutil.NoSuchProcess, FileNotFoundError):
-                        continue
+        async with asyncio.timeout(45):  # startup watchdog, separate from observation
+            while not ready.exists():
+                if task.done():
+                    await task  # retain the real tool exception
+                    pytest.fail("tool completed without entering its observation barrier")
                 await asyncio.sleep(.01)
-        await task
+        assert not task.done() and not release.exists()
+        for process in psutil.Process().children(recursive=True):
+            try:
+                created = process.create_time()
+                name = process.name()
+                args = process.cmdline()
+                ticks = kernel_start_ticks(process.pid)
+                kind = "renderer" if "--type=renderer" in args else (
+                    "browser" if any(arg == "--remote-debugging-pipe" or arg.startswith("--remote-debugging-port=") for arg in args)
+                    and not any(arg.startswith("--type=") for arg in args) else None)
+                rejected = []
+                if (process.pid, ticks) in initial_children:
+                    rejected.append("preexisting_owned_identity")
+                if "chrome" not in name.lower():
+                    rejected.append("name_without_chrome")
+                if kind is None:
+                    rejected.append("unclassified_argv")
+                try:
+                    executable = process.exe()
+                except psutil.AccessDenied:
+                    executable = "<access denied>"
+                census.append({"pid": process.pid, "ppid": process.ppid(),
+                               "ancestry": [ancestor.pid for ancestor in process.parents()],
+                               "startTicks": ticks,
+                               "name": name, "executable": executable,
+                               "status": process.status(), "argv": args, "createTime": created,
+                               "started": started, "previousCutoffWouldReject": created < started,
+                               "kind": kind, "rejectedBy": rejected})
+                if rejected:
+                    continue
+                if kind is not None and kind not in candidates:
+                    candidates[kind] = process.pid
+                    candidate_ticks[kind] = ticks
+            except (psutil.NoSuchProcess, FileNotFoundError):
+                continue
+        assert {"browser", "renderer"} <= candidates.keys(), candidates
+        records = await asyncio.gather(*(shipping_process_evidence(candidates[kind]) for kind in ("browser", "renderer")))
+        observed = dict(zip(("browser", "renderer"), records))
+        for kind, record in observed.items():
+            assert record["startTicks"] == candidate_ticks[kind], "observed process identity changed"
+        assert not task.done(), "tool lifetime ended during the observation barrier"
+        release.touch()
+        await asyncio.wait_for(task, 70)
         assert {"browser", "renderer"} <= observed.keys(), observed
         browser, renderer = observed["browser"], observed["renderer"]
         for record in (browser, renderer):
@@ -218,7 +323,13 @@ async def test_actual_tool_launch_preserves_shipping_linux_sandbox(tmp_path, too
         assert len(renderer["hostNamespacePids"]) > len(browser["hostNamespacePids"])
         (Path(os.environ["REMEDY_SANDBOX_AUDIT_DIR"]) / f"sandbox-{tool}.json").write_text(json.dumps(observed, indent=2))
     finally:
-        if not task.done():
-            task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-        await converter.close()
+        try:
+            release.touch()  # also release on observer failure/cancellation
+            (Path(os.environ["REMEDY_SANDBOX_AUDIT_DIR"]) / f"sandbox-{tool}-diagnostic.json").write_text(
+                json.dumps({"entered": ready.exists(), "taskDone": task.done(), "candidates": candidates, "observed": observed, "census": census,
+                            "initialChildren": sorted(initial_children)}, indent=2))
+        finally:
+            try:
+                await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), 15)
+            finally:
+                await asyncio.wait_for(converter.close(), 15)

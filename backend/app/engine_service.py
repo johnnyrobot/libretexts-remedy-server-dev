@@ -130,8 +130,8 @@ async def run_job(job: Job, store: JobStore, settings: Settings) -> None:
         handler, message = outcome_handlers[kind]
         try:
             await handler(job, store, settings)
-        except Exception:
-            log.exception("Job %s: %s", job.id, message)
+        except Exception as exc:
+            log.error("Job %s: %s (%s)", job.id, message, type(exc).__name__)
             raise RuntimeError(message) from None
         return
     if kind == JOB_KIND_REMEDIATE_PDF:
@@ -157,18 +157,9 @@ async def _remediate_pdf(job: Job, store: JobStore, settings: Settings) -> None:
     report_dir = workdir / "report"
     cfg = load_config()
 
-    try:
-        remediation_timeout = float(
-            os.environ.get("PDF_REMEDIATION_TIMEOUT_SECONDS", "900")
-        )
-    except ValueError:
-        remediation_timeout = 900.0
-    try:
-        acceptance_timeout = float(
-            os.environ.get("PDF_ACCEPTANCE_TIMEOUT_SECONDS", "300")
-        )
-    except ValueError:
-        acceptance_timeout = 300.0
+    from backend.app.config import operation_timeout
+    remediation_timeout = operation_timeout("PDF_REMEDIATION_TIMEOUT_SECONDS", 900)
+    acceptance_timeout = operation_timeout("PDF_ACCEPTANCE_TIMEOUT_SECONDS", 300)
 
     log.info(
         "Starting remediation for job %s (timeout=%.0fs, acceptance_timeout=%.0fs)",
@@ -265,6 +256,7 @@ async def _remediate_pdf(job: Job, store: JobStore, settings: Settings) -> None:
             # Calibration capability is separate from this usable base artifact.
             meta["quality_result_error"] = "Quality calibration capability unavailable."
         else:
+            await store.update(job.id, stage="evaluating_quality", progress=0.75)
             try:
                 acceptance.quality_result = await asyncio.wait_for(
                     asyncio.to_thread(audit_pdf_quality, output_path, config=cfg),
