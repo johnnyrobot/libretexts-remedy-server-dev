@@ -344,12 +344,35 @@ def process_descendants(table, parent):
     return descendants - {parent}
 
 
+async def retained_chromium_job(job, settings, *, emit):
+    from contextlib import asynccontextmanager
+    from backend.app.execution import execute_job
+    from project_remedy import html_to_pdf
+    if b"retain-actual-chromium" not in Path(job.input_path).read_bytes():
+        return await execute_job(job, settings, emit=emit)
+    original = html_to_pdf.offline_page
+    @asynccontextmanager
+    async def retained_page(*args, **kwargs):
+        async with original(*args, **kwargs) as page:
+            (settings.backup_dir / "actual-chromium-navigated").touch()
+            # Trusted test automation hangs the real renderer after policy-safe
+            # navigation. Uploaded scripts remain forbidden by the shipping CSP.
+            await page.evaluate("() => { for (;;) {} }")
+            yield page
+    html_to_pdf.offline_page = retained_page
+    try:
+        return await execute_job(job, settings, emit=emit)
+    finally:
+        html_to_pdf.offline_page = original
+
+
 @pytest.mark.skipif(os.environ.get("REMEDY_FULL_RUNTIME_TESTS") != "1", reason="requires installed Chromium/full runtime")
 async def test_real_chromium_timeout_stops_all_observed_driver_browser_descendants(execution_settings):
     from dataclasses import replace
     from backend.app.main import create_app
-    settings = replace(execution_settings, job_total_timeout_seconds=4)
-    app = create_app(settings)
+    settings = replace(execution_settings, job_total_timeout_seconds=30)
+    settings.backup_dir.mkdir(parents=True, exist_ok=True)
+    app = create_app(settings, job_entrypoint=retained_chromium_job)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture.invalid",
                                      headers={"X-API-Key": "fixture-key"}) as client:
@@ -358,12 +381,12 @@ async def test_real_chromium_timeout_stops_all_observed_driver_browser_descendan
             assert (await get_terminal(client, warm.json()["id"]))["status"] == "failed"
             baseline = process_descendants(process_table(), os.getpid())
             running = await client.post("/v1/convert/html-to-pdf", files={"file": (
-                "loop.html", b"<html><body><script>while(true){}</script></body></html>")})
+                "loop.html", b"<html><body><!-- retain-actual-chromium --><p>Retained sentinel</p></body></html>")})
             job_id = running.json()["id"]
             from tests.unit.process_observer import process_snapshot
             observed, drivers, browsers = {}, {}, {}
-            async with asyncio.timeout(3.8):
-                while not (drivers and browsers):
+            async with asyncio.timeout(15):  # startup watchdog; expiry follows actual navigation
+                while not (drivers and browsers and (settings.backup_dir / "actual-chromium-navigated").exists()):
                     descendants = process_descendants(process_table(), os.getpid()) - baseline
                     for pid, info in process_snapshot().items():
                         if pid not in descendants or info.zombie:
@@ -381,6 +404,7 @@ async def test_real_chromium_timeout_stops_all_observed_driver_browser_descendan
             assert set(drivers.values()).isdisjoint(browsers.values()), (drivers, browsers)
             assert any(pid == group for pid, group in browsers.items()), browsers
             assert (await asyncio.wait_for(client.get("/healthz"), .5)).status_code == 200
+            app.state.worker.reservation_for(job_id).deadline = time.monotonic() - .01
             failed = await get_terminal(client, job_id)
             assert failed["status"] == "failed" and failed["stage"] == "timed_out", failed
             after = process_snapshot()

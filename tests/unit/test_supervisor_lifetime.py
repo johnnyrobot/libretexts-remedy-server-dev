@@ -142,6 +142,7 @@ async def test_descendants_stop_before_terminal_and_next_actual_engine(execution
             return await update(*args, **kwargs)
         monkeypatch.setattr(app.state.store, "update", delayed_update)
     helper = None
+    job_id = None
     try:
         async with app.router.lifespan_context(app):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture.invalid",
@@ -161,6 +162,12 @@ async def test_descendants_stop_before_terminal_and_next_actual_engine(execution
                 assert not (settings.backup_dir / "late-write").exists()
                 assert not list(app.state.execution._unresolved.iterdir())
     finally:
+        if os.environ.get("REMEDY_SANDBOX_AUDIT_DIR") and job_id is not None:
+            from pathlib import Path
+            job = await app.state.store.get(job_id)
+            (Path(os.environ["REMEDY_SANDBOX_AUDIT_DIR"]) / f"supervisor-{mode}-diagnostic.json").write_text(
+                json.dumps({"job": job.to_dict() if job else None,
+                            "markers": sorted(path.name for path in settings.backup_dir.glob("*"))}, indent=2))
         if helper is not None:
             await _guarded_cleanup(helper)
 
