@@ -4,5 +4,7 @@
   "path": "deploy/chromium-seccomp-amd64.json",
   "sha256": "d4447d241bf9c65e1698fc8508438c128dc000e3b0519b8e12e4afa4c8ae5d44",
   "license": "Apache-2.0; derived from Microsoft Playwright v1.60.0; see immutable Scanner docs/shipping-runtime.md",
-  "modified": false
+  "modified": false,
+  "dockerfile_sha256": "08335a232b91c66749db9a953c2908bd802b624045651cf3b6c6b1943b3e6fae",
+  "package_lock_sha256": "bd143818c779987e1b25434bb24c99efb5b84b8fd81b6de19c224dcaca9b2c30"
 }

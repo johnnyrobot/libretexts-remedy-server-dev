@@ -28,7 +28,10 @@ try {
     if (env[name]) throw new Error(`${name}_ambiguous`);
     env[name] = await privateFile(`${name}_FILE`);
   }
-  if (env.REMEDY_BRIDGE_SERVICE_KEY_FILE) await privateFile('REMEDY_BRIDGE_SERVICE_KEY_FILE');
+  if (env.REMEDY_BRIDGE_SERVICE_KEY_FILE) {
+    const service = await privateFile('REMEDY_BRIDGE_SERVICE_KEY_FILE');
+    if (!/^[a-f0-9]{64}$/.test(service)) throw new Error('service_key_format');
+  }
   if (command.length === 1 && command[0] === '--check') {
     console.log(JSON.stringify({ok: true, role, uid: process.getuid(), credentialNames: roles[role]}));
   } else {

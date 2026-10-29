@@ -18,7 +18,7 @@ if os.environ.get('GITHUB_ACTIONS')!='true' or platform.system()!='Linux' or pla
 PREFIX='lt196-'+os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT']
 WORK=Path(os.environ['RUNNER_TEMP'])/PREFIX
 WORK.mkdir(mode=0o700)  # never reuse/delete somebody else's prior evidence
-network=PREFIX+'-private';containers=[];report={'deploymentReady':False,'productionWritesEnabled':False,'sections':[],'images':{},'profiles':{},'errors':[]}
+network=PREFIX+'-private';containers=[];report={'serverSource':os.environ['GITHUB_SHA'],'deploymentReady':False,'productionWritesEnabled':False,'sections':[],'images':{},'profiles':{},'errors':[]}
 def cmd(*args,check=True):
     result=subprocess.run(list(map(str,args)),text=True,capture_output=True)
     if check and result.returncode: raise RuntimeError(str(args[:3])+': '+result.stderr[-1600:])
@@ -83,6 +83,11 @@ try:
         assert info['Architecture']=='amd64' and info['Os']=='linux'
         report['images'][name]={'id':info['Id'],'repoDigests':info['RepoDigests'],'layers':info['RootFS']['Layers'],'user':info['Config']['User']}
     assert SCANNER in report['images']['scanner']['repoDigests']
+    scanner_inputs=json.loads((ROOT/'deploy/stack/scanner-profile-source.json').read_text())
+    actual_lock=cmd('docker','run','--rm','--network','none','--entrypoint','node',SCANNER,'-e',
+        'process.stdout.write(require("node:crypto").createHash("sha256").update(require("node:fs").readFileSync("/app/package-lock.json")).digest("hex"))').strip()
+    assert actual_lock==scanner_inputs['package_lock_sha256']
+    report['images']['scanner']['packageLockSha256']=actual_lock
     uid=int(cmd('docker','run','--rm','--network','none','--entrypoint','node',SCANNER,'-e','console.log(process.getuid())').strip())
     assert uid!=0
     server_keys=credentials('server-keys',999,{'app':'synthetic-server-key','ollama':'synthetic-provider-key','service':'a1'*32,'canary':'CANARY_NOT_A_CREDENTIAL'})
@@ -94,7 +99,7 @@ try:
     os.chown(fixture/'key.pem',999,999);(fixture/'key.pem').chmod(0o400);(fixture/'cert.pem').chmod(0o444)
     public=ROOT/'.github/stack-proof';wrapper=ROOT/'deploy/stack/secret-env.mjs'
     base_mounts=[(wrapper,'/proof/secret-env.mjs',True)]
-    server_env=write_env('server',{'APP_ENV':'production','PYTHON_DOTENV_DISABLED':'1','APP_API_KEY_FILE':'/run/secrets/app','OLLAMA_API_KEY_FILE':'/run/secrets/ollama','OLLAMA_BASE_URL':'https://provider.invalid/v1','CORS_ALLOW_ORIGINS':'https://conductor.fixture.invalid','JOB_DIR':'/app/state/jobs','JOB_STORE_PATH':'/app/state/jobs.sqlite3','JOB_BACKUP_DIR':'/app/state/backups','HOME':'/tmp','TMPDIR':'/tmp','CXONE_INTEGRATION_ENABLED':'false','WORKER_CONCURRENCY':'1','WORKER_MAX_PENDING':'8','JOB_TOTAL_TIMEOUT_SECONDS':'900','RATE_LIMIT_DEFAULT':'10000/minute','RATE_LIMIT_UPLOADS':'10000/minute','MAX_UPLOAD_MB':'4'})
+    server_env=write_env('server',{'APP_ENV':'production','PYTHON_DOTENV_DISABLED':'1','APP_API_KEY_FILE':'/run/secrets/app','OLLAMA_API_KEY_FILE':'/run/secrets/ollama','OLLAMA_BASE_URL':'https://provider.invalid/v1','CORS_ALLOW_ORIGINS':'https://conductor.fixture.invalid','JOB_DIR':'/app/state/jobs','JOB_STORE_PATH':'/app/state/jobs.sqlite3','JOB_BACKUP_DIR':'/app/state/backups','OUTPUT_DIR':'/app/state/output','LOG_DIR':'/app/state/logs','LOG_FORMAT':'json','HOME':'/tmp','TMPDIR':'/tmp','CXONE_INTEGRATION_ENABLED':'false','WORKER_CONCURRENCY':'1','WORKER_MAX_PENDING':'8','JOB_TOTAL_TIMEOUT_SECONDS':'900','RATE_LIMIT_DEFAULT':'10000/minute','RATE_LIMIT_UPLOADS':'10000/minute','MAX_UPLOAD_MB':'4'})
     server_options=['--network',network,'--publish','127.0.0.1::8000','--cpus','4','--memory','4g','--pids-limit','512','--shm-size','256m','--stop-timeout','120','--tmpfs','/tmp:rw,nosuid,nodev,size=512m','--security-opt','seccomp='+str(ROOT/'deploy/chromium-seccomp-amd64.json')]
     server_command=['node','/proof/secret-env.mjs','server','uvicorn','backend.app.main:app','--host','0.0.0.0','--port','8000','--workers','1','--timeout-graceful-shutdown','15']
     start(PREFIX+'-server',SERVER,server_env,[*base_mounts,(server_keys,'/run/secrets',True),(state,'/app/state',False)],server_options,server_command)

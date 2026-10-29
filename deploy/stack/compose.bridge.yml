@@ -1,0 +1,37 @@
+services:
+  remedy-server:
+    environment:
+      CXONE_INTEGRATION_ENABLED: 'true'
+      CXONE_BRIDGE_BASE_URL: http://127.0.0.1:5175
+      REMEDY_BRIDGE_SERVICE_KEY_FILE: /run/secrets/service
+  remedy-bridge:
+    image: ${REMEDY_BRIDGE_IMAGE:?load the verified exact Bridge OCI candidate first}
+    # Bridge remains 127.0.0.1. No Bridge port, network or staff-panel publication.
+    network_mode: service:remedy-server
+    depends_on:
+      remedy-server: {condition: service_healthy}
+    user: '1000:1000'
+    init: true
+    read_only: true
+    restart: unless-stopped
+    cpus: 1
+    mem_limit: 768m
+    pids_limit: 128
+    stop_grace_period: 30s
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=256m"]
+    env_file: [./env/remedy-bridge.env]
+    environment:
+      REMEDY_BRIDGE_PROFILE: ${REMEDY_BRIDGE_PROFILE:?explicit review-only or full-write selection required}
+    entrypoint: [node, /opt/remedy-bundle/secret-env.mjs, bridge]
+    command: [node, --import, tsx, packages/conductor-panel/server/server.ts]
+    configs:
+      - source: credential-loader
+        target: /opt/remedy-bundle/secret-env.mjs
+    volumes:
+      - type: bind
+        source: ${REMEDY_SECRET_ROOT:?private credential directories required}/bridge
+        target: /run/secrets
+        read_only: true
+        bind: {create_host_path: false}

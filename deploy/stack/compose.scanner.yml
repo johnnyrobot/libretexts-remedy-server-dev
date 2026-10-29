@@ -1,0 +1,36 @@
+services:
+  adapt-scanner:
+    image: ghcr.io/johnnyrobot/adapt-a11y-scanner-dev-candidate@sha256:00ab363669ccc7ae50fe7fc79286508af5923d3326d397f87cff91ee76e379a6
+    init: true
+    read_only: true
+    restart: unless-stopped
+    cpus: 2
+    mem_limit: 2g
+    pids_limit: 512
+    shm_size: 1gb
+    stop_grace_period: 20s
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=${REMEDY_SCANNER_SECCOMP_FILE:?absolute reviewed Scanner profile path required}
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=512m"]
+    env_file: [./env/adapt-scanner.env]
+    entrypoint: [node, /opt/remedy-bundle/secret-env.mjs, scanner]
+    command: [node, dist/server.js]
+    configs:
+      - source: credential-loader
+        target: /opt/remedy-bundle/secret-env.mjs
+    volumes:
+      - type: bind
+        source: ${REMEDY_SECRET_ROOT:?private credential directories required}/scanner
+        target: /run/secrets
+        read_only: true
+        bind: {create_host_path: false}
+    networks: [remedy]
+    depends_on:
+      remedy-server: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:5176/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
