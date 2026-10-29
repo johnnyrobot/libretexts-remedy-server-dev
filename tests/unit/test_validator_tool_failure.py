@@ -71,17 +71,34 @@ async def test_clean_run_still_passes() -> None:
     assert "Checker did not run" not in report.summary
 
 
+@pytest.fixture
+def checker_driver(monkeypatch):
+    import playwright.async_api
+    class Driver:
+        async def __aenter__(self):
+            return SimpleNamespace(chromium=SimpleNamespace(executable_path=__file__))
+        async def __aexit__(self, *args):
+            return None
+    monkeypatch.setattr(playwright.async_api, "async_playwright", Driver)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tool", ["pa11y", "lighthouse"])
 @pytest.mark.parametrize("cleanup", ["normal", "pipe-stuck", "exit-race"])
-async def test_checker_timeout_does_not_report_success(monkeypatch, tool, cleanup) -> None:
+async def test_checker_timeout_does_not_report_success(monkeypatch, tmp_path, tool, cleanup, checker_driver) -> None:
     class Process:
         returncode = None
 
-        async def communicate(self):
+        async def communicate(self, _request=None):
             if self.returncode is None or cleanup == "pipe-stuck":
                 raise asyncio.TimeoutError
             return b"", b""
+
+        async def wait(self):
+            return self.returncode
+
+        def terminate(self):
+            self.returncode = -9
 
         def kill(self):
             self.returncode = -9
@@ -94,15 +111,17 @@ async def test_checker_timeout_does_not_report_success(monkeypatch, tool, cleanu
         return process
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    source = tmp_path / "input.html"
+    source.write_text("<html><title>Fixture</title><body>Fixture</body></html>")
     with pytest.raises(RuntimeError, match=f"{tool}.*timed out"):
-        await getattr(_validator(), f"validate_with_{tool}")(Path("unused.html"))
+        await getattr(_validator(), f"validate_with_{tool}")(source)
     assert process.returncode == -9
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tool", ["pa11y", "lighthouse"])
 @pytest.mark.parametrize("failure", ["malformed", "missing", "wrong-shape", "exit"])
-async def test_invalid_checker_output_does_not_report_success(monkeypatch, tool, failure):
+async def test_invalid_checker_output_does_not_report_success(monkeypatch, tmp_path, tool, failure, checker_driver):
     output = b"not JSON" if failure == "malformed" else (
         b"" if failure == "missing" else json.dumps({}).encode()
     )
@@ -110,42 +129,40 @@ async def test_invalid_checker_output_does_not_report_success(monkeypatch, tool,
     class Process:
         returncode = 1 if failure == "exit" else 0
 
-        async def communicate(self):
+        async def communicate(self, _request=None):
             return output, b"checker failed"
 
     async def spawn(*args, **kwargs):
-        if tool == "lighthouse":
-            path = Path(next(arg.split("=", 1)[1] for arg in args if arg.startswith("--output-path=")))
-            if failure == "missing":
-                path.unlink()
-            else:
-                path.write_bytes(output)
         return Process()
 
+    source = tmp_path / "input.html"
+    source.write_text("<html><title>Fixture</title><body>Fixture</body></html>")
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
     with pytest.raises(RuntimeError, match=tool):
-        await getattr(_validator(), f"validate_with_{tool}")(Path("unused.html"))
+        await getattr(_validator(), f"validate_with_{tool}")(source)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tool,issues", [("pa11y", False), ("pa11y", True), ("lighthouse", False)])
-async def test_completed_checker_output_retains_its_verdict(monkeypatch, tool, issues):
+async def test_completed_checker_output_retains_its_verdict(monkeypatch, tmp_path, tool, issues, checker_driver):
     output = [{"type": "error", "message": "Image is missing alt text", "code": "WCAG2AA.1_1_1"}] if issues else []
 
-    class Process:
-        returncode = 2 if issues else 0
+    if tool == "lighthouse":
+        output = {"categories": {"accessibility": {"score": 1}}, "audits": {}}
 
-        async def communicate(self):
+    class Process:
+        returncode = 0
+
+        async def communicate(self, _request=None):
             return json.dumps(output).encode(), b""
 
     async def spawn(*args, **kwargs):
-        if tool == "lighthouse":
-            path = Path(next(arg.split("=", 1)[1] for arg in args if arg.startswith("--output-path=")))
-            path.write_text(json.dumps({"categories": {"accessibility": {"score": 1}}, "audits": {}}))
         return Process()
 
+    source = tmp_path / "input.html"
+    source.write_text("<html><title>Fixture</title><body>Fixture</body></html>")
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
-    result = await getattr(_validator(), f"validate_with_{tool}")(Path("unused.html"))
+    result = await getattr(_validator(), f"validate_with_{tool}")(source)
     assert result.passed is not issues
     assert len(result.violations) == (1 if issues else 0)
 
@@ -164,7 +181,7 @@ async def test_checker_only_failure_never_attempts_llm_remediation(monkeypatch, 
 
     class Playwright:
         async def __aenter__(self):
-            return SimpleNamespace(chromium=SimpleNamespace(launch=AsyncMock(return_value=browser)))
+            return SimpleNamespace(chromium=SimpleNamespace(executable_path=__file__))
 
         async def __aexit__(self, *args):
             return None
