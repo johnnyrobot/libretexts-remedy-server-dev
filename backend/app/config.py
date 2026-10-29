@@ -8,7 +8,9 @@ this module covers only HTTP-layer concerns.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -36,6 +38,13 @@ def _env_bool(key: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _reviewer_required() -> bool:
+    raw = _env("REMEDY_REVIEWER_REQUIRED", "true").strip().lower()
+    if raw not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
+        raise ValueError("REMEDY_REVIEWER_REQUIRED must be an explicit boolean")
+    return raw in {"1", "true", "yes", "on"}
 
 
 def _env_list(key: str, default: list[str]) -> list[str]:
@@ -82,6 +91,22 @@ class Settings:
     cxone_bridge_base_url: str = "http://127.0.0.1:5175"
     cxone_bridge_timeout_seconds: float = 300.0
     cxone_health_timeout_seconds: float = 5.0
+    remedy_reviewer_required: bool = True
+    remedy_bridge_service_key_file: Path | None = None
+
+    @cached_property
+    def bridge_service_key(self) -> str:
+        """Parse once; report fixed diagnostics without file paths or contents."""
+        if self.remedy_bridge_service_key_file is None:
+            raise ValueError("REMEDY_BRIDGE_SERVICE_KEY_FILE is required")
+        try:
+            with self.remedy_bridge_service_key_file.open("rb") as stream:
+                raw = stream.read(66)
+        except OSError:
+            raise ValueError("REMEDY_BRIDGE_SERVICE_KEY_FILE is unreadable") from None
+        if not re.fullmatch(rb"[0-9a-f]{64}\n?", raw):
+            raise ValueError("REMEDY_BRIDGE_SERVICE_KEY_FILE must contain 64 lowercase hex characters with optional LF")
+        return raw.rstrip(b"\n").decode("ascii")
 
     # Quality-layer reviewer/calibration storage.
     quality_experiment_store_path: Path = Path("./quality_experiments.db")
@@ -123,6 +148,19 @@ class Settings:
             errors.append("CXONE_BRIDGE_TIMEOUT_SECONDS must be greater than 0")
         if not 1 <= self.cxone_health_timeout_seconds <= 15:
             errors.append("CXONE_HEALTH_TIMEOUT_SECONDS must be between 1 and 15")
+        if self.cxone_integration_enabled:
+            if self.remedy_reviewer_required:
+                if not self.api_key.strip():
+                    errors.append("APP_API_KEY is required for authenticated CXone forwarding")
+                try:
+                    self.bridge_service_key
+                except ValueError as exc:
+                    errors.append(str(exc))
+            else:
+                from urllib.parse import urlsplit
+                target = urlsplit(self.cxone_bridge_base_url)
+                if self.is_production or target.hostname not in {"127.0.0.1", "::1", "localhost"}:
+                    errors.append("Legacy CXone mode is allowed only in development on loopback")
         if self.job_store_path.exists() and self.job_store_path.is_dir():
             errors.append(
                 "JOB_STORE_PATH points to a directory; mount the containing "
@@ -168,6 +206,9 @@ def load_settings(env_path: Path | None = None) -> Settings:
         cxone_integration_enabled=_env_bool("CXONE_INTEGRATION_ENABLED", False),
         cxone_bridge_timeout_seconds=_env_float("CXONE_BRIDGE_TIMEOUT_SECONDS", 300.0),
         cxone_health_timeout_seconds=_env_float("CXONE_HEALTH_TIMEOUT_SECONDS", 5.0),
+        remedy_reviewer_required=_reviewer_required(),
+        remedy_bridge_service_key_file=(Path(_env("REMEDY_BRIDGE_SERVICE_KEY_FILE"))
+                                        if _env("REMEDY_BRIDGE_SERVICE_KEY_FILE") else None),
         quality_experiment_store_path=Path(
             _env("QUALITY_EXPERIMENT_STORE_PATH", "./quality_experiments.db")
         ),

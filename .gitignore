@@ -141,5 +141,13 @@ tests/*
 !tests/unit/
 !tests/unit/*.py
 
+# Versioned synthetic cross-repo contract data; no corpus/private documents.
+!tests/unit/contracts_v1/
+tests/unit/contracts_v1/*
+!tests/unit/contracts_v1/remedy-html-validation.json
+!tests/unit/contracts_v1/adapt-assignment-enumeration.json
+!tests/unit/contracts_v1/integration-targets.json
+!tests/unit/contracts_v1/lt-1-reviewer-wire-v1-vectors.json
+
 # Generated routing table from tools/reclassify_font_residue.py
 .scratch/

@@ -10,6 +10,9 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
+
+from backend.app.cxone_transport import guard_request, bridge_headers
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.app.auth import require_api_key_dependency
@@ -48,100 +51,88 @@ class CxoneRestoreRequest(CxoneScanRequest):
     preview_token: str
 
 
+class CxoneOperationStatusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    issuer: str = Field(min_length=1, max_length=2048)
+    jti: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$")
+
+
 class CxoneReviseRequest(CxoneScanRequest):
     preview_token: str
     alt_edits: list[dict[str, str]]
 
 
 def build_router(settings: Settings) -> APIRouter:
-    router = APIRouter()
-    require_key = Depends(require_api_key_dependency(settings))
+    if getattr(settings, "cxone_integration_enabled", False):
+        errors = settings.validation_errors()
+        if errors:
+            raise RuntimeError("Invalid CXone settings: " + "; ".join(errors))
+    router = APIRouter(dependencies=[Depends(require_api_key_dependency(settings)), Depends(guard_request)])
 
-    @router.get("/v1/cxone/health", dependencies=[require_key])
+    @router.get("/v1/cxone/health")
     async def cxone_health() -> Any:
-        scope = {
-            "host": "dev.libretexts.org",
-            "root": "Sandboxes/johnnyphung",
-        }
         if not settings.cxone_integration_enabled:
-            return {
-                "ok": True,
-                "state": "disabled",
-                "enabled": False,
-                "write_scope": scope,
-            }
+            return {"ok": True, "state": "disabled", "enabled": False}
         try:
             async with httpx.AsyncClient(
                 base_url=settings.cxone_bridge_base_url.rstrip("/"),
                 timeout=settings.cxone_health_timeout_seconds,
+                headers=bridge_headers(settings),
+                trust_env=False,
             ) as client:
-                response = await client.get("/healthz")
-        except (httpx.TimeoutException, httpx.RequestError):
-            return {
-                "ok": False,
-                "state": "degraded",
-                "enabled": True,
-                "error": "cxone_bridge_unavailable",
-                "write_scope": scope,
-            }
-        try:
+                response = await client.get("/readyz")
             data = _json_response(response)
-        except HTTPException:
-            return {
-                "ok": False,
-                "state": "degraded",
-                "enabled": True,
+        except (httpx.RequestError, HTTPException):
+            return JSONResponse(status_code=503, content={
+                "ok": False, "state": "degraded", "enabled": True,
                 "error": "cxone_bridge_unavailable",
-                "write_scope": scope,
-            }
-        if response.status_code >= 400 or not isinstance(data, dict):
-            return {
-                "ok": False,
-                "state": "degraded",
-                "enabled": True,
-                "error": "cxone_bridge_unavailable",
-                "write_scope": scope,
-            }
-        state = data.get("state")
-        if state not in {"ready", "degraded", "misconfigured"}:
-            state = "misconfigured"
-        result = {
-            "ok": state == "ready",
-            "state": state,
-            "enabled": True,
-            "write_scope": scope,
-        }
-        if state != "ready":
-            result["error"] = data.get("error") or "cxone_configuration_invalid"
-        return result
+            })
+        capabilities = data.get("capabilities") if isinstance(data, dict) else None
+        if (not isinstance(data, dict) or type(data.get("ok")) is not bool
+                or data.get("state") not in {"ready", "degraded", "misconfigured"}
+                or not isinstance(capabilities, dict)
+                or any(type(capabilities.get(name)) is not bool
+                       for name in ("scan", "preview", "mutate", "operation_status"))
+                or data["ok"] != (data["state"] == "ready")
+                or response.status_code not in {200, 503}
+                or (response.status_code == 200) != data["ok"]):
+            return JSONResponse(status_code=503, content={
+                "ok": False, "state": "misconfigured", "enabled": True,
+                "error": "cxone_readiness_invalid",
+            })
+        return JSONResponse(status_code=response.status_code, content={**data, "enabled": True})
 
-    @router.post("/v1/cxone/page/scan", dependencies=[require_key])
+    @router.post("/v1/cxone/page/scan")
     async def scan_page(body: CxoneScanRequest) -> Any:
         return await _forward(settings, "/v1/cxone/page/scan", _payload(body))
 
-    @router.post("/v1/cxone/page/preview-fix", dependencies=[require_key])
+    @router.post("/v1/cxone/page/preview-fix")
     async def preview_fix(body: CxonePreviewRequest) -> Any:
         return await _forward(settings, "/v1/cxone/page/preview-fix", _payload(body))
 
-    @router.post("/v1/cxone/page/apply-fix", dependencies=[require_key])
+    @router.post("/v1/cxone/page/apply-fix")
     async def apply_fix(body: CxoneApplyRequest) -> Any:
         return await _forward(settings, "/v1/cxone/page/apply-fix", _payload(body))
 
-    @router.post("/v1/cxone/page/snapshots", dependencies=[require_key])
+    @router.post("/v1/cxone/page/snapshots")
     async def snapshots(body: CxoneScanRequest) -> Any:
         return await _forward(settings, "/v1/cxone/page/snapshots", _payload(body))
 
-    @router.post("/v1/cxone/page/restore-preview", dependencies=[require_key])
+    @router.post("/v1/cxone/page/restore-preview")
     async def restore_preview(body: CxoneRestorePreviewRequest) -> Any:
         return await _forward(settings, "/v1/cxone/page/restore-preview", _payload(body))
 
-    @router.post("/v1/cxone/page/restore", dependencies=[require_key])
+    @router.post("/v1/cxone/page/restore")
     async def restore(body: CxoneRestoreRequest) -> Any:
         return await _forward(settings, "/v1/cxone/page/restore", _payload(body))
 
-    @router.post("/v1/cxone/page/revise-preview", dependencies=[require_key])
+    @router.post("/v1/cxone/page/revise-preview")
     async def revise_preview(body: CxoneReviseRequest) -> Any:
         return await _forward(settings, "/v1/cxone/page/revise-preview", _payload(body))
+
+    @router.post("/v1/cxone/page/operation-status")
+    async def operation_status(body: CxoneOperationStatusRequest) -> Any:
+        return await _forward(settings, "/v1/cxone/page/operation-status", _payload(body))
 
     return router
 
@@ -155,7 +146,7 @@ async def _forward(settings: Settings, path: str, payload: dict[str, Any]) -> An
                 "message": "CXone integration is disabled on this environment.",
             },
         )
-    if not payload.get("page_url") and not payload.get("page_id"):
+    if path != "/v1/cxone/page/operation-status" and not payload.get("page_url") and not payload.get("page_id"):
         raise HTTPException(
             status_code=422,
             detail={
@@ -165,59 +156,32 @@ async def _forward(settings: Settings, path: str, payload: dict[str, Any]) -> An
         )
 
     bridge_url = settings.cxone_bridge_base_url.rstrip("/")
+    if (settings.remedy_reviewer_required
+            and path in {"/v1/cxone/page/apply-fix", "/v1/cxone/page/restore"}
+            and not payload.get("reviewer_assertion")):
+        raise HTTPException(status_code=401, detail="Reviewer assertion is required.")
     try:
         async with httpx.AsyncClient(
             base_url=bridge_url,
             timeout=settings.cxone_bridge_timeout_seconds,
+            headers=bridge_headers(settings),
+            trust_env=False,
         ) as client:
             response = await client.post(path, json=payload)
     except httpx.TimeoutException as exc:
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail={
-                "error": "cxone_bridge_timeout",
-                "message": "CXone integration timed out.",
-            },
-        ) from exc
+        raise _transport_failure(path, 504, "cxone_bridge_timeout") from exc
     except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={
-                "error": "cxone_bridge_unavailable",
-                "message": "CXone integration is unavailable.",
-            },
-        ) from exc
+        raise _transport_failure(path, 502, "cxone_bridge_unavailable") from exc
 
-    data = _json_response(response)
-    if response.status_code >= 400:
-        status_code = (
-            response.status_code
-            if response.status_code < status.HTTP_500_INTERNAL_SERVER_ERROR
-            else status.HTTP_502_BAD_GATEWAY
-        )
-        raise HTTPException(
-            status_code=status_code,
-            detail={
-                "error": _error_code(data, "cxone_bridge_error"),
-                "message": _error_message(data, "CXone bridge request failed."),
-                "bridge_status": response.status_code,
-            },
-        )
-
-    if isinstance(data, dict) and (data.get("err") is True or data.get("error") is True):
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={
-                "error": _error_code(data, "cxone_bridge_error"),
-                "message": _error_message(data, "CXone bridge request failed."),
-            },
-        )
-
-    return data
+    try:
+        data = _json_response(response)
+    except HTTPException as exc:
+        raise _transport_failure(path, 502, "cxone_bridge_non_json") from exc
+    return JSONResponse(status_code=response.status_code, content=data)
 
 
 def _payload(model: BaseModel) -> dict[str, Any]:
-    return model.model_dump(exclude_none=True)
+    return model.model_dump(exclude_unset=True)
 
 
 def _json_response(response: httpx.Response) -> Any:
@@ -233,28 +197,10 @@ def _json_response(response: httpx.Response) -> Any:
         ) from exc
 
 
-def _error_message(data: Any, fallback: str) -> str:
-    if not isinstance(data, dict):
-        return fallback
-    detail = data.get("detail")
-    if isinstance(detail, str):
-        return detail
-    if isinstance(detail, dict) and isinstance(detail.get("message"), str):
-        return detail["message"]
-    if isinstance(data.get("message"), str):
-        return data["message"]
-    if isinstance(data.get("error"), str):
-        return data["error"]
-    return fallback
-
-
-def _error_code(data: Any, fallback: str) -> str:
-    if isinstance(data, dict):
-        detail = data.get("detail")
-        if isinstance(detail, dict) and isinstance(detail.get("error"), str):
-            return detail["error"]
-        if isinstance(data.get("code"), str):
-            return data["code"]
-        if isinstance(data.get("error"), str):
-            return data["error"]
-    return fallback
+def _transport_failure(path: str, status_code: int, error: str) -> HTTPException:
+    detail: dict[str, Any] = {"error": error, "retryable": False}
+    if path in {"/v1/cxone/page/apply-fix", "/v1/cxone/page/restore"}:
+        # A lost response cannot establish whether Bridge dispatched the write.
+        detail.update(outcome="unknown_write", operation_id=None,
+                      requires_reconciliation=True, evidence_effect="invalidate")
+    return HTTPException(status_code=status_code, detail=detail)

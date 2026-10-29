@@ -20,6 +20,12 @@ tests/*
 !tests/unit/
 tests/unit/*
 !tests/unit/*.py
+!tests/unit/contracts_v1/
+tests/unit/contracts_v1/*
+!tests/unit/contracts_v1/remedy-html-validation.json
+!tests/unit/contracts_v1/adapt-assignment-enumeration.json
+!tests/unit/contracts_v1/integration-targets.json
+!tests/unit/contracts_v1/lt-1-reviewer-wire-v1-vectors.json
 docs
 benchmarks
 exports

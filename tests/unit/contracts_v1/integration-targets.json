@@ -1,0 +1,30 @@
+{
+  "contract_id": "remedy-stack-integration-v1-source-pins",
+  "metadata_is_payload": false,
+  "status": "source pins and synthetic fixtures only; not an assembled or deployed release",
+  "server": {
+    "commit": "173a419f2ea458ed6b93589c674cc27cda95ecc0",
+    "html_contract_fixture": "remedy-html-validation.json",
+    "html_fixture_sha256": "df8dfe2ca12b95e846c3e405464f16d72a03114608b21ee160e528efa20e1aaa",
+    "html_contract_source_commit": "78710dc0af53d3e63a662fb392b5190f2e2d0dab"
+  },
+  "adapt": {
+    "commit": "ee9478b0b418d222c17a15a004a36cec43858dfd",
+    "assignment_fixture": "adapt-assignment-enumeration.json"
+  },
+  "conductor": {
+    "repository": "LibreTexts/conductor",
+    "staging_commit": "67301b35c3784ed73ba1a65011ef5a1d689abca1",
+    "released_floor_tag": "v2.156.2",
+    "released_floor_commit": "352a657ec6de7b317a70ad3f8f744bc6d5054d9d",
+    "verification": "Both commit objects and the lightweight v2.156.2 tag independently resolved through read-only GitHub API; no checkout or patch application"
+  },
+  "unverified": [
+    "Actual production topology",
+    "Atlas tier",
+    "Live ADAPT version",
+    "Conductor patch application/build on these targets",
+    "Assembled cross-stack auth/scan/preview/write/invalidation/restore",
+    "Complete deploy image/version/rollback bundle"
+  ]
+}
