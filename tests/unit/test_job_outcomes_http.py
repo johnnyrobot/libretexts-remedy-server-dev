@@ -60,7 +60,11 @@ async def api(tmp_path, monkeypatch, request):
     if request.node.originalname in adapter_fault_tests:
         from backend.app.engine_service import run_job
         async def in_process_adapter_case(job):
-            await run_job(job, app.state.store, settings)
+            # This adapter owns its compute entry; JobWorker dequeue is no
+            # longer dispatch. Keep the public running/queued assertions real.
+            async with app.state.worker.execution._slots:
+                await app.state.store.update(job.id, status="running", stage="starting", progress=.05)
+                await run_job(job, app.state.store, settings)
         app.state.worker.runner = in_process_adapter_case
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(
