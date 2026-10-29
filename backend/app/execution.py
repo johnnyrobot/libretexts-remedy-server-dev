@@ -73,7 +73,8 @@ class OwnedExecution:
         self._slots = asyncio.Semaphore(concurrency)
         self._admitted: set[Reservation] = set()
         self._executions: set[asyncio.Task] = set()
-        self.accepting = strict_execution_supported()
+        self._profile_supported = strict_execution_supported()
+        self.accepting = False
         self._context = multiprocessing.get_context("spawn")
         self._ownership_path = None
         self._ownership_lock = None
@@ -101,6 +102,8 @@ class OwnedExecution:
             raise
         self._ownership_path, self._ownership_lock, self._owner_lock = str(path), lock, owner_lock
         self._unresolved = unresolved
+        from backend.app.supervisor import probe_adoption
+        self.accepting = self._profile_supported and probe_adoption()
 
     def reserve(self, *, remaining: float | None = None) -> Reservation:
         if not self.accepting or len(self._admitted) >= self.capacity:

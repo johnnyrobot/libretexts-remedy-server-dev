@@ -250,3 +250,43 @@ def supervise(connection, function, args, parent_pid: int, ownership_path, deadl
         if lifetime is not None:
             lifetime.close()
         os._exit(0 if clean and sent.is_set() else 70)
+
+
+def _preflight_child(connection) -> None:
+    try:
+        _enable_adoption()
+        connection.send(True)
+    except BaseException:
+        connection.send(False)
+    finally:
+        connection.close()
+
+
+def probe_adoption() -> bool:
+    """Check prctl in an isolated process before API readiness/admission.
+
+    Do not make the multithreaded API a subreaper or fork from it. This probe
+    never imports an engine, dispatches compute or owns any descendants.
+    """
+    if not supported():
+        return False
+    context = multiprocessing.get_context("spawn")
+    receive, send = context.Pipe(duplex=False)
+    process = context.Process(target=_preflight_child, args=(send,), daemon=True)
+    try:
+        process.start()
+        send.close()
+        allowed = receive.poll(2) and receive.recv() is True
+        process.join(timeout=.5)
+        return allowed and not process.is_alive() and process.exitcode == 0
+    except (OSError, EOFError):
+        return False
+    finally:
+        receive.close()
+        send.close()
+        if process.pid is not None:
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=1)
+            if not process.is_alive():
+                process.close()

@@ -322,10 +322,17 @@ class JobWorker:
         return self._reservations[job_id]
 
     async def _loop(self, _worker_index: int) -> None:
-        while True:
+        while self.execution.accepting:
             job_id = await self.queue.get()
+            quarantined = False
             try:
+                if not self.execution.accepting:
+                    quarantined = True
+                    return
                 job = await self.store.get(job_id)
+                if not self.execution.accepting:
+                    quarantined = True
+                    return
                 if not job:
                     continue
                 reservation = self._reservations[job_id]
@@ -351,9 +358,10 @@ class JobWorker:
                 if retained:
                     return  # quarantine pending work; never dispatch it after unknown cleanup
             finally:
-                reservation = self._reservations.pop(job_id, None)
-                if reservation is not None:
-                    reservation.release()
+                if not quarantined:
+                    reservation = self._reservations.pop(job_id, None)
+                    if reservation is not None:
+                        reservation.release()
                 self.queue.task_done()
 
 

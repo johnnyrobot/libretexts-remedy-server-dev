@@ -34,6 +34,15 @@ def _env_float(key: str, default: float) -> float:
     return float(raw) if raw is not None else default
 
 
+def operation_timeout(variable: str, default: float) -> float:
+    """One finite positive phase policy shared by API and compute."""
+    try:
+        value = float(os.environ.get(variable, default))
+        return value if math.isfinite(value) and value > 0 else default
+    except ValueError:
+        return default
+
+
 def _env_bool(key: str, default: bool) -> bool:
     raw = os.environ.get(key)
     if raw is None:

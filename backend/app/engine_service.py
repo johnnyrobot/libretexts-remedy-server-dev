@@ -157,18 +157,9 @@ async def _remediate_pdf(job: Job, store: JobStore, settings: Settings) -> None:
     report_dir = workdir / "report"
     cfg = load_config()
 
-    try:
-        remediation_timeout = float(
-            os.environ.get("PDF_REMEDIATION_TIMEOUT_SECONDS", "900")
-        )
-    except ValueError:
-        remediation_timeout = 900.0
-    try:
-        acceptance_timeout = float(
-            os.environ.get("PDF_ACCEPTANCE_TIMEOUT_SECONDS", "300")
-        )
-    except ValueError:
-        acceptance_timeout = 300.0
+    from backend.app.config import operation_timeout
+    remediation_timeout = operation_timeout("PDF_REMEDIATION_TIMEOUT_SECONDS", 900)
+    acceptance_timeout = operation_timeout("PDF_ACCEPTANCE_TIMEOUT_SECONDS", 300)
 
     log.info(
         "Starting remediation for job %s (timeout=%.0fs, acceptance_timeout=%.0fs)",

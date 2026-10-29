@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import os
 import asyncio
-import math
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -23,7 +22,7 @@ from slowapi.util import get_remote_address
 
 from backend.app.backup import backup_jobstore
 from backend.app.auth import require_api_key_dependency
-from backend.app.config import Settings, load_settings
+from backend.app.config import Settings, load_settings, operation_timeout
 from backend.app.execution import EngineAdmissionMiddleware, OwnedExecution, execute_job, execute_http, in_owned_child
 from backend.app.jobs import JobStore, JobWorker, prune_expired_jobs
 from backend.app.logging_setup import configure_logging, request_id_var
@@ -62,11 +61,7 @@ def create_app(settings: Settings | None = None, *, job_entrypoint=execute_job,
                 ("evaluating_acceptance", "PDF_ACCEPTANCE_TIMEOUT_SECONDS", 300),
                 ("evaluating_quality", "PDF_ACCEPTANCE_TIMEOUT_SECONDS", 300),
             ]:
-                try:
-                    value = float(os.environ.get(variable, default))
-                    timeouts[stage] = value if math.isfinite(value) and value > 0 else default
-                except ValueError:
-                    timeouts[stage] = default
+                timeouts[stage] = operation_timeout(variable, default)
         result = await execution.run(job_entrypoint, (job, settings), worker.reservation_for(job.id),
                                      on_update=progress, operation_timeouts=timeouts)
         if result.get("status") not in {"done", "failed"}:
@@ -104,16 +99,18 @@ def create_app(settings: Settings | None = None, *, job_entrypoint=execute_job,
             worker_concurrency=settings.worker_concurrency,
         )
         execution.start_ownership(settings.job_store_path.resolve().with_name(settings.job_store_path.resolve().name + ".execution.lock"))
-        interrupted = await store.fail_running_jobs(
-            "Server restarted while this job was running; submit it again if needed."
-        )
-        queued = await store.list_by_statuses({"queued"})
-        for job in queued:
-            try:
-                await worker.enqueue(job.id)
-            except HTTPException:
-                await store.update(job.id, status="failed", stage="interrupted",
-                                   error="Restart queue capacity exceeded; input retained.")
+        interrupted, queued = 0, []
+        if execution.accepting:
+            interrupted = await store.fail_running_jobs(
+                "Server restarted while this job was running; submit it again if needed."
+            )
+            queued = await store.list_by_statuses({"queued"})
+            for job in queued:
+                try:
+                    await worker.enqueue(job.id)
+                except HTTPException:
+                    await store.update(job.id, status="failed", stage="interrupted",
+                                       error="Restart queue capacity exceeded; input retained.")
         if interrupted or queued:
             log.info(
                 "jobs.recovered",

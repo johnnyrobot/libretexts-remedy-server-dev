@@ -74,6 +74,9 @@ async def lifetime_engine(job, settings, *, emit):
         (state / "intermediary-exited").touch()
     elif "supervisor-crash" in mode:
         await asyncio.sleep(30)
+    elif "hold-second" in mode:
+        while not (state / "release-second").exists():
+            await asyncio.sleep(.01)
     else:
         import fcntl
         with (state / "actual-work.lock").open("a") as lock:
@@ -145,10 +148,11 @@ async def test_descendants_stop_before_terminal_and_next_actual_engine(execution
 
 
 @linux
-async def test_supervisor_crash_quarantines_running_and_queued_work_and_restart(execution_settings):
+@pytest.mark.parametrize("concurrency", [1, 2])
+async def test_supervisor_crash_quarantines_running_and_queued_work_and_restart(execution_settings, concurrency):
     from backend.app.execution import CleanupUnresolved
     from backend.app.main import create_app
-    settings = execution_settings
+    settings = replace(execution_settings, worker_concurrency=concurrency)
     app = create_app(settings, job_entrypoint=lifetime_engine)
     compute = None
     try:
@@ -160,8 +164,12 @@ async def test_supervisor_crash_quarantines_running_and_queued_work_and_restart(
                     await wait_for_file(settings.backup_dir / "supervisor.pid")
                     compute_pid = int((settings.backup_dir / (job_id + ".started")).read_text())
                     compute = process_snapshot()[compute_pid]
-                    queued = (await post_mode(client, "fast")).json()["id"]
                     supervisor = int((settings.backup_dir / "supervisor.pid").read_text())
+                    second = None
+                    if concurrency == 2:
+                        second = (await post_mode(client, "hold-second")).json()["id"]
+                        await wait_for_file(settings.backup_dir / (second + ".started"))
+                    queued = (await post_mode(client, "fast")).json()["id"]
                     descriptor = os.pidfd_open(supervisor)
                     try:
                         signal.pidfd_send_signal(descriptor, signal.SIGKILL)
@@ -171,6 +179,9 @@ async def test_supervisor_crash_quarantines_running_and_queued_work_and_restart(
                     async with asyncio.timeout(15):
                         while (await client.get("/readyz")).status_code != 503:
                             await asyncio.sleep(.02)
+                    if second is not None:
+                        (settings.backup_dir / "release-second").touch()
+                        assert (await get_terminal(client, second))["status"] == "done"
                     assert (await client.get("/healthz")).status_code == 200
                     assert (await post_mode(client, "fast")).status_code == 503
                     assert (await client.get("/v1/jobs/" + job_id)).json()["status"] == "running"
@@ -178,7 +189,7 @@ async def test_supervisor_crash_quarantines_running_and_queued_work_and_restart(
                     assert (await client.get("/v1/jobs/" + job_id + "/result")).status_code == 409
                     assert (await client.delete("/v1/jobs/" + job_id)).status_code == 409
                     assert _same_process(compute)  # unknown cleanup is NOT certified stopped
-            assert time.monotonic() - started < 30
+        assert time.monotonic() - started < 30
     finally:
         if compute is not None:
             await _guarded_cleanup(compute)
@@ -267,3 +278,31 @@ def test_empty_census_is_not_completion_and_wait_includes_clone_children(monkeyp
         raise ChildProcessError()
     monkeypatch.setattr(os, "waitpid", no_children)
     assert supervisor._reap() is True
+
+
+async def test_failed_subreaper_probe_prevents_admission_and_queue_recovery(execution_settings, monkeypatch):
+    from backend.app import execution, supervisor
+    from backend.app.jobs import JobStore
+    from backend.app.main import create_app
+    monkeypatch.setattr(execution, "strict_execution_supported", lambda: True)
+    monkeypatch.setattr(supervisor, "probe_adoption", lambda: False, raising=False)
+    settings = execution_settings
+    settings.job_dir.mkdir()
+    source = settings.job_dir / "retained.html"
+    source.write_text("<html>synthetic fixture</html>")
+    store = JobStore(settings.job_store_path)
+    running = await store.create(source, kind="convert_html_to_pdf")
+    await store.update(running.id, status="running")
+    queued = await store.create(source, kind="convert_html_to_pdf")
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        assert (await store.get(running.id)).status == "running"
+        assert (await store.get(queued.id)).status == "queued"
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture.invalid",
+                                     headers={"X-API-Key": "fixture-key"}) as client:
+            assert (await client.get("/readyz")).status_code == 503
+            assert (await post_mode(client, "fast")).status_code == 503
+            assert (await client.post("/v1/pdf/check", content=b"fixture")).status_code == 503
+        assert len(await store.list_by_statuses({"queued", "running"})) == 2
+        assert not list(settings.job_dir.glob("_staging-*"))
+        assert source.is_file()

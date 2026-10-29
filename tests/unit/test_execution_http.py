@@ -330,16 +330,32 @@ async def test_real_chromium_timeout_stops_all_observed_driver_browser_descendan
             running = await client.post("/v1/convert/html-to-pdf", files={"file": (
                 "loop.html", b"<html><body><script>while(true){}</script></body></html>")})
             job_id = running.json()["id"]
-            observed = set()
+            from tests.unit.process_observer import process_snapshot
+            observed, drivers, browsers = {}, {}, {}
             async with asyncio.timeout(3.8):
-                while len(observed) < 4:
-                    observed |= process_descendants(process_table(), os.getpid()) - baseline
+                while not (drivers and browsers):
+                    descendants = process_descendants(process_table(), os.getpid()) - baseline
+                    for pid, info in process_snapshot().items():
+                        if pid not in descendants or info.zombie:
+                            continue
+                        observed[pid] = info.identity
+                        try:
+                            executable = Path(os.readlink(f"/proc/{pid}/exe")).name.lower()
+                        except (FileNotFoundError, ProcessLookupError):
+                            continue
+                        if executable == "node":
+                            drivers[pid] = info.group
+                        elif any(name in executable for name in ("chrome", "chromium", "headless_shell")):
+                            browsers[pid] = info.group
                     await asyncio.sleep(.02)
+            assert set(drivers.values()).isdisjoint(browsers.values()), (drivers, browsers)
+            assert any(pid == group for pid, group in browsers.items()), browsers
             assert (await asyncio.wait_for(client.get("/healthz"), .5)).status_code == 200
             failed = await get_terminal(client, job_id)
             assert failed["status"] == "failed" and failed["stage"] == "timed_out", failed
-            after = process_table()
-            assert not {pid for pid in observed if pid in after and not after[pid][1].startswith("Z")}
+            after = process_snapshot()
+            assert not {pid for pid, identity in observed.items()
+                        if pid in after and after[pid].identity == identity and not after[pid].zombie}
             assert (await client.get("/v1/jobs/" + job_id + "/result")).status_code == 409
             # A fresh actual renderer still works after forcibly stopped work.
             good = await post_mode(client, "fast")

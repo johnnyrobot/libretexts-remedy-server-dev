@@ -7,6 +7,11 @@ are unsupported. The runtime must permit `PR_SET_CHILD_SUBREAPER`, `pidfd_open`
 and `pidfd_send_signal` under its security policy, including after capabilities
 are dropped. The full-runtime CI exercises the shipped non-root policy.
 
+An isolated spawn preflight verifies subreaper permission before readiness,
+admission or queue recovery; the API itself never becomes a subreaper. A
+required full-runtime test session fails immediately if the complete production
+profile is unavailable, rather than passing with skipped lifetime checks.
+
 macOS and other runtime profiles cannot prove the same ownership guarantee.
 They refuse strict engine admission with HTTP 503 before upload staging or
 queue-row creation. `/healthz` stays available and `/readyz` returns 503.
