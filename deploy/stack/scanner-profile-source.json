@@ -1,0 +1,8 @@
+{
+  "source": "johnnyrobot/adapt-a11y-scanner-dev",
+  "revision": "1541bb8f3962553b65dab7bfd5aeb429354a8a4f",
+  "path": "deploy/chromium-seccomp-amd64.json",
+  "sha256": "d4447d241bf9c65e1698fc8508438c128dc000e3b0519b8e12e4afa4c8ae5d44",
+  "license": "Apache-2.0; derived from Microsoft Playwright v1.60.0; see immutable Scanner docs/shipping-runtime.md",
+  "modified": false
+}

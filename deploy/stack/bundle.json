@@ -1,0 +1,20 @@
+{
+  "schema": "remedy-stack-candidate-v1",
+  "deploymentReady": false,
+  "productionWritesEnabled": false,
+  "platform": "linux/amd64",
+  "serverMinimumSource": "065c86ebb0d856d5b9ada8bd7b41bd8c4d90ce10",
+  "bridgeSource": "03d961d7fbfbcc36bad885f5ec06d5f289cba09e",
+  "scannerSource": "1541bb8f3962553b65dab7bfd5aeb429354a8a4f",
+  "scannerImage": "ghcr.io/johnnyrobot/adapt-a11y-scanner-dev-candidate@sha256:00ab363669ccc7ae50fe7fc79286508af5923d3326d397f87cff91ee76e379a6",
+  "contracts": ["cxone-review-v1", "cxone-terminal-v1"],
+  "profiles": ["engine", "engine-scanner", "bridge-review", "bridge-full"],
+  "limits": {
+    "requestBytes": 5000000,
+    "server": {"cpus": 4, "memoryBytes": 4294967296, "pids": 512, "shmBytes": 268435456, "tmpBytes": 536870912, "stateBytes": 1073741824, "totalSeconds": 900, "stopSeconds": 120},
+    "scanner": {"cpus": 2, "memoryBytes": 2147483648, "pids": 512, "shmBytes": 1073741824, "tmpBytes": 536870912, "totalSeconds": 900, "stopSeconds": 20},
+    "bridge": {"cpus": 1, "memoryBytes": 805306368, "pids": 128, "tmpBytes": 268435456, "totalSeconds": 120, "stopSeconds": 30}
+  },
+  "artifactPolicy": "Exact OCI archive SHA256 and registry digest are verified after download/pull. Candidate retention and resolved base/lock/profile/image hashes are recorded in the producing CI run. No rebuild substitution.",
+  "acceptance": "Resource choices are candidate inputs until actual Linux proof passes. Global release flags remain false pending LT197 and Chief acceptance."
+}

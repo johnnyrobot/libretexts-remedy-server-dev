@@ -26,6 +26,7 @@ tests/unit/contracts_v1/*
 !tests/unit/contracts_v1/adapt-assignment-enumeration.json
 !tests/unit/contracts_v1/integration-targets.json
 !tests/unit/contracts_v1/lt-1-reviewer-wire-v1-vectors.json
+!tests/unit/contracts_v1/cxone-terminal-v1-fixtures.json
 docs
 benchmarks
 exports
@@ -63,3 +64,9 @@ deploy
 
 # Local checker dependencies are installed from the pinned lock in the build.
 **/node_modules
+
+# Private source worktrees and build/proof outputs are never image inputs.
+.scratch
+.stack-inputs
+.stack-artifacts
+.stack-proof-evidence

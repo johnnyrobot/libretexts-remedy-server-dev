@@ -338,3 +338,98 @@ def test_openapi_still_documents_inbound_key_header():
     app.include_router(build_router(Settings(api_key=APP_KEY)))
     parameters = app.openapi()['paths']['/v1/cxone/page/scan']['post']['parameters']
     assert any(p['name'].lower() == 'x-api-key' and p['in'] == 'header' for p in parameters)
+
+
+TERMINAL_V1 = json.loads((Path(__file__).parent / 'contracts_v1/cxone-terminal-v1-fixtures.json').read_text())
+
+
+@pytest.mark.parametrize('status,body',
+    [(200, item['body']) for item in TERMINAL_V1['statuses']] + [
+        (200, {'outcome': 'pending', 'terminal_proof': None}),
+        (200, {'outcome': 'unknown_write', 'reconciliation': 'resolved', 'terminal_proof': None}),
+        (404, {'error': 'operation_not_found'}),
+        (503, {'error': 'claim_store_unavailable'}),
+    ])
+def test_terminal_v1_projection_is_preserved_without_signer_or_outcome_inference(tmp_path, status, body):
+    # Producer fixture is immutable synthetic data. Its hostname is never used
+    # as a network destination: the only upstream hop is this local HTTP fixture.
+    with forwarding_client(tmp_path) as (client, observed, reply):
+        reply.status, reply.body = status, body
+        pair = {'issuer': 'urn:conductor:synthetic', 'jti': 'A' * 43}
+        response = client.post('/v1/cxone/page/operation-status', json=pair)
+        assert (response.status_code, response.json()) == (status, body)
+        assert len(observed) == 1
+        path, headers, forwarded = observed[0]
+        assert path == '/v1/cxone/page/operation-status' and forwarded == pair
+        assert headers.get('X-Remedy-Service-Key') == SERVICE_KEY
+        assert headers.get('X-API-Key') is None
+        # A caller cannot substitute its own proof or target for stored identity.
+        refused = client.post('/v1/cxone/page/operation-status', json={**pair, 'terminal_proof': body.get('terminal_proof')})
+        assert refused.status_code == 400
+        assert len(observed) == 1
+
+
+def test_absent_bridge_explicitly_has_no_mutation_capability(tmp_path):
+    # Engine/Scanner operation needs no Bridge service/signing configuration.
+    app = FastAPI()
+    app.include_router(build_router(Settings(api_key=APP_KEY)))
+    with TestClient(app) as client:
+        response = client.get('/v1/cxone/health', headers={'X-API-Key': APP_KEY})
+    assert response.status_code == 200
+    assert response.json() == {'ok': True, 'state': 'disabled', 'enabled': False,
+        'capabilities': {'scan': False, 'preview': False, 'mutate': False, 'operation_status': False}}
+
+
+REVIEW_READY = {'ok': True, 'state': 'ready',
+    'capabilities': {'scan': True, 'preview': True, 'mutate': False, 'operation_status': False},
+    'profile': {'contract': 'cxone-review-v1', 'name': 'review-only',
+                'required_capabilities': ['scan', 'preview'], 'unavailable_reasons': []}}
+
+
+def test_selected_review_profile_accepts_only_its_required_read_capabilities(tmp_path):
+    with forwarding_client(tmp_path) as (client, observed, reply):
+        reply.body = REVIEW_READY
+        response = client.get('/v1/cxone/health')
+        assert response.status_code == 200
+        assert response.json() == {**REVIEW_READY, 'enabled': True}
+
+
+@pytest.mark.parametrize('damage', ['legacy-partial', 'null-profile', 'unknown-contract', 'unknown-name',
+                                  'missing-required', 'duplicate-required', 'scan-failed', 'mutation-enabled',
+                                  'invalid-reasons', 'ready-with-reasons'])
+def test_readiness_rejects_unknown_or_inconsistent_profile(tmp_path, damage):
+    body = json.loads(json.dumps(REVIEW_READY))
+    if damage == 'legacy-partial': del body['profile']
+    elif damage == 'null-profile': body['profile'] = None
+    elif damage == 'unknown-contract': body['profile']['contract'] = 'future-unverified'
+    elif damage == 'unknown-name': body['profile']['name'] = 'scan-only'
+    elif damage == 'missing-required': body['profile']['required_capabilities'] = []
+    elif damage == 'duplicate-required': body['profile']['required_capabilities'] = ['scan', 'scan', 'preview']
+    elif damage == 'scan-failed': body['capabilities']['scan'] = False
+    elif damage == 'mutation-enabled': body['capabilities']['mutate'] = True
+    elif damage == 'invalid-reasons': body['profile']['unavailable_reasons'] = None
+    else: body['profile']['unavailable_reasons'] = ['read_dependency_unavailable']
+    with forwarding_client(tmp_path) as (client, observed, reply):
+        reply.body = body
+        response = client.get('/v1/cxone/health')
+        assert response.status_code == 503
+        assert response.json()['error'] == 'cxone_readiness_invalid'
+
+
+@pytest.mark.parametrize('field', ['state', 'name'])
+def test_readiness_malformed_list_fields_fail_closed(tmp_path, field):
+    body = json.loads(json.dumps(REVIEW_READY))
+    if field == 'state': body['state'] = []
+    else: body['profile']['name'] = []
+    with forwarding_client(tmp_path) as (client, observed, reply):
+        reply.body = body
+        assert client.get('/v1/cxone/health').status_code == 503
+
+
+def test_legacy_full_readiness_ignores_additive_unrequired_capability(tmp_path):
+    with forwarding_client(tmp_path) as (client, observed, reply):
+        reply.body = {'ok': True, 'state': 'ready', 'capabilities':
+                      {'scan': True, 'preview': True, 'mutate': True, 'operation_status': True, 'future_optional': False}}
+        response = client.get('/v1/cxone/health')
+        assert response.status_code == 200
+        assert 'profile' not in response.json()

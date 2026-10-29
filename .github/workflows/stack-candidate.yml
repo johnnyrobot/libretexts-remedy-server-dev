@@ -1,0 +1,111 @@
+name: Private stack candidate
+on:
+  push:
+    branches: [main, feat/lt-175-integration-bundle]
+permissions:
+  contents: read
+concurrency:
+  group: private-stack-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    if: github.repository == 'johnnyrobot/libretexts-remedy-server-dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: johnnyrobot/libretexts-remedy-bridge-dev
+          ref: 03d961d7fbfbcc36bad885f5ec06d5f289cba09e
+          path: .stack-inputs/bridge
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - name: Prepare clean, immutable build inputs
+        run: |
+          mkdir -p .stack-inputs/server .stack-artifacts
+          git archive HEAD | tar -x -C .stack-inputs/server
+          curl -fsSLo .stack-inputs/server/verapdf-installer.zip https://software.verapdf.org/releases/1.30/verapdf-greenfield-1.30.1-installer.zip
+          test -s .stack-inputs/server/verapdf-installer.zip
+          python3 .github/stack-proof/pin-inputs.py
+      - name: Archive full Server runtime
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .stack-inputs/server
+          target: runtime
+          platforms: linux/amd64
+          outputs: type=oci,dest=.stack-artifacts/server.oci.tar
+          provenance: mode=max
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=stack-server
+          cache-to: type=gha,mode=max,scope=stack-server
+      - name: Archive canonical Bridge build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .stack-inputs/bridge
+          platforms: linux/amd64
+          outputs: type=oci,dest=.stack-artifacts/bridge.oci.tar
+          provenance: mode=max
+          labels: org.opencontainers.image.revision=03d961d7fbfbcc36bad885f5ec06d5f289cba09e
+          cache-from: type=gha,scope=stack-bridge
+          cache-to: type=gha,mode=max,scope=stack-bridge
+      - name: Bind archives and configuration to this source
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path('.stack-artifacts')
+          names=['server.oci.tar','bridge.oci.tar','build-inputs.json']
+          value={'serverSource':os.environ['GITHUB_SHA'],'bridgeSource':'03d961d7fbfbcc36bad885f5ec06d5f289cba09e','deploymentReady':False,'productionWritesEnabled':False,'retentionDays':30,'sha256':{}}
+          for name in names:
+              with (root/name).open('rb') as stream: value['sha256'][name]=hashlib.file_digest(stream,'sha256').hexdigest()
+          value['configurationSha256']={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in Path('deploy/stack').rglob('*') if p.is_file() and p.suffix in {'.py','.mjs','.json','.yml','.example','.md'}}
+          (root/'candidate.json').write_text(json.dumps(value,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remedy-stack-candidate-${{ github.sha }}
+          path: .stack-artifacts/
+          retention-days: 30
+          compression-level: 0
+  prove:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: remedy-stack-candidate-${{ github.sha }}
+          path: .stack-artifacts
+      - name: Install archive reader
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends skopeo
+      - name: Verify and import the exact downloaded OCI archives
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          p=Path('.stack-artifacts');v=json.loads((p/'candidate.json').read_text())
+          assert v['serverSource']==os.environ['GITHUB_SHA'] and not v['deploymentReady'] and not v['productionWritesEnabled']
+          for name,expected in v['sha256'].items():
+              with (p/name).open('rb') as stream: assert hashlib.file_digest(stream,'sha256').hexdigest()==expected,name
+          for name,expected in v['configurationSha256'].items(): assert hashlib.sha256(Path(name).read_bytes()).hexdigest()==expected,name
+          PY
+          skopeo copy --override-os linux --override-arch amd64 oci-archive:.stack-artifacts/server.oci.tar docker-daemon:remedy-server:stack-candidate
+          skopeo copy --override-os linux --override-arch amd64 oci-archive:.stack-artifacts/bridge.oci.tar docker-daemon:remedy-bridge:stack-candidate
+          docker pull ghcr.io/johnnyrobot/adapt-a11y-scanner-dev-candidate@sha256:00ab363669ccc7ae50fe7fc79286508af5923d3326d397f87cff91ee76e379a6
+      - name: Exercise actual services with only synthetic external systems
+        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/prove.py
+      - name: Retain sanitized proof separately from images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: remedy-stack-proof-${{ github.sha }}
+          path: .stack-proof-evidence/
+          retention-days: 30
