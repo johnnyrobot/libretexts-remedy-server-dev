@@ -323,11 +323,13 @@ puppeteer.launch = async (...args) => {
         assert len(renderer["hostNamespacePids"]) > len(browser["hostNamespacePids"])
         (Path(os.environ["REMEDY_SANDBOX_AUDIT_DIR"]) / f"sandbox-{tool}.json").write_text(json.dumps(observed, indent=2))
     finally:
-        release.touch()  # also release on observer failure/cancellation
-        (Path(os.environ["REMEDY_SANDBOX_AUDIT_DIR"]) / f"sandbox-{tool}-diagnostic.json").write_text(
-            json.dumps({"entered": ready.exists(), "taskDone": task.done(), "candidates": candidates, "observed": observed, "census": census,
-                        "initialChildren": sorted(initial_children)}, indent=2))
         try:
-            await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), 15)
+            release.touch()  # also release on observer failure/cancellation
+            (Path(os.environ["REMEDY_SANDBOX_AUDIT_DIR"]) / f"sandbox-{tool}-diagnostic.json").write_text(
+                json.dumps({"entered": ready.exists(), "taskDone": task.done(), "candidates": candidates, "observed": observed, "census": census,
+                            "initialChildren": sorted(initial_children)}, indent=2))
         finally:
-            await asyncio.wait_for(converter.close(), 15)
+            try:
+                await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), 15)
+            finally:
+                await asyncio.wait_for(converter.close(), 15)

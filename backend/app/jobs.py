@@ -338,12 +338,13 @@ class JobWorker:
                 reservation = self._reservations[job_id]
                 if reservation.deadline <= time.monotonic():
                     raise ExecutionDeadline("Engine total deadline exceeded while queued.")
-                await self.store.update(job_id, status="running", stage="starting", progress=0.05)
                 await self.runner(job)
             except asyncio.CancelledError:
                 # runner cancellation finishes owned-process termination first.
-                await self.store.update(job_id, status="failed", stage="interrupted",
-                                        error="Engine execution interrupted by shutdown.")
+                current = await self.store.get(job_id)
+                if current is not None and current.status == "running":
+                    await self.store.update(job_id, status="failed", stage="interrupted",
+                                            error="Engine execution interrupted by shutdown.")
                 raise
             except ExecutionDeadline:
                 await self.store.update(job_id, status="failed", stage="timed_out",
@@ -352,6 +353,9 @@ class JobWorker:
                 log.error("Job %s failed (%s)", job_id, type(exc).__name__)
                 reservation = self._reservations.get(job_id)
                 retained = reservation is not None and reservation.retained
+                current = await self.store.get(job_id)
+                if current is not None and current.status == "queued" and not self.execution.accepting and not retained:
+                    return  # never-dispatched work remains eligible for safe cold recovery
                 await self.store.update(job_id, status="running" if retained else "failed",
                                         stage="termination_failed" if retained else "failed",
                                         error="Engine termination failed; service unavailable." if retained else "Engine operation failed.")
