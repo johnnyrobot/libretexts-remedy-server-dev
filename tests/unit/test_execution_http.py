@@ -661,25 +661,38 @@ async def test_expired_before_ready_handling_stops_already_started_detached_chil
     from backend.app.main import create_app
     settings = replace(execution_settings, job_total_timeout_seconds=.8)
     start = SpawnProcess.start
-    delayed = False
+    delayed_launches = []
     def delayed_start(process):
-        nonlocal delayed
+        # Instrument the reserved execution launch, never lifespan's adoption probe.
+        assert process._target is original_supervise
+        assert process._args[1] is controlled_job
+        reserved_job = process._args[2][0]
+        deadline = process._args[-1]
+        assert reserved_job.deadline_at is not None
+        assert time.monotonic() < deadline
         start(process)
-        if not delayed:
-            delayed = True
-            time.sleep(1.2)  # parent stalls while the real child starts work
-    monkeypatch.setattr(SpawnProcess, "start", delayed_start)
+        if not delayed_launches:
+            delayed_launches.append((reserved_job.id, process.pid))
+            time.sleep(1.2)  # parent cannot handle ready until after reservation expiry
+            assert time.monotonic() >= deadline
     app = create_app(settings, job_entrypoint=controlled_job)
     async with app.router.lifespan_context(app):
+        monkeypatch.setattr(SpawnProcess, "start", delayed_start)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture.invalid",
                                      headers={"X-API-Key": "fixture-key"}) as client:
             job_id = (await post_mode(client, "detached-hang")).json()["id"]
             failed = await get_terminal(client, job_id)
+            assert len(delayed_launches) == 1 and delayed_launches[0][0] == job_id
+            assert delayed_launches[0][1] is not None
+            assert failed["status"] == "failed"
             assert failed["stage"] == "timed_out"
+            assert (await client.get("/v1/jobs/" + job_id + "/result")).status_code == 409
             assert not (settings.backup_dir / (job_id + ".started")).exists()
             assert not (settings.backup_dir / (job_id + ".descendant")).exists()
             fast = (await post_mode(client, "fast")).json()["id"]
             assert (await get_terminal(client, fast))["status"] == "done"
+            assert not (settings.backup_dir / "late").exists()
+            assert not (settings.backup_dir / "overlapped").exists()
 
 
 async def quality_with_fixture_calibration(settings, wire_scope, body, *, emit):
