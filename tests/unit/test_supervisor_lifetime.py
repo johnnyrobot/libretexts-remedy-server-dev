@@ -18,6 +18,24 @@ from tests.unit.test_execution_http import execution_settings, get_terminal, pos
 linux = pytest.mark.skipif(not supported(), reason="requires Linux amd64 subreaper/pidfds")
 
 
+@pytest.mark.skipif(os.environ.get("REMEDY_FULL_RUNTIME_TESTS") != "1", reason="requires the actual shipping seccomp profile")
+def test_shipping_pidfd_calls_work_and_unused_flag_variants_remain_denied():
+    import errno
+    assert supported()
+    handle = os.pidfd_open(os.getpid())
+    try:
+        signal.pidfd_send_signal(handle, 0)
+    finally:
+        os.close(handle)
+    with pytest.raises(OSError) as invalid:
+        signal.pidfd_send_signal(-1, 0)
+    assert invalid.value.errno == errno.EBADF  # reached kernel fd validation
+    with pytest.raises(PermissionError):
+        os.pidfd_open(os.getpid(), 1)  # unused flags refused by the filter
+    with pytest.raises(PermissionError):
+        signal.pidfd_send_signal(-1, 0, None, 1)
+
+
 def _helper(state):
     # Independent OS lock remains held for the helper's whole actual lifetime.
     # A subsequent engine would record overlap if capacity were released early.
@@ -206,14 +224,12 @@ async def test_supervisor_crash_quarantines_running_and_queued_work_and_restart(
     assert (await replacement.state.store.get(queued)).status == "queued"
 
 
-@pytest.mark.parametrize("force_unsupported", [True, False])
+@pytest.mark.parametrize("force_unsupported", [True] if supported() else [True, False])
 async def test_unsupported_runtime_refuses_before_staging_and_reports_not_ready(execution_settings, monkeypatch, force_unsupported):
     from backend.app import execution
     from backend.app.main import create_app
     if force_unsupported:
         monkeypatch.setattr(execution, "strict_execution_supported", lambda: False)
-    elif supported():
-        pytest.skip("actual unsupported-runtime case runs on macOS")
     app = create_app(execution_settings)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture.invalid",
