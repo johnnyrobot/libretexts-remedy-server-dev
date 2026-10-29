@@ -52,12 +52,26 @@ unprivileged Chromium namespace sandbox. Do not disable seccomp, add
 test pass. A host that cannot run this profile is unsupported until its owner
 provides a reviewed compatible policy.
 
-The seccomp file is copied byte-for-byte from adapt-a11y-scanner commit
+The seccomp file originates from adapt-a11y-scanner commit
 `0f1f9150451e6f6f126c1964c3cc80c8997c2f59`,
-`deploy/chromium-seccomp-amd64.json`. It retains that reviewed namespace
+`deploy/chromium-seccomp-amd64.json`. Server's LT-170 delta adds only native
+amd64 `pidfd_open` with flags zero and `pidfd_send_signal` with null siginfo
+and flags zero. The supervisor requires those operations to pin child identity
+and signal unreaped children without numeric PID reuse. The original policy
+returned EPERM for both, making the strict runtime unavailable. No other
+syscall rules or the default ERRNO action change. It retains that reviewed namespace
 creation policy and Chromium's chroot-inside-user-namespace allowance; dropped
 container capabilities must still deny chroot in the container namespace.
 Scanner's evidence is provenance, not Server verification.
+
+The [Linux pidfd_open manual](https://man7.org/linux/man-pages/man2/pidfd_open.2.html)
+documents the unreaped-child identity guarantee; the
+[pidfd_send_signal manual](https://man7.org/linux/man-pages/man2/pidfd_send_signal.2.html)
+documents signal permission and PID namespace checks. These allowances grant
+no capabilities, do not allow `pidfd_getfd`, and do not bypass those kernel
+checks. Full-runtime preflight must establish pidfd access and subreaper
+adoption before collecting tests, followed by real descendant/crash/shutdown
+tests and all four sandboxed HTML tools in that same image and filter.
 
 Server full-runtime CI runs the actual image as non-root without networking,
 using synthetic listeners and documents. A read-only host observer only reads

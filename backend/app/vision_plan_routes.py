@@ -73,6 +73,7 @@ def build_router(
         staging = await _stage_pdf(file, settings)
         body = await _finalize_upload_and_enqueue(
             store, worker, settings, staging, ".pdf",
+            reservation=request.state.engine_reservation,
             kind=JOB_KIND_VISION_PLAN_RUN, result_media_type="application/pdf",
         )
         return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=body)

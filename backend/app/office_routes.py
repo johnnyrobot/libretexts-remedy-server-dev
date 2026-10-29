@@ -90,6 +90,7 @@ def build_router(
         staging, ft = await _stage_office(file, settings, modern_only=True)
         body = await _finalize_upload_and_enqueue(
             store, worker, settings, staging, Path(file.filename or "").suffix,
+            reservation=request.state.engine_reservation,
             kind=JOB_KIND_REMEDIATE_OFFICE, result_media_type=media_type_for(ft),
             metadata_json=json.dumps({"quality": True}) if quality else None,
         )

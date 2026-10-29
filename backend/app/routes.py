@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import uuid
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
@@ -109,6 +111,7 @@ async def _finalize_upload_and_enqueue(
     kind: str,
     result_media_type: str,
     metadata_json: str | None = None,
+    reservation=None,
 ) -> dict:
     """Create the job record, move staging → final path, enqueue.
 
@@ -118,19 +121,33 @@ async def _finalize_upload_and_enqueue(
     worker (on the same event loop) could snapshot the job row with empty
     metadata_json between enqueue and a trailing post-enqueue update.
     """
-    job = await store.create(staging, kind=kind, result_media_type=result_media_type)
-    final_input = settings.job_dir / job.id / f"input{suffix}"
-    final_input.parent.mkdir(parents=True, exist_ok=True)
-    staging.rename(final_input)
+    deadline_at = (datetime.now(timezone.utc) + timedelta(
+        seconds=reservation.deadline - time.monotonic())).isoformat() if reservation is not None else ""
+    job = None
+    try:
+        job = await store.create(staging, kind=kind, result_media_type=result_media_type, deadline_at=deadline_at)
+        final_input = settings.job_dir / job.id / f"input{suffix}"
+        final_input.parent.mkdir(parents=True, exist_ok=True)
+        staging.rename(final_input)
 
-    update_kwargs: dict = {"input_path": str(final_input), "stage": "queued"}
-    if metadata_json is not None:
-        update_kwargs["metadata_json"] = metadata_json
+        update_kwargs: dict = {"input_path": str(final_input), "stage": "queued"}
+        if metadata_json is not None:
+            update_kwargs["metadata_json"] = metadata_json
 
-    await store.update(job.id, **update_kwargs)
-    await worker.enqueue(job.id)
-    refreshed = await store.get(job.id)
-    return serialize_job(refreshed)
+        await store.update(job.id, **update_kwargs)
+        await worker.enqueue(job.id, reservation)
+        refreshed = await store.get(job.id)
+        return serialize_job(refreshed)
+    except BaseException:
+        # Before ownership transfers to the worker, an aborted upload must leave
+        # neither an orphan staging file nor a recoverable-but-invalid queue row.
+        if reservation is None or not reservation.transferred:
+            staging.unlink(missing_ok=True)
+            if job is not None:
+                import shutil
+                await store.delete(job.id)
+                shutil.rmtree(settings.job_dir / job.id, ignore_errors=True)
+        raise
 
 
 def build_router(
@@ -173,7 +190,7 @@ def build_router(
         finally:
             probe.unlink(missing_ok=True)
 
-        checks["worker"] = "ok" if worker.is_running else "not_running"
+        checks["worker"] = "ok" if worker.is_running and worker.execution.accepting else "not_running"
         ok = all(value == "ok" for value in checks.values())
         return JSONResponse(
             status_code=status.HTTP_200_OK if ok else status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -213,6 +230,7 @@ def build_router(
             metadata["quality"] = True
         body = await _finalize_upload_and_enqueue(
             store, worker, settings, staging, Path(file.filename or "").suffix,
+            reservation=request.state.engine_reservation,
             kind=kind, result_media_type=media_type_for(ft),
             metadata_json=json.dumps(metadata),
         )
@@ -231,6 +249,7 @@ def build_router(
         staging, _, _ = await _stage_upload(file, settings, _PDF_ONLY)
         body = await _finalize_upload_and_enqueue(
             store, worker, settings, staging, ".pdf",
+            reservation=request.state.engine_reservation,
             kind=JOB_KIND_CONVERT_PDF_TO_HTML, result_media_type="text/html",
         )
         return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=body)
@@ -252,6 +271,7 @@ def build_router(
         staging, ft, _ = await _stage_upload(file, settings, _OFFICE_ONLY)
         body = await _finalize_upload_and_enqueue(
             store, worker, settings, staging, Path(file.filename or "").suffix,
+            reservation=request.state.engine_reservation,
             kind=JOB_KIND_CONVERT_OFFICE_TO_HTML, result_media_type="text/html",
         )
         return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=body)
@@ -291,6 +311,7 @@ def build_router(
         staging.write_bytes(contents)
         body = await _finalize_upload_and_enqueue(
             store, worker, settings, staging, ".html",
+            reservation=request.state.engine_reservation,
             kind=JOB_KIND_CONVERT_HTML_TO_PDF, result_media_type="application/pdf",
         )
         return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=body)
@@ -414,6 +435,8 @@ def build_router(
         job = await store.get(job_id)
         if not job:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+        if job.status in {"running", "queued"}:
+            raise HTTPException(409, "Active job cannot be deleted until execution stops.")
         await store.delete(job_id)
         workdir = settings.job_dir / job_id
         if workdir.exists():
