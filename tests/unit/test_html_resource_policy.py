@@ -143,9 +143,13 @@ async def test_actual_checkers_refuse_prohibited_resources_without_contact(tmp_p
         await listener.wait_closed()
 
 
+def kernel_start_ticks(pid):
+    return (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()[19]
+
+
 async def shipping_process_evidence(pid):
     directory = Path(os.environ["REMEDY_SANDBOX_AUDIT_DIR"])
-    ticks = (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()[19]
+    ticks = kernel_start_ticks(pid)
     request_id = f"{os.getpid()}-{pid}-{time.monotonic_ns()}"
     temporary = directory / f"{request_id}.request.tmp"
     temporary.write_text(json.dumps({"pid": pid, "requestId": request_id, "startTicks": ticks}))
@@ -244,7 +248,7 @@ puppeteer.launch = async (...args) => {
     initial_children = set()
     for process in psutil.Process().children(recursive=True):
         try:
-            ticks = (Path("/proc") / str(process.pid) / "stat").read_text().rsplit(")", 1)[1].split()[19]
+            ticks = kernel_start_ticks(process.pid)
             initial_children.add((process.pid, ticks))
         except (psutil.NoSuchProcess, FileNotFoundError):
             continue
@@ -267,7 +271,7 @@ puppeteer.launch = async (...args) => {
                 created = process.create_time()
                 name = process.name()
                 args = process.cmdline()
-                ticks = (Path("/proc") / str(process.pid) / "stat").read_text().rsplit(")", 1)[1].split()[19]
+                ticks = kernel_start_ticks(process.pid)
                 kind = "renderer" if "--type=renderer" in args else (
                     "browser" if any(arg == "--remote-debugging-pipe" or arg.startswith("--remote-debugging-port=") for arg in args)
                     and not any(arg.startswith("--type=") for arg in args) else None)
@@ -289,7 +293,7 @@ puppeteer.launch = async (...args) => {
                                "status": process.status(), "argv": args, "createTime": created,
                                "started": started, "previousCutoffWouldReject": created < started,
                                "kind": kind, "rejectedBy": rejected})
-                if (process.pid, ticks) in initial_children or "chrome" not in name.lower():
+                if rejected:
                     continue
                 if kind is not None and kind not in candidates:
                     candidates[kind] = process.pid
