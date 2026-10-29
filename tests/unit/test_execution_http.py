@@ -70,7 +70,10 @@ async def controlled_job(job, settings, *, emit):
             raise RuntimeError("overlapping actual work")
         (state / (job.id + ".started")).write_text(str(os.getpid()))
         if "hang" in mode or "orphan" in mode:
-            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            def received_term(_signal, _frame):
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                (state / (job.id + ".term-received")).touch()
+            signal.signal(signal.SIGTERM, received_term)
             child = subprocess.Popen([sys.executable, "-c",
                 "import signal,time,pathlib,sys; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
                 "time.sleep(12); pathlib.Path(sys.argv[1]).write_text('late')", str(state / "late")], start_new_session="detached" in mode)
@@ -116,7 +119,9 @@ async def post_mode(client, mode):
 async def test_timeout_keeps_ownership_until_process_group_stops_and_recovers(execution_settings):
     from dataclasses import replace
     from backend.app.main import create_app
-    settings = replace(execution_settings, job_total_timeout_seconds=0.7)
+    # Startup gets a declared bounded budget. Force expiry only after actual
+    # compute + descendant entry, independently of cold-spawn speed.
+    settings = replace(execution_settings, job_total_timeout_seconds=30)
     app = create_app(settings, job_entrypoint=controlled_job)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture.invalid",
@@ -124,8 +129,12 @@ async def test_timeout_keeps_ownership_until_process_group_stops_and_recovers(ex
             response = await post_mode(client, "hang")
             job_id = response.json()["id"]
             await wait_for_file(settings.backup_dir / (job_id + ".descendant"))
-            await asyncio.sleep(0.8)
-            # TERM was ignored. Capacity/state remain owned throughout grace.
+            assert (settings.backup_dir / (job_id + ".started")).exists()
+            reservation = app.state.worker.reservation_for(job_id)
+            assert reservation.deadline > time.monotonic()
+            reservation.deadline = time.monotonic() - 1  # controlled active-phase expiry
+            await wait_for_file(settings.backup_dir / (job_id + ".term-received"))
+            # Actual TERM has entered cleanup; the ignoring child still owns capacity.
             assert (await client.get("/v1/jobs/" + job_id)).json()["status"] == "running"
             assert (await client.delete("/v1/jobs/" + job_id)).status_code == 409
             assert (await client.get("/v1/jobs/" + job_id + "/result")).status_code == 409
@@ -172,14 +181,35 @@ async def test_direct_operations_share_admission_and_leave_health_responsive(exe
 async def test_queued_job_expiry_does_not_start_actual_work(execution_settings):
     from dataclasses import replace
     from backend.app.main import create_app
-    settings = replace(execution_settings, job_total_timeout_seconds=.7)
+    settings = replace(execution_settings, job_total_timeout_seconds=30)
     app = create_app(settings, job_entrypoint=controlled_job)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture.invalid",
                                      headers={"X-API-Key": "fixture-key"}) as client:
             running = (await post_mode(client, "hang")).json()["id"]
-            await wait_for_file(settings.backup_dir / (running + ".started"))
-            queued = (await post_mode(client, "fast")).json()["id"]
+            await wait_for_file(settings.backup_dir / (running + ".descendant"))
+            assert (settings.backup_dir / (running + ".started")).exists()
+            # Occupied actual capacity precedes admission. Only the queued
+            # request gets the original short expiry budget; no cold spawn is
+            # expected for it, since it must never dispatch.
+            app.state.execution.total_seconds = .7
+            queued_response = await post_mode(client, "fast")
+            assert queued_response.status_code == 202
+            queued = queued_response.json()["id"]
+            app.state.execution.total_seconds = 30
+            queued_reservation = app.state.worker.reservation_for(queued)
+            assert queued_reservation.deadline > time.monotonic()
+            assert (await client.get("/v1/jobs/" + queued)).json()["status"] == "queued"
+            assert not (settings.backup_dir / (queued + ".started")).exists()
+            app.state.worker.reservation_for(running).deadline = time.monotonic() - 1
+            await wait_for_file(settings.backup_dir / (running + ".term-received"))
+            async with asyncio.timeout(2):
+                while time.monotonic() < queued_reservation.deadline:
+                    await asyncio.sleep(.01)
+            assert (await client.get("/v1/jobs/" + running)).json()["status"] == "running"
+            assert (await client.get("/v1/jobs/" + queued)).json()["status"] == "queued"
+            assert (await client.get("/v1/jobs/" + queued + "/result")).status_code == 409
+            assert not (settings.backup_dir / (queued + ".started")).exists()
             assert (await get_terminal(client, running))["status"] == "failed"
             expired = await get_terminal(client, queued)
             assert expired["stage"] == "timed_out"
@@ -689,6 +719,8 @@ async def test_expired_before_ready_handling_stops_already_started_detached_chil
             assert (await client.get("/v1/jobs/" + job_id + "/result")).status_code == 409
             assert not (settings.backup_dir / (job_id + ".started")).exists()
             assert not (settings.backup_dir / (job_id + ".descendant")).exists()
+            # Recovery verifies successful ownership reuse, not .8s cold startup.
+            app.state.execution.total_seconds = 30
             fast = (await post_mode(client, "fast")).json()["id"]
             assert (await get_terminal(client, fast))["status"] == "done"
             assert not (settings.backup_dir / "late").exists()
