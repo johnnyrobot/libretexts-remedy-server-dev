@@ -6,13 +6,19 @@ Remedy is three separately-versioned services that ship as one stack. This
 directory contains the only `docker-compose.yml` that runs all three, plus the
 environment templates for each.
 
+The [versioned synthetic integration contracts](contracts/README.md) record
+the current HTML-validation envelope, source-backed ADAPT enumeration shape
+and exact Conductor staging/released-floor pins. They provide fixture
+provenance and consumer policy, not a deploy-ready compatibility declaration.
+
 **Release integration gate (LT-111/LT-112):** this is not yet a verified deployment
 bundle. The current `CXONE_BRIDGE_BASE_URL=http://remedy-bridge:5175` cannot reach
 a bridge bound to container-local `127.0.0.1`. Keep that loopback guard. Do not
 bind the bridge to `0.0.0.0`, publish its staff panel, or use a public proxy to
 work around it. A shared private network namespace is a proposed transport,
 pending Chief-approved design and Linux integration proof. Signed reviewer
-assertion forwarding also awaits the Bridge contract. The setup/demo commands
+assertion forwarding implements the approved LT-1 contract; actual assembled
+Conductor/Server/Bridge verification and key mounts remain unproven. The setup/demo commands
 below are historical assembly guidance, not evidence that these gates passed.
 
 ---

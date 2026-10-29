@@ -1,0 +1,87 @@
+{
+  "contract_id": "adapt-assignment-enumeration-v1-source-baseline",
+  "metadata_is_payload": false,
+  "evidence_kind": "Synthetic examples derived from immutable route/controller source; no Laravel, HTTP, live ADAPT or Scanner execution",
+  "source_commit": "ee9478b0b418d222c17a15a004a36cec43858dfd",
+  "source_files_sha256": {
+    "routes/api.php": "4f5b1222d6b80d16a59d4fd03181d136564513b19137af8f40783a2c43f02fd3",
+    "app/Providers/RouteServiceProvider.php": "f4760e2a27aee015e4ad2159acbfe223e18494a0715f75ea08cea5e69bdfd557",
+    "app/Http/Controllers/AssignmentSyncQuestionController.php": "875f9ba32f8975d0a9cfb990c8eed497c647e7a57cf802d42d4061f35c8bc9db",
+    "app/Http/Controllers/AssignmentController.php": "79d5c92f12e30e180ccfe54b34a356764725cd6b0ec73498c11cafec1b1b8d46"
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/assignments/{assignment}/questions/ids"
+  },
+  "legacy_metadata_path": "/api/assignments/{assignment}/get-questions-info",
+  "examples": [
+    {
+      "name": "enumerated",
+      "http_status": 200,
+      "body": {
+        "type": "success",
+        "question_ids": "[101,202]",
+        "question_ids_array": [
+          101,
+          202
+        ]
+      },
+      "consumer_policy": "scan the authoritative array"
+    },
+    {
+      "name": "empty_success",
+      "http_status": 200,
+      "body": {
+        "type": "success",
+        "question_ids": "[]",
+        "question_ids_array": []
+      },
+      "consumer_policy": "zero totals/results; exitCode 1; outcome no_work; HTTP ok false; no fabricated failed question"
+    },
+    {
+      "name": "application_error",
+      "http_status": 200,
+      "body": {
+        "type": "error",
+        "message": "Synthetic authorization failure"
+      },
+      "consumer_policy": "operational failure even with HTTP 200"
+    },
+    {
+      "name": "legacy_json_only",
+      "http_status": 200,
+      "body": {
+        "type": "success",
+        "question_ids": "[101,202]"
+      },
+      "consumer_policy": "contract failure; missing authoritative array is not empty/no_work"
+    },
+    {
+      "name": "metadata_not_enumeration",
+      "http_status": 200,
+      "body": {
+        "type": "success",
+        "assignment": {
+          "name": "Synthetic assignment"
+        }
+      },
+      "consumer_policy": "contract failure; get-questions-info is metadata, not enumeration"
+    },
+    {
+      "name": "wrong_array_type",
+      "http_status": 200,
+      "body": {
+        "type": "success",
+        "question_ids_array": "[101,202]"
+      },
+      "consumer_policy": "contract failure without JSON-string fallback"
+    }
+  ],
+  "notes": [
+    "consumer_policy and contract_id describe test data; they are not fields ADAPT emits.",
+    "question_ids is a JSON-encoded duplicate; only question_ids_array is authoritative.",
+    "The pinned controller sets type=success before querying. Its catch can retain success but omit the array; success alone is insufficient.",
+    "Synthetic IDs 101/202 do not designate live questions. Positive safe numeric-string policy is defined in LT-120; no coercion or filtering is permitted.",
+    "Live ADAPT version/topology remains unverified."
+  ]
+}

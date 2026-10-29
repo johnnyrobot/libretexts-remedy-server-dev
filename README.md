@@ -65,6 +65,12 @@ PROJECT_REMEDY_BASE_URL=http://127.0.0.1:8000
 # Leave PROJECT_REMEDY_API_KEY empty unless APP_API_KEY is set in remedy-server.
 ```
 
+Enabled CXone integration requires `CXONE_INTEGRATION_ENABLED=true`, an inbound
+`APP_API_KEY`, and a private `REMEDY_BRIDGE_SERVICE_KEY_FILE` by default. The local
+commands above need those settings too; explicit `REMEDY_REVIEWER_REQUIRED=false`
+is limited to development on loopback. See [signed forwarding](deploy/stack/contracts/reviewer-forwarding.md)
+for auth, readiness, status lookup and remaining integration gates.
+
 This enables:
 
 | Method | Path | Purpose |
@@ -271,7 +277,7 @@ All env-driven. See `.env.example` for the full list. Key knobs:
 `JOB_RETENTION_HOURS`, `JOB_BACKUP_DIR`, `JOB_BACKUP_KEEP_N`, `JOB_BACKUP_INTERVAL_HOURS`,
 `WORKER_CONCURRENCY`, `CORS_ALLOW_ORIGINS`,
 `CXONE_INTEGRATION_ENABLED`, `CXONE_BRIDGE_BASE_URL`, `CXONE_BRIDGE_TIMEOUT_SECONDS`,
-`CXONE_HEALTH_TIMEOUT_SECONDS`,
+`CXONE_HEALTH_TIMEOUT_SECONDS`, `REMEDY_REVIEWER_REQUIRED`, `REMEDY_BRIDGE_SERVICE_KEY_FILE`,
 `RATE_LIMIT_DEFAULT`, `RATE_LIMIT_UPLOADS`, `RATE_LIMIT_STORAGE`.
 
 **Engine** (`src/project_remedy/config.py`):

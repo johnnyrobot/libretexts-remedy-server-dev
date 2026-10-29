@@ -11,7 +11,7 @@ import uuid
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -20,6 +20,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
 from backend.app.backup import backup_jobstore
+from backend.app.auth import require_api_key_dependency
 from backend.app.config import Settings, load_settings
 from backend.app.engine_service import run_job
 from backend.app.jobs import JobStore, JobWorker, prune_expired_jobs
@@ -165,6 +166,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         request_id_var.reset(token)
         return response
+
+    require_app_key = require_api_key_dependency(settings)
+
+    @app.middleware("http")
+    async def authenticate_api(request: Request, call_next):
+        # Authenticate before body parsing and routing, including unknown aliases.
+        if request.url.path.startswith("/v1/"):
+            try:
+                await require_app_key(request)
+            except HTTPException as exc:
+                return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        return await call_next(request)
 
     app.add_middleware(
         CORSMiddleware,
