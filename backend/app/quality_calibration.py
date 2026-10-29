@@ -69,7 +69,7 @@ def quality_calibration_status(settings: Settings, fmt: str) -> QualityCalibrati
         load_annotation_records, load_judge_result_rows, judge_result_binding_errors, summarize_calibration,
         load_judge_comparison_rows, judge_comparison_binding_errors, summarize_pairwise_calibration,
     )
-    from project_remedy.quality_judges.shared.corpus_evidence import inspect_corpus_evidence
+    from project_remedy.quality_judges.shared.corpus_evidence import inspect_corpus_evidence, CALIBRATION_SCORE_THRESHOLD
     evidence_errors = []
     expected_metrics = {}
     evidence_digest = ""
@@ -86,7 +86,7 @@ def quality_calibration_status(settings: Settings, fmt: str) -> QualityCalibrati
         if not evidence_errors:
             judge_rows = load_judge_result_rows(result_path)
             evidence_errors.extend(judge_result_binding_errors(records, judge_rows))
-            metrics = summarize_calibration(records, judge_rows)
+            metrics = summarize_calibration(records, judge_rows, score_threshold=CALIBRATION_SCORE_THRESHOLD)
             if comparison_path is not None:
                 comparisons = load_judge_comparison_rows(comparison_path)
                 evidence_errors.extend(judge_comparison_binding_errors(records, comparisons))

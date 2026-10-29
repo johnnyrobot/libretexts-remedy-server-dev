@@ -104,3 +104,34 @@ def test_perfect_stored_numbers_cannot_enable_unqualified_capability(tmp_path):
     with pytest.raises(QualityCalibrationError):
         assert_quality_calibrated(settings, "pdf")
     assert len(store.list_judge_calibration(format="pdf")) == len(required_judge_calibrations("pdf"))
+
+
+@pytest.mark.parametrize("damage", ["missing", "invalid", "changed"])
+def test_independent_pairwise_candidates_are_parsed_and_bound_to_actual_bytes(tmp_path, damage):
+    import pikepdf
+    from project_remedy.quality_judges.shared.corpus_evidence import inspect_corpus_evidence
+    source = tmp_path / "synthetic-source.pdf"
+    with pikepdf.Pdf.new() as pdf:
+        pdf.add_blank_page()
+        pdf.save(source)
+    candidate = tmp_path / "synthetic-pairwise.pdf"
+    candidate.write_bytes(source.read_bytes())
+    sha = hashlib.sha256(source.read_bytes()).hexdigest()
+    record = {"doc_id": "synthetic-pairwise", "format": "pdf", "annotator": "synthetic",
+        "source_path": str(source), "gold_remediation_path": str(source), "known_bad_artifact_paths": [str(source)],
+        "artifact_hashes": {"source_sha256": sha, "gold_remediation_sha256": sha, "known_bad_sha256": {str(source): sha}},
+        "provenance": {"human_verified": False, "gold_standard_source": "synthetic"},
+        "pairwise_comparisons": [{"a_path": str(source), "b_path": str(candidate), "a_sha256": sha, "b_sha256": sha}]}
+    before = inspect_corpus_evidence([record], root=tmp_path)
+    assert not any("pairwise-0-b" in error for error in before.errors)
+    if damage == "missing":
+        candidate.unlink()  # only this test's owned synthetic temporary file
+    elif damage == "invalid":
+        candidate.write_bytes(b"synthetic invalid PDF")
+        record["pairwise_comparisons"][0]["b_sha256"] = hashlib.sha256(candidate.read_bytes()).hexdigest()
+    else:
+        candidate.write_bytes(candidate.read_bytes() + b"\n% synthetic changed bytes\n")
+    after = inspect_corpus_evidence([record], root=tmp_path)
+    assert any("pairwise-0-b" in error for error in after.errors)
+    assert after.digest != before.digest
+    assert after.approved is False

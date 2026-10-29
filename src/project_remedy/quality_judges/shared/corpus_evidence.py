@@ -14,6 +14,8 @@ from pathlib import Path
 import re
 from typing import Any
 
+CALIBRATION_SCORE_THRESHOLD = 0.8
+
 
 @dataclass
 class CorpusEvidence:
@@ -83,6 +85,10 @@ def inspect_corpus_evidence(
                      ("gold", str(record.get("gold_remediation_path", "")), hashes.get("gold_remediation_sha256"))]
         artifacts += [("known_bad", str(value), (hashes.get("known_bad_sha256") or {}).get(value))
                       for value in record.get("known_bad_artifact_paths", [])]
+        for index, comparison in enumerate(record.get("pairwise_comparisons", [])):
+            for side in ("a", "b"):
+                artifacts.append((f"pairwise-{index}-{side}", str(comparison.get(f"{side}_path", "")),
+                                  comparison.get(f"{side}_sha256")))
         if not record.get("known_bad_artifact_paths"):
             evidence.errors.append(f"{identifier}: known-bad evidence is missing")
         for role, value, expected in artifacts:

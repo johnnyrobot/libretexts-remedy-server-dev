@@ -31,7 +31,7 @@ from project_remedy.quality_judges.shared.dimensions import DIMENSIONS_BY_FORMAT
 from project_remedy.quality_judges.shared.base import model_family
 from project_remedy.quality_judges.shared.registry import required_judge_calibrations
 from project_remedy.vision_planner.experiment_store import ExperimentStore
-from project_remedy.quality_judges.shared.corpus_evidence import inspect_corpus_evidence, artifact_readability_errors
+from project_remedy.quality_judges.shared.corpus_evidence import inspect_corpus_evidence, artifact_readability_errors, CALIBRATION_SCORE_THRESHOLD
 from tools.annotate_corpus import (
     DEFAULT_CORPUS_ROOT,
     OFFICE_FORMATS,
@@ -1168,6 +1168,8 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
 
 def _validate_calibration_args(args: argparse.Namespace) -> None:
     _require_unit_interval("score_threshold", args.score_threshold)
+    if args.score_threshold != CALIBRATION_SCORE_THRESHOLD:
+        raise ValueError(f"active calibration must use the production score threshold {CALIBRATION_SCORE_THRESHOLD}")
     _require_unit_interval("kappa_threshold", args.kappa_threshold)
     _require_positive_int("min_samples", args.min_samples)
     _require_positive_int("rolling_window", args.rolling_window)
@@ -1194,7 +1196,7 @@ def build_parser() -> argparse.ArgumentParser:
             "judge_version, judge_model, and optional hashes"
         ),
     )
-    calibrate.add_argument("--score-threshold", type=float, default=0.8)
+    calibrate.add_argument("--score-threshold", type=float, default=CALIBRATION_SCORE_THRESHOLD)
     calibrate.add_argument("--kappa-threshold", type=float, default=DEFAULT_KAPPA_THRESHOLD)
     calibrate.add_argument("--min-samples", type=int, default=1)
     calibrate.add_argument(

@@ -42,6 +42,11 @@ the approved digest with `--judge-comparisons`. Runtime qualification binds
 and recomputes both datasets; adding or changing comparisons invalidates the
 previous approval.
 
+The production pass/fail score threshold is fixed at 0.8 and shared by the CLI
+and runtime recomputation. `--score-threshold` accepts that value for command
+compatibility and explicitly rejects other values; an unsupported threshold
+cannot produce a successful calibration that the runtime would later reject.
+
 The calibration command refuses unqualified evidence in both actual-audit and
 stored-score modes before running a judge/provider or writing calibration
 rows. Actual audit collection remains available through
