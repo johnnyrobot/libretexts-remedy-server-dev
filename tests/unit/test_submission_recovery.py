@@ -39,26 +39,8 @@ def crash_after_rename(directory, point="rename"):
         return result
     Path.rename = crash
     if point in {"db-before-commit", "db-after-commit"}:
-        connect = store._connect
-        class Connection:
-            def __init__(self):
-                self.connection, self.prepared = connect(), False
-            def __enter__(self):
-                self.connection.__enter__()
-                return self
-            def execute(self, sql, *args):
-                result = self.connection.execute(sql, *args)
-                if sql.startswith("INSERT INTO submission_intents"):
-                    self.prepared = True
-                    if point == "db-before-commit":
-                        os._exit(73)
-                return result
-            def __exit__(self, *args):
-                result = self.connection.__exit__(*args)
-                if self.prepared and point == "db-after-commit":
-                    os._exit(73)
-                return result
-        store._connect = Connection
+        from tests.unit.submission_faults import exit_at_intent_commit
+        exit_at_intent_commit(store, point)
     if point == "ready":
         advance = store._advance_upload
         async def crash_ready(*args):
@@ -207,6 +189,38 @@ async def test_public_finalization_preserves_case_insensitive_office_admission(t
     assert Path(job.input_path).read_bytes() == source and json.loads(job.metadata_json) == json.loads(OPTIONS)
 
 
+@pytest.mark.parametrize("producer", ["office", "vision"])
+async def test_async_upload_producers_are_compatible_with_journal_ownership(tmp_path, producer):
+    from io import BytesIO
+    from fastapi import UploadFile
+    from backend.app.routes import _finalize_upload_and_enqueue
+    settings = Settings(job_store_path=tmp_path / "jobs.db", job_dir=tmp_path / "jobs")
+    if producer == "office":
+        from backend.app.office_routes import _stage_office
+        from tests.unit.office_fixtures import make_docx
+        path = make_docx(tmp_path / "fixture.docx", body_paragraphs=["Owned Office upload"])
+        source, suffix, kind = path.read_bytes(), ".docx", "remediate_office"
+        staging, _ = await _stage_office(UploadFile(filename="fixture.docx", file=BytesIO(source)), settings, modern_only=True)
+    else:
+        from backend.app.vision_plan_routes import _stage_pdf
+        import pikepdf
+        stream = BytesIO()
+        with pikepdf.new() as pdf:
+            pdf.add_blank_page()
+            pdf.save(stream)
+        source, suffix, kind = stream.getvalue(), ".pdf", "vision_plan_run"
+        staging = await _stage_pdf(UploadFile(filename="fixture.pdf", file=BytesIO(source)), settings)
+    store = JobStore(settings.job_store_path)
+    published = []
+    class Queue:
+        async def enqueue(self, job_id, reservation):
+            published.append(job_id)
+    result = await _finalize_upload_and_enqueue(store, Queue(), settings, staging, suffix,
+        kind=kind, result_media_type="application/pdf")
+    assert published == [result["id"]]
+    assert Path((await store.get(result["id"])).input_path).read_bytes() == source
+
+
 async def test_prepared_intent_is_not_dispatch_eligible(tmp_path):
     store, root, staging, job = await prepared_upload(tmp_path, ready=False)
     assert await store.claim_upload(job.id, root) is None
@@ -283,6 +297,28 @@ async def test_legacy_unknown_intent_is_never_requeued_or_automatically_pruned(t
         connection.execute("UPDATE jobs SET created_at='2000-01-01T00:00:00+00:00' WHERE id=?", (job.id,))
     assert await prune_expired_jobs(store, root, 1) == 0
     assert await store.get(job.id) is not None and source.read_bytes() == SOURCE
+
+
+async def test_expired_unknown_intent_is_quarantined_before_retention(tmp_path):
+    import sqlite3
+    from backend.app.jobs import prune_expired_jobs
+    root = tmp_path / "jobs"
+    root.mkdir()
+    store = JobStore(tmp_path / "jobs.db")
+    source = root / "legacy.html"
+    source.write_bytes(SOURCE)
+    job = await store.create(source, kind="convert_html_to_pdf", deadline_at="2000-01-01T00:00:00+00:00")
+    owned = root / job.id / "input.html"
+    owned.parent.mkdir()
+    source.rename(owned)
+    source = owned
+    await store.update(job.id, input_path=str(source))
+    with sqlite3.connect(store.db_path) as connection:
+        connection.execute("UPDATE jobs SET created_at='2000-01-01T00:00:00+00:00' WHERE id=?", (job.id,))
+    assert await store.recover_uploads(root, 9) == []
+    assert (await store.get(job.id)).stage == "submission_quarantined"
+    assert await prune_expired_jobs(store, root, 1) == 0
+    assert source.read_bytes() == SOURCE
 
 
 async def test_cold_reconciliation_is_bounded_and_retains_excess_intent_and_inputs(tmp_path):

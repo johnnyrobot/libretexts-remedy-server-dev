@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import socket
 import sqlite3
 import subprocess
@@ -24,6 +25,21 @@ from backend.app.config import Settings
 from backend.app.supervisor import supported
 
 pytestmark = pytest.mark.skipif(not supported(), reason="requires the real Linux pidfd/subreaper profile")
+
+
+@pytest.fixture(autouse=True)
+def retain_synthetic_http_evidence(tmp_path, request):
+    yield  # all Owner finally cleanup runs before evidence I/O
+    output = os.environ.get("REMEDY_SANDBOX_AUDIT_DIR")
+    if output:
+        destination = Path(output) / "submission-http" / request.node.name
+        shutil.copytree(tmp_path, destination, dirs_exist_ok=True)
+        receipt = {"scope": "Post-test synthetic diagnostic snapshot, not backup/restore certification"}
+        try:
+            receipt["jobs"] = rows(tmp_path) if (tmp_path / "jobs.db").exists() else []
+        except Exception as error:
+            receipt["diagnostic_error"] = type(error).__name__
+        (destination / "receipt.json").write_text(json.dumps(receipt, indent=2))
 
 
 def settings_for(directory):
@@ -40,26 +56,8 @@ def serve(directory, point, descriptor):
     app = create_app(settings_for(directory))
     store, worker = app.state.store, app.state.worker
     if point in {"db-before-commit", "db-after-commit"}:
-        connect = store._connect
-        class Connection:
-            def __init__(self):
-                self.inner, self.prepared = connect(), False
-            def __enter__(self):
-                self.inner.__enter__()
-                return self
-            def execute(self, sql, *args):
-                result = self.inner.execute(sql, *args)
-                if sql.startswith("INSERT INTO submission_intents"):
-                    self.prepared = True
-                    if point == "db-before-commit":
-                        os._exit(73)
-                return result
-            def __exit__(self, *args):
-                result = self.inner.__exit__(*args)
-                if self.prepared and point == "db-after-commit":
-                    os._exit(73)
-                return result
-        store._connect = Connection
+        from tests.unit.submission_faults import exit_at_intent_commit
+        exit_at_intent_commit(store, point)
     if point == "rename":
         rename = Path.rename
         def crash_rename(path, destination):
@@ -191,7 +189,8 @@ def test_real_http_hard_exit_retains_exact_submission_and_cold_recovers_safely(t
     try:
         owner.ready()
         try:
-            response = httpx.post(owner.url + "/v1/remediate?quality=true", headers={"X-API-Key": "fixture-key"},
+            route = "/v1/office/remediate" if point == "receipt" else "/v1/remediate"
+            response = httpx.post(owner.url + route + "?quality=true", headers={"X-API-Key": "fixture-key"},
                 files={"file": ("fixture.DOCX" if point == "ack-sent" else "fixture.docx", source)}, timeout=15, trust_env=False)
             assert response.status_code == 202
         except httpx.TransportError:

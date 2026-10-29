@@ -310,7 +310,11 @@ class JobStore:
                     [datetime.now(timezone.utc).isoformat(), *(selected or [""])])
         ready = []
         for job_id in selected:
-            job = await self.get(job_id)
+            # Unknown/invalid ownership is quarantined even when already
+            # expired; ordinary timeout retention must not erase its evidence.
+            job = await self.finish_upload(job_id, job_dir)
+            if job is None:
+                continue
             try:
                 expired = job.deadline_at and datetime.fromisoformat(job.deadline_at) <= datetime.now(timezone.utc)
             except (ValueError, TypeError):
@@ -319,9 +323,7 @@ class JobStore:
             if expired:
                 await self.update(job_id, status="failed", stage="timed_out", error="Engine execution deadline exceeded; input retained.")
                 continue
-            recovered = await self.finish_upload(job_id, job_dir)
-            if recovered is not None:
-                ready.append(recovered)
+            ready.append(job)
         return ready
 
     async def get(self, job_id: str) -> Job | None:

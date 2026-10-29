@@ -162,6 +162,41 @@ async def wait_for_file(path):
             await asyncio.sleep(0.01)
 
 
+@pytest.mark.parametrize("route", ["/v1/office/remediate", "/v1/vision-plan/run"])
+async def test_async_alias_producers_journal_while_actual_direct_slot_is_held(execution_settings, tmp_path, route):
+    from io import BytesIO
+    from backend.app.main import create_app
+    from tests.unit.office_fixtures import make_docx
+    import pikepdf
+    if route.startswith("/v1/office"):
+        path = make_docx(tmp_path / "fixture.docx", body_paragraphs=["Retained Office alias"])
+        name, source = path.name, path.read_bytes()
+    else:
+        stream = BytesIO()
+        with pikepdf.new() as pdf:
+            pdf.add_blank_page()
+            pdf.save(stream)
+        name, source = "fixture.pdf", stream.getvalue()
+    app = create_app(execution_settings, job_entrypoint=controlled_job, direct_entrypoint=held_direct)
+    request = None
+    try:
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture.invalid",
+                                         headers={"X-API-Key": "fixture-key"}) as client:
+                request = asyncio.create_task(client.post("/v1/pdf/check", content=b"owned direct fixture"))
+                await wait_for_file(execution_settings.backup_dir / "direct.started")
+                response = await client.post(route, files={"file": (name, source)})
+                assert response.status_code == 202, response.text
+                job_id = response.json()["id"]
+                assert (await client.get("/v1/jobs/" + job_id)).json()["status"] == "queued"
+                intent, job = await app.state.store._submission(job_id)
+                assert intent["phase"] == "ready" and Path(job.input_path).read_bytes() == source
+        assert (await app.state.store.get(job_id)).status == "queued"
+    finally:
+        if request is not None:
+            await asyncio.gather(request, return_exceptions=True)
+
+
 async def get_terminal(client, job_id):
     async with asyncio.timeout(15):
         while True:
