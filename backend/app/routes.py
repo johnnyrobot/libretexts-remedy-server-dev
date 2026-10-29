@@ -113,40 +113,35 @@ async def _finalize_upload_and_enqueue(
     metadata_json: str | None = None,
     reservation=None,
 ) -> dict:
-    """Create the job record, move staging → final path, enqueue.
+    """Persist full intent, durably publish/validate input, then enqueue.
 
-    When ``metadata_json`` is provided, it is persisted in the SAME
-    ``store.update`` that sets ``input_path`` and ``stage='queued'`` —
-    i.e. BEFORE ``worker.enqueue``. This closes a TOCTOU race where the
-    worker (on the same event loop) could snapshot the job row with empty
-    metadata_json between enqueue and a trailing post-enqueue update.
+    Hard exits leave a recoverable journal. Ordinary pre-enqueue failure
+    quarantines owned input; acknowledgement loss after transfer retains work.
     """
     deadline_at = (datetime.now(timezone.utc) + timedelta(
         seconds=reservation.deadline - time.monotonic())).isoformat() if reservation is not None else ""
     job = None
     try:
-        job = await store.create(staging, kind=kind, result_media_type=result_media_type, deadline_at=deadline_at)
-        final_input = settings.job_dir / job.id / f"input{suffix}"
-        final_input.parent.mkdir(parents=True, exist_ok=True)
-        staging.rename(final_input)
-
-        update_kwargs: dict = {"input_path": str(final_input), "stage": "queued"}
-        if metadata_json is not None:
-            update_kwargs["metadata_json"] = metadata_json
-
-        await store.update(job.id, **update_kwargs)
+        job = await store.prepare_upload(staging, settings.job_dir, suffix.lower(), kind=kind,
+            result_media_type=result_media_type, deadline_at=deadline_at,
+            metadata_json=metadata_json if metadata_json is not None else "{}")
+        ready = await store.finish_upload(job.id, settings.job_dir)
+        if ready is None:
+            raise RuntimeError("Submission input quarantined.")
         await worker.enqueue(job.id, reservation)
         refreshed = await store.get(job.id)
         return serialize_job(refreshed)
     except BaseException:
-        # Before ownership transfers to the worker, an aborted upload must leave
-        # neither an orphan staging file nor a recoverable-but-invalid queue row.
+        # Durable intent owns the files even when the caller receives no receipt.
         if reservation is None or not reservation.transferred:
-            staging.unlink(missing_ok=True)
             if job is not None:
-                import shutil
-                await store.delete(job.id)
-                shutil.rmtree(settings.job_dir / job.id, ignore_errors=True)
+                await store.quarantine_upload(job.id)
+            else:
+                try:
+                    if not await store.upload_owned(staging):
+                        staging.unlink(missing_ok=True)
+                except Exception:
+                    pass  # uncertain storage ownership retains the input
         raise
 
 

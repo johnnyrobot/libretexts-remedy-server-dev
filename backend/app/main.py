@@ -48,7 +48,7 @@ def create_app(settings: Settings | None = None, *, job_entrypoint=execute_job,
 
     async def _runner(job):
         async def acquired():
-            await store.update(job.id, status="running", stage="starting", progress=0.05)
+            await worker.begin_dispatch(job.id)
         async def progress(updates):
             # Output paths/terminal state are private until every owned process exits.
             visible = {key: value for key, value in updates.items() if key in {"stage", "progress"}}
@@ -72,7 +72,7 @@ def create_app(settings: Settings | None = None, *, job_entrypoint=execute_job,
             result["error"] = "Engine operation failed."
         await store.update(job.id, **result)
 
-    worker = JobWorker(store, _runner, concurrency=settings.worker_concurrency, execution=execution)
+    worker = JobWorker(store, _runner, concurrency=settings.worker_concurrency, execution=execution, job_dir=settings.job_dir)
 
     pruner = PeriodicTask(
         lambda: prune_expired_jobs(
@@ -106,7 +106,7 @@ def create_app(settings: Settings | None = None, *, job_entrypoint=execute_job,
             interrupted = await store.fail_running_jobs(
                 "Server restarted while this job was running; submit it again if needed."
             )
-            queued = await store.list_by_statuses({"queued"})
+            queued = await store.recover_uploads(settings.job_dir, execution.capacity)
             for job in queued:
                 try:
                     await worker.enqueue(job.id)

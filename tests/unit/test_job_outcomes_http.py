@@ -63,7 +63,7 @@ async def api(tmp_path, monkeypatch, request):
             # This adapter owns its compute entry; JobWorker dequeue is no
             # longer dispatch. Keep the public running/queued assertions real.
             async with app.state.worker.execution._slots:
-                await app.state.store.update(job.id, status="running", stage="starting", progress=.05)
+                await app.state.worker.begin_dispatch(job.id)
                 await run_job(job, app.state.store, settings)
         app.state.worker.runner = in_process_adapter_case
     async with app.router.lifespan_context(app):

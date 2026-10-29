@@ -129,11 +129,66 @@ must approve and document their recovery procedure; this change performs none
 of these operator actions.
 
 After a proven clean restart, leftover running rows become failed/interrupted,
-with inputs retained and no automatic replay. Queued rows recover in stored
-order up to active-plus-pending capacity. Excess old rows become interrupted
-with a fixed input-retained message. Expired queued work never starts. Cold
+with inputs retained and no automatic replay. Journalled queued rows reconcile
+in stored order up to active-plus-pending capacity. Excess rows and legacy rows
+without attributable submission intent become `submission_quarantined`, with
+inputs retained. Expired queued work never starts. Cold
 backup/restore, topology, resource envelopes, and assembled-stack upgrade and
 rollback proof remain LT-111/LT-112 deployment gates.
+
+## Recoverable submission and acknowledgement loss (LT-166)
+
+Before a job becomes eligible, the server fsyncs the staged bytes and directory
+ancestry, then commits the complete operation/options/media type/deadline,
+staging and final owned paths, byte count and SHA256 in the same SQLite
+transaction as the job row. SQLite uses WAL with `synchronous=FULL`, which
+[syncs the WAL on each commit](https://www.sqlite.org/wal.html#performance_considerations).
+The job's public status remains `queued`, with stage `finalizing`; it cannot
+dispatch in that phase. The private journal is not exposed in job responses.
+
+```text
+prepared + finalizing -> durable rename + directory fsyncs + validation
+  -> ready + queued -> validate exact bytes/options/path -> dispatched + running
+  -> terminal outcome after owned process cleanup
+```
+
+Cold recovery may finish a prepared move from either retained staging input or
+the final input, using the original journal and options. It never guesses from
+a filename or supplies default options. Missing/changed bytes, changed options,
+unsafe paths, ambiguous copies, unknown journal phases and excess queue capacity
+produce explicit quarantine. Quarantined inputs/journals are excluded from
+automatic retention pruning; explicit authenticated deletion remains available.
+File reconciliation is bounded to admission capacity, with excess rows
+quarantined by SQLite. A dispatch claim is committed before execution; an
+interrupted claimed job is not automatically replayed. Existing unresolved
+process ownership prevents all reconciliation until operator lifetime proof.
+
+A hard process exit before the intent commits can leave unsubmitted staging
+bytes without a job. Those files are retained and never automatically queued.
+Ordinary pre-intent errors remove staging only when SQLite proves no intent
+owns it; uncertain ownership retains the input. An ordinary post-intent failure
+before enqueue quarantines the input. Once ownership transfers to the worker,
+response/receipt failure cannot delete or undo that work.
+
+HTTP acknowledgement loss is ambiguous: the job may already be accepted or
+running even if the caller sees an error or no response. There is no new
+idempotency contract. **Do not blindly resubmit or implement an automatic POST
+retry.** Correlate the known job ID, request timing, input hash and retained
+options with the operator's journal evidence; when the ID receipt was lost,
+an operator must establish whether work exists and its outcome before any
+explicit resubmission. No automatic recovery of unjournalled legacy queued rows
+is safe because their original options cannot be proved.
+
+This adds a table to local SQLite stores; this work performs no live migration.
+Back up the database, WAL state through SQLite's backup API, job files and
+ownership evidence coherently while the service is stopped. Keep quarantined
+inputs and staging evidence. Before rollback to an older binary, stop all APIs
+and retain the cold bundle: older code does not enforce journal phases and must
+not open a store containing prepared/ready submissions. Restore a proven coherent
+pre-upgrade bundle only after prior processes are stopped and uncertain accepted
+work is accounted for; do not delete journal/input evidence or automatically
+resubmit jobs. Actual assembled backup/restore and upgrade/rollback execution
+remain release gates, not actions performed by this patch.
 
 ## Verification
 
