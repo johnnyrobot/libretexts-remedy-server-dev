@@ -242,6 +242,7 @@ puppeteer.launch = async (...args) => {
     task = asyncio.create_task(execute())
     observed = {}
     candidates = {}
+    census = []
     try:
         async with asyncio.timeout(45):  # startup watchdog, separate from observation
             while not ready.exists():
@@ -252,12 +253,31 @@ puppeteer.launch = async (...args) => {
         assert not task.done() and not release.exists()
         for process in psutil.Process().children(recursive=True):
             try:
-                if process.create_time() < started or "chrome" not in process.name().lower():
-                    continue
+                created = process.create_time()
+                name = process.name()
                 args = process.cmdline()
                 kind = "renderer" if "--type=renderer" in args else (
                     "browser" if any(arg == "--remote-debugging-pipe" or arg.startswith("--remote-debugging-port=") for arg in args)
                     and not any(arg.startswith("--type=") for arg in args) else None)
+                rejected = []
+                if created < started:
+                    rejected.append("create_time_before_started")
+                if "chrome" not in name.lower():
+                    rejected.append("name_without_chrome")
+                if kind is None:
+                    rejected.append("unclassified_argv")
+                try:
+                    executable = process.exe()
+                except psutil.AccessDenied:
+                    executable = "<access denied>"
+                census.append({"pid": process.pid, "ppid": process.ppid(),
+                               "ancestry": [ancestor.pid for ancestor in process.parents()],
+                               "startTicks": (Path("/proc") / str(process.pid) / "stat").read_text().rsplit(")", 1)[1].split()[19],
+                               "name": name, "executable": executable,
+                               "status": process.status(), "argv": args, "createTime": created,
+                               "started": started, "kind": kind, "rejectedBy": rejected})
+                if created < started or "chrome" not in name.lower():
+                    continue
                 if kind is not None:
                     candidates.setdefault(kind, process.pid)
             except (psutil.NoSuchProcess, FileNotFoundError):
@@ -285,7 +305,7 @@ puppeteer.launch = async (...args) => {
     finally:
         release.touch()  # also release on observer failure/cancellation
         (Path(os.environ["REMEDY_SANDBOX_AUDIT_DIR"]) / f"sandbox-{tool}-diagnostic.json").write_text(
-            json.dumps({"entered": ready.exists(), "taskDone": task.done(), "candidates": candidates, "observed": observed}, indent=2))
+            json.dumps({"entered": ready.exists(), "taskDone": task.done(), "candidates": candidates, "observed": observed, "census": census}, indent=2))
         try:
             await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), 15)
         finally:
