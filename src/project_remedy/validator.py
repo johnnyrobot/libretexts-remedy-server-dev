@@ -1,7 +1,7 @@
 """Stage 7: Quad-Layer WCAG 2.1 AA Validation.
 
 Runs four independent accessibility validation tools — axe-core
-(via Playwright), pa11y (CLI), Lighthouse (CLI), and WAVE API — against
+(local browser adapter), pa11y, Lighthouse, and WAVE API — against
 every generated HTML page.  Merges and deduplicates findings, and drives
 an auto-remediation loop that feeds violations back to the LLM for
 correction (up to ``max_remediation_cycles``).
@@ -10,15 +10,11 @@ correction (up to ``max_remediation_cycles``).
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
-import functools
-import http.server
 import json
 import logging
 import re
 import shutil
 import tempfile
-import threading
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +23,7 @@ from typing import Any
 import httpx
 from defusedxml.ElementTree import fromstring as _safe_fromstring
 
+from project_remedy.html_browser import launch_browser, offline_page, run_html_checker, HTMLCheckerDependencyError
 from project_remedy.config import PipelineConfig
 from project_remedy.database import DatabaseManager
 from project_remedy.models import (
@@ -40,8 +37,7 @@ from project_remedy.vision_prompts import visual_comparison_prompt
 logger = logging.getLogger(__name__)
 
 
-class ValidatorDependencyError(FileNotFoundError):
-    """Raised when required HTML validation tooling is unavailable."""
+ValidatorDependencyError = HTMLCheckerDependencyError
 
 
 # ---------------------------------------------------------------------------
@@ -99,22 +95,6 @@ class HTMLRemediationOutcome:
 # ---------------------------------------------------------------------------
 # axe-core injection script
 # ---------------------------------------------------------------------------
-
-_AXE_CDN = "https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.2/axe.min.js"
-
-_AXE_SCRIPT = """
-async () => {
-    await axe.run(document, {
-        runOnly: {
-            type: 'tag',
-            values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']
-        }
-    }).then(results => {
-        window.__axe_results = results;
-    });
-    return window.__axe_results;
-}
-"""
 
 # ---------------------------------------------------------------------------
 # Remediation prompt
@@ -453,7 +433,7 @@ class AccessibilityValidator:
         """Run axe-core validation via Playwright.
 
         Loads the HTML file in a headless Chromium browser, injects
-        axe-core from CDN, runs ``axe.run()``, and parses violations.
+        locally pinned axe-core through the offline checker adapter, runs ``axe.run()``, and parses violations.
 
         Parameters
         ----------
@@ -465,37 +445,10 @@ class AccessibilityValidator:
         ValidationResult
             axe-core results with violations categorised by impact.
         """
-        try:
-            from playwright.async_api import async_playwright
-        except ImportError:
-            raise ValidatorDependencyError(
-                "playwright is not installed. "
-                "Install with: pip install playwright && playwright install chromium"
-            ) from None
-
         violations: list[dict[str, Any]] = []
-        try:
-            async with async_playwright() as pw:
-                browser = await pw.chromium.launch(headless=True)
-                page = await browser.new_page()
-
-                file_url = html_path.resolve().as_uri()
-                await page.goto(file_url, wait_until="networkidle")
-
-                # Inject axe-core
-                await page.add_script_tag(url=_AXE_CDN)
-                await page.wait_for_function("typeof axe !== 'undefined'", timeout=15000)
-
-                # Run axe
-                raw_results = await page.evaluate(_AXE_SCRIPT)
-                await browser.close()
-        except Exception as exc:
-            msg = str(exc).lower()
-            if "executable doesn't exist" in msg or "playwright install" in msg:
-                raise ValidatorDependencyError(
-                    "playwright chromium is not installed. Run playwright install chromium."
-                ) from exc
-            raise
+        raw_results = await run_html_checker("axe", html_path.read_text(encoding="utf-8"))
+        if not isinstance(raw_results, dict) or not isinstance(raw_results.get("violations"), list):
+            raise RuntimeError("axe returned invalid results")
 
         if raw_results and isinstance(raw_results, dict):
             for v in raw_results.get("violations", []):
@@ -527,7 +480,7 @@ class AccessibilityValidator:
         )
 
     async def validate_with_pa11y(self, html_path: Path) -> ValidationResult:
-        """Run pa11y CLI as an async subprocess.
+        """Run the pinned pa11y checker through the offline browser adapter.
 
         Parameters
         ----------
@@ -539,67 +492,18 @@ class AccessibilityValidator:
         ValidationResult
             pa11y results mapped to WCAG success criteria.
         """
-        file_url = html_path.resolve().as_uri()
-        cmd = [
-            "pa11y",
-            "--reporter", "json",
-            "--standard", "WCAG2AA",
-            "--timeout", "30000",
-            file_url,
-        ]
-
-        violations: list[dict[str, Any]] = []
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=60
-            )
-
-            # pa11y exits with code 2 when issues are found — that is expected
-            if proc.returncode not in (0, 2):
-                raise RuntimeError("pa11y exited unsuccessfully")
-            if not stdout:
-                raise ValueError("pa11y returned no JSON output")
-            if stdout:
-                raw = json.loads(stdout.decode("utf-8", errors="replace"))
-                if not isinstance(raw, list):
-                    raise ValueError("pa11y output must be a JSON array")
-                if isinstance(raw, list):
-                    for issue in raw:
-                        impact = _pa11y_type_to_impact(
-                            issue.get("type", "notice")
-                        )
-                        violations.append({
-                            "tool": "pa11y",
-                            "id": issue.get("code", ""),
-                            "impact": impact,
-                            "description": issue.get("message", ""),
-                            "help": issue.get("code", ""),
-                            "wcag": _extract_wcag_from_code(
-                                issue.get("code", "")
-                            ),
-                            "selector": issue.get("selector", ""),
-                            "context": issue.get("context", "")[:200],
-                        })
-
-        except FileNotFoundError as exc:
-            raise ValidatorDependencyError(
-                "pa11y CLI not found. Install with: npm install -g pa11y"
-            ) from exc
-        except asyncio.TimeoutError as exc:
-            with suppress(ProcessLookupError):
-                if proc.returncode is None:
-                    proc.kill()
-            with suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(proc.communicate(), timeout=5)
-            raise RuntimeError("pa11y timed out after 60s") from exc
-        except (json.JSONDecodeError, ValueError) as exc:
-            raise RuntimeError("pa11y returned invalid JSON results") from exc
+        raw = await run_html_checker("pa11y", html_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, list):
+            raise RuntimeError("pa11y returned invalid results")
+        violations = []
+        for issue in raw:
+            violations.append({
+                "tool": "pa11y", "id": issue.get("code", ""),
+                "impact": _pa11y_type_to_impact(issue.get("type", "notice")),
+                "description": issue.get("message", ""), "help": issue.get("code", ""),
+                "wcag": _extract_wcag_from_code(issue.get("code", "")),
+                "selector": issue.get("selector", ""), "context": issue.get("context", "")[:200],
+            })
 
         has_critical = any(
             v.get("impact") in ("critical", "serious") for v in violations
@@ -616,7 +520,7 @@ class AccessibilityValidator:
     async def validate_with_lighthouse(
         self, html_path: Path
     ) -> ValidationResult:
-        """Run Lighthouse CLI as an async subprocess.
+        """Run Lighthouse accessibility snapshot audits on the offline document.
 
         Targets the accessibility category only, aiming for a 100/100 score.
 
@@ -630,99 +534,22 @@ class AccessibilityValidator:
         ValidationResult
             Lighthouse accessibility score and failing audits.
         """
-        resolved = html_path.resolve()
-
-        # Lighthouse v13+ rejects file:// URLs.  Serve the file's directory
-        # via a throwaway HTTP server so Lighthouse gets an http:// URL.
-        handler = functools.partial(
-            http.server.SimpleHTTPRequestHandler,
-            directory=str(resolved.parent),
-        )
-        httpd = http.server.HTTPServer(("127.0.0.1", 0), handler)
-        port = httpd.server_address[1]
-        server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-        server_thread.start()
-
-        target_url = f"http://127.0.0.1:{port}/{resolved.name}"
-
-        # Write Lighthouse JSON output to a temporary file
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", delete=False, mode="w"
-        ) as tmp:
-            output_path = tmp.name
-
-        cmd = [
-            "lighthouse",
-            target_url,
-            "--only-categories=accessibility",
-            "--output=json",
-            f"--output-path={output_path}",
-            "--chrome-flags=--headless --no-sandbox --disable-gpu",
-            "--quiet",
-        ]
-
-        violations: list[dict[str, Any]] = []
-        score: float = 0.0
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(proc.communicate(), timeout=120)
-            if proc.returncode != 0:
-                raise RuntimeError("lighthouse exited unsuccessfully")
-
-            output_file = Path(output_path)
-            if not output_file.exists():
-                raise ValueError("lighthouse returned no output file")
-            if output_file.exists():
-                raw = json.loads(output_file.read_text(encoding="utf-8"))
-                output_file.unlink(missing_ok=True)
-                if not isinstance(raw, dict) or raw.get("runtimeError"):
-                    raise ValueError("lighthouse did not complete successfully")
-
-                # Extract accessibility score
-                categories = raw.get("categories", {})
-                acc_cat = categories.get("accessibility", {})
-                raw_score = acc_cat.get("score")
-                if isinstance(raw_score, bool) or not isinstance(raw_score, (int, float)) or not 0 <= raw_score <= 1:
-                    raise ValueError("lighthouse returned no valid accessibility score")
-                score = raw_score * 100
-
-                # Extract failing audits
-                audits = raw.get("audits", {})
-                for audit_id, audit in audits.items():
-                    audit_score = audit.get("score")
-                    # score=null means not applicable, score=1 means passed
-                    if audit_score is not None and audit_score < 1:
-                        violations.append({
-                            "tool": "lighthouse",
-                            "id": audit_id,
-                            "impact": "serious" if audit_score == 0 else "moderate",
-                            "description": audit.get("title", ""),
-                            "help": audit.get("description", ""),
-                            "score": audit_score,
-                        })
-
-        except FileNotFoundError as exc:
-            raise ValidatorDependencyError(
-                "lighthouse CLI not found. Install with: npm install -g lighthouse"
-            ) from exc
-        except asyncio.TimeoutError as exc:
-            with suppress(ProcessLookupError):
-                if proc.returncode is None:
-                    proc.kill()
-            with suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(proc.communicate(), timeout=5)
-            raise RuntimeError("lighthouse timed out after 120s") from exc
-        except (json.JSONDecodeError, ValueError) as exc:
-            raise RuntimeError("lighthouse returned invalid JSON results") from exc
-        finally:
-            httpd.shutdown()
-            httpd.server_close()
-            Path(output_path).unlink(missing_ok=True)
+        raw = await run_html_checker("lighthouse", html_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict) or raw.get("runtimeError"):
+            raise RuntimeError("lighthouse did not complete successfully")
+        raw_score = raw.get("categories", {}).get("accessibility", {}).get("score")
+        if isinstance(raw_score, bool) or not isinstance(raw_score, (int, float)) or not 0 <= raw_score <= 1:
+            raise RuntimeError("lighthouse returned no valid accessibility score")
+        score = raw_score * 100
+        violations = []
+        for audit_id, audit in raw.get("audits", {}).items():
+            audit_score = audit.get("score")
+            if audit_score is not None and audit_score < 1:
+                violations.append({
+                    "tool": "lighthouse", "id": audit_id,
+                    "impact": "serious" if audit_score == 0 else "moderate",
+                    "description": audit.get("title", ""), "help": audit.get("description", ""), "score": audit_score,
+                })
 
         has_critical = any(
             v.get("impact") in ("critical", "serious") for v in violations
@@ -768,7 +595,7 @@ class AccessibilityValidator:
         pdf_path = Path(job.local_path)
         if not pdf_path.exists():
             logger.warning("Visual validation: PDF not found at %s", pdf_path)
-            return ValidationResult(tool="visual", violations=[], passed=True)
+            return ValidationResult(tool="visual", violations=[], passed=False)
 
         # Render first few PDF pages as PNG (cap at 3 pages for cost).
         doc = fitz.open(str(pdf_path))
@@ -786,17 +613,18 @@ class AccessibilityValidator:
             from playwright.async_api import async_playwright
 
             async with async_playwright() as pw:
-                browser = await pw.chromium.launch(headless=True)
-                page = await browser.new_page(viewport={"width": 1280, "height": 1024})
-                await page.goto(html_path.resolve().as_uri(), wait_until="networkidle")
-                html_image = await page.screenshot(full_page=True, type="png")
-                await browser.close()
+                browser = await launch_browser(pw)
+                try:
+                    async with offline_page(browser, html_path.read_text(encoding="utf-8"), viewport={"width": 1280, "height": 1024}) as page:
+                        html_image = await page.screenshot(full_page=True, type="png")
+                finally:
+                    await browser.close()
         except Exception as exc:
             logger.warning("Visual validation: could not render HTML: %s", exc)
-            return ValidationResult(tool="visual", violations=[], passed=True)
+            return ValidationResult(tool="visual", violations=[], passed=False)
 
         if not html_image:
-            return ValidationResult(tool="visual", violations=[], passed=True)
+            return ValidationResult(tool="visual", violations=[], passed=False)
 
         # Send all images to the vision model for comparison.
         all_images = pdf_images + [html_image]
@@ -808,7 +636,7 @@ class AccessibilityValidator:
             )
         except Exception as exc:
             logger.warning("Visual validation: model comparison failed: %s", exc)
-            return ValidationResult(tool="visual", violations=[], passed=True)
+            return ValidationResult(tool="visual", violations=[], passed=False)
 
         # Parse the JSON response.
         violations: list[dict[str, Any]] = []

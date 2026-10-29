@@ -6,6 +6,7 @@ services:
     image: remedy-server:latest
     restart: unless-stopped
     init: true
+    shm_size: 256m
     stop_grace_period: 2m
     env_file:
       - .env
@@ -41,6 +42,7 @@ services:
       - edge
     security_opt:
       - no-new-privileges:true
+      - seccomp=./deploy/chromium-seccomp-amd64.json
     cap_drop:
       - ALL
     # Uncomment to publish on the host directly (bypassing Caddy):

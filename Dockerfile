@@ -121,12 +121,14 @@ RUN case "${TARGETARCH}" in \
 # ---------------------------------------------------------------------------
 
 FROM base AS node-tools
-ARG NODE_VERSION=20.17.0
+ARG NODE_VERSION=24.12.0
 
 RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
     | tar -xJf - -C /opt \
     && mv "/opt/node-v${NODE_VERSION}-linux-x64" /opt/node \
-    && /opt/node/bin/npm install -g pa11y@8 lighthouse@12 \
+    && /opt/node/bin/npm cache clean --force
+COPY src/project_remedy/html_tools/package*.json /opt/remedy-html-tools/
+RUN PUPPETEER_SKIP_DOWNLOAD=true /opt/node/bin/npm ci --ignore-scripts --prefix /opt/remedy-html-tools \
     && /opt/node/bin/npm cache clean --force
 
 # ---------------------------------------------------------------------------
@@ -167,6 +169,8 @@ RUN ln -s /opt/verapdf/verapdf /usr/local/bin/verapdf
 COPY --from=questpdf /out/remedy-questpdf /usr/local/bin/remedy-questpdf
 COPY --from=typst /usr/local/bin/typst /usr/local/bin/typst
 COPY --from=node-tools /opt/node /opt/node
+COPY --from=node-tools /opt/remedy-html-tools /opt/remedy-html-tools
+ENV REMEDY_HTML_TOOLS_ROOT=/opt/remedy-html-tools
 COPY --from=python-deps /opt/venv /opt/venv
 # Keep runtime Chromium system libraries in sync with the Playwright version
 # locked in the Python environment; the install in the playwright stage does
@@ -232,7 +236,7 @@ RUN uv sync --frozen --extra dev --active --no-install-project
 COPY --chown=app:app tests/unit ./tests/unit
 USER app
 ENV PYTHON_DOTENV_DISABLED=1 REMEDY_FULL_RUNTIME_TESTS=1
-CMD ["python", "-m", "pytest", "tests/unit/test_job_outcomes_http.py", "tests/unit/test_cxone_authenticated_forwarding.py", "tests/unit/test_html_validation_contract.py", "-v"]
+CMD ["python", "-m", "pytest", "tests/unit/test_job_outcomes_http.py", "tests/unit/test_cxone_authenticated_forwarding.py", "tests/unit/test_html_validation_contract.py", "tests/unit/test_html_resource_policy.py", "-v"]
 
 # ---------------------------------------------------------------------------
 # 9. Optional slim target (no Node / Playwright — skips HTML validation
