@@ -49,6 +49,7 @@ async def api(tmp_path, monkeypatch, request):
     # test_execution_http independently proves cancellation and capacity with
     # actual controlled spawned processes and descendants.
     adapter_fault_tests = {
+        "test_unavailable_calibration_keeps_base_pdf_download",
         "test_claimed_office_success_requires_readable_artifact",
         "test_advisory_exception_keeps_output_without_disclosing_error",
         "test_render_failure_then_success_isolated_in_worker",

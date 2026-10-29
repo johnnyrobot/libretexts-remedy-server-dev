@@ -43,7 +43,15 @@ def artifact_readability_errors(path: Path, fmt: str) -> list[str]:
         elif fmt == "xlsx":
             from openpyxl import load_workbook
             workbook = load_workbook(path, read_only=True, data_only=False)
-            workbook.close()
+            try:
+                # Read-only worksheets defer XML/cell conversion until iteration.
+                # Opening dimensions alone cannot establish parser readability.
+                for worksheet in workbook.worksheets:
+                    worksheet.reset_dimensions()  # declared dimensions may truncate real rows
+                    for row in worksheet.iter_rows():
+                        pass
+            finally:
+                workbook.close()
         else:
             return ["unsupported artifact format"]
     except Exception as exc:

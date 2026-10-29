@@ -135,3 +135,36 @@ def test_independent_pairwise_candidates_are_parsed_and_bound_to_actual_bytes(tm
     assert any("pairwise-0-b" in error for error in after.errors)
     assert after.digest != before.digest
     assert after.approved is False
+
+
+@pytest.mark.parametrize("damage", ["invalid-number", "malformed-tail", "understated-dimension"])
+def test_xlsx_readability_parses_deferred_worksheet_content(tmp_path, damage):
+    from io import BytesIO
+    from zipfile import ZipFile
+    from openpyxl import Workbook
+    from project_remedy.quality_judges.shared.corpus_evidence import artifact_readability_errors
+    path = tmp_path / "synthetic-deferred-cells.xlsx"
+    workbook = Workbook()
+    workbook.active["A1"] = 1
+    workbook.active["A2"] = 2
+    workbook.active["A3"] = 3
+    workbook.save(path)
+    workbook.close()
+    assert artifact_readability_errors(path, "xlsx") == []
+    output = BytesIO()
+    with ZipFile(path) as original, ZipFile(output, "w") as changed:
+        for entry in original.infolist():
+            content = original.read(entry.filename)
+            if entry.filename == "xl/worksheets/sheet1.xml":
+                assert b'<v>1</v>' in content
+                if damage == "invalid-number":
+                    content = content.replace(b'<v>1</v>', b'<v>not-a-number</v>')
+                elif damage == "malformed-tail":
+                    content = content.replace(b'</sheetData>', b'</brokenData>')
+                else:
+                    assert b'ref="A1:A3"' in content and b'<v>3</v>' in content
+                    content = content.replace(b'ref="A1:A3"', b'ref="A1:A1"')
+                    content = content.replace(b'<v>3</v>', b'<v>not-a-number</v>')
+            changed.writestr(entry, content)
+    path.write_bytes(output.getvalue())
+    assert any("not parser-readable" in error for error in artifact_readability_errors(path, "xlsx"))
