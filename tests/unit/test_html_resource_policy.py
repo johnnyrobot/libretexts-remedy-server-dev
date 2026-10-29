@@ -238,10 +238,21 @@ puppeteer.launch = async (...args) => {
             args = (args[0], "--import", preload.as_uri(), *args[1:])
         return await spawn(*args, **kwargs)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", instrumented_spawn)
-    started = time.time()
+    # Linux /proc birth times and time.time() have different precision/origins:
+    # the retained census in CI 40930595751 rejects every real browser on that
+    # comparison. Exclude identities already owned before launch instead.
+    initial_children = set()
+    for process in psutil.Process().children(recursive=True):
+        try:
+            ticks = (Path("/proc") / str(process.pid) / "stat").read_text().rsplit(")", 1)[1].split()[19]
+            initial_children.add((process.pid, ticks))
+        except (psutil.NoSuchProcess, FileNotFoundError):
+            continue
+    started = time.time()  # diagnostics only; never a process identity predicate
     task = asyncio.create_task(execute())
     observed = {}
     candidates = {}
+    candidate_ticks = {}
     census = []
     try:
         async with asyncio.timeout(45):  # startup watchdog, separate from observation
@@ -256,12 +267,13 @@ puppeteer.launch = async (...args) => {
                 created = process.create_time()
                 name = process.name()
                 args = process.cmdline()
+                ticks = (Path("/proc") / str(process.pid) / "stat").read_text().rsplit(")", 1)[1].split()[19]
                 kind = "renderer" if "--type=renderer" in args else (
                     "browser" if any(arg == "--remote-debugging-pipe" or arg.startswith("--remote-debugging-port=") for arg in args)
                     and not any(arg.startswith("--type=") for arg in args) else None)
                 rejected = []
-                if created < started:
-                    rejected.append("create_time_before_started")
+                if (process.pid, ticks) in initial_children:
+                    rejected.append("preexisting_owned_identity")
                 if "chrome" not in name.lower():
                     rejected.append("name_without_chrome")
                 if kind is None:
@@ -272,19 +284,23 @@ puppeteer.launch = async (...args) => {
                     executable = "<access denied>"
                 census.append({"pid": process.pid, "ppid": process.ppid(),
                                "ancestry": [ancestor.pid for ancestor in process.parents()],
-                               "startTicks": (Path("/proc") / str(process.pid) / "stat").read_text().rsplit(")", 1)[1].split()[19],
+                               "startTicks": ticks,
                                "name": name, "executable": executable,
                                "status": process.status(), "argv": args, "createTime": created,
-                               "started": started, "kind": kind, "rejectedBy": rejected})
-                if created < started or "chrome" not in name.lower():
+                               "started": started, "previousCutoffWouldReject": created < started,
+                               "kind": kind, "rejectedBy": rejected})
+                if (process.pid, ticks) in initial_children or "chrome" not in name.lower():
                     continue
-                if kind is not None:
-                    candidates.setdefault(kind, process.pid)
+                if kind is not None and kind not in candidates:
+                    candidates[kind] = process.pid
+                    candidate_ticks[kind] = ticks
             except (psutil.NoSuchProcess, FileNotFoundError):
                 continue
         assert {"browser", "renderer"} <= candidates.keys(), candidates
         records = await asyncio.gather(*(shipping_process_evidence(candidates[kind]) for kind in ("browser", "renderer")))
         observed = dict(zip(("browser", "renderer"), records))
+        for kind, record in observed.items():
+            assert record["startTicks"] == candidate_ticks[kind], "observed process identity changed"
         assert not task.done(), "tool lifetime ended during the observation barrier"
         release.touch()
         await asyncio.wait_for(task, 70)
@@ -305,7 +321,8 @@ puppeteer.launch = async (...args) => {
     finally:
         release.touch()  # also release on observer failure/cancellation
         (Path(os.environ["REMEDY_SANDBOX_AUDIT_DIR"]) / f"sandbox-{tool}-diagnostic.json").write_text(
-            json.dumps({"entered": ready.exists(), "taskDone": task.done(), "candidates": candidates, "observed": observed, "census": census}, indent=2))
+            json.dumps({"entered": ready.exists(), "taskDone": task.done(), "candidates": candidates, "observed": observed, "census": census,
+                        "initialChildren": sorted(initial_children)}, indent=2))
         try:
             await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), 15)
         finally:
