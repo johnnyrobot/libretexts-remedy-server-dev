@@ -31,6 +31,7 @@ from project_remedy.quality_judges.shared.dimensions import DIMENSIONS_BY_FORMAT
 from project_remedy.quality_judges.shared.base import model_family
 from project_remedy.quality_judges.shared.registry import required_judge_calibrations
 from project_remedy.vision_planner.experiment_store import ExperimentStore
+from project_remedy.quality_judges.shared.corpus_evidence import inspect_corpus_evidence, artifact_readability_errors, CALIBRATION_SCORE_THRESHOLD
 from tools.annotate_corpus import (
     DEFAULT_CORPUS_ROOT,
     OFFICE_FORMATS,
@@ -479,6 +480,10 @@ def run_audits_for_annotations(
         expected_source_sha256 = str((record.get("artifact_hashes") or {}).get("source_sha256") or "")
         if expected_source_sha256 and source_sha256 != expected_source_sha256:
             skipped.append(f"{record['doc_id']}: source artifact hash mismatch {source_path}")
+            continue
+        readability = artifact_readability_errors(source_path, str(record["format"]))
+        if readability:
+            skipped.extend(f"{record['doc_id']}: {message}" for message in readability)
             continue
         try:
             result = _audit_record(source_path, record["format"], config=config)
@@ -1049,6 +1054,26 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
         print(f"no annotation JSON files found under {root}", file=sys.stderr)
         return 1
 
+    # This applies to both actual-audit and stored-score paths, before scores
+    # can be interpreted or written. Historical placeholders remain untouched.
+    evidence = inspect_corpus_evidence(
+        records, root=root,
+        judge_results=Path(args.judge_results) if args.judge_results else None,
+        approval_path=Path(args.evidence_approval) if args.evidence_approval else None,
+        judge_comparisons=Path(args.judge_comparisons) if args.judge_comparisons else None,
+    )
+    if not evidence.approved:
+        payload = {"root": str(root), "metrics": [], "alerts": [], "skipped": [],
+                   "judge_comparison_rows": 0, "calibration_ready": False, "recorded": False,
+                   "readiness_errors": evidence.errors, "evidence_digest": evidence.digest,
+                   "readable_sources": evidence.readable_sources, "synthetic_records": evidence.synthetic_records}
+        if args.json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            for error in evidence.errors:
+                print(error, file=sys.stderr)
+        return 1
+
     skipped: list[str] = []
     if args.judge_results:
         judge_rows = load_judge_result_rows(Path(args.judge_results))
@@ -1086,15 +1111,10 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
         min_samples=args.min_samples,
         rolling_window=args.rolling_window,
     )
-    readiness_errors = []
-    if args.enforce_readiness:
-        readiness_errors = calibration_readiness_errors(
-            records,
-            metrics,
-            kappa_threshold=args.kappa_threshold,
-            min_samples=args.min_samples,
-        )
-    if metrics and not args.dry_run:
+    readiness_errors = calibration_readiness_errors(
+        records, metrics, kappa_threshold=args.kappa_threshold, min_samples=args.min_samples,
+    )
+    if metrics and not readiness_errors and not args.dry_run:
         record_metrics(store, metrics)
     emit_drift_alerts(
         alerts,
@@ -1110,7 +1130,8 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
         "judge_comparison_rows": len(comparison_rows),
         "calibration_ready": bool(metrics) and not readiness_errors,
         "readiness_errors": readiness_errors,
-        "recorded": bool(metrics and not args.dry_run),
+        "recorded": bool(metrics and not readiness_errors and not args.dry_run),
+        "evidence_digest": evidence.digest,
     }
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -1140,13 +1161,15 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
 
     if not metrics:
         return 1
-    if args.enforce_readiness and readiness_errors:
+    if readiness_errors:
         return 1
     return 0
 
 
 def _validate_calibration_args(args: argparse.Namespace) -> None:
     _require_unit_interval("score_threshold", args.score_threshold)
+    if args.score_threshold != CALIBRATION_SCORE_THRESHOLD:
+        raise ValueError(f"active calibration must use the production score threshold {CALIBRATION_SCORE_THRESHOLD}")
     _require_unit_interval("kappa_threshold", args.kappa_threshold)
     _require_positive_int("min_samples", args.min_samples)
     _require_positive_int("rolling_window", args.rolling_window)
@@ -1173,7 +1196,7 @@ def build_parser() -> argparse.ArgumentParser:
             "judge_version, judge_model, and optional hashes"
         ),
     )
-    calibrate.add_argument("--score-threshold", type=float, default=0.8)
+    calibrate.add_argument("--score-threshold", type=float, default=CALIBRATION_SCORE_THRESHOLD)
     calibrate.add_argument("--kappa-threshold", type=float, default=DEFAULT_KAPPA_THRESHOLD)
     calibrate.add_argument("--min-samples", type=int, default=1)
     calibrate.add_argument(
@@ -1190,6 +1213,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="fail unless every registered judge/version for annotated formats meets thresholds",
     )
     calibrate.add_argument("--dry-run", action="store_true")
+    calibrate.add_argument("--evidence-approval", help="operator-controlled approval binding attributable human review to the current corpus/results digest")
     calibrate.add_argument("--json", action="store_true")
     calibrate.set_defaults(func=_cmd_calibrate)
 

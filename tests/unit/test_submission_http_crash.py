@@ -139,7 +139,7 @@ class Owner:
         self.log = (directory / f"server-{point}-{time.monotonic_ns()}.log").open("wb")
         environment = os.environ | {
             "PYTHON_DOTENV_DISABLED": "1", "APP_ENV": "production", "APP_API_KEY": "fixture-key",
-            "OLLAMA_API_KEY": "fixture-provider-key", "CORS_ALLOW_ORIGINS": "https://fixture.invalid",
+            "OLLAMA_API_KEY": "fixture-provider-key", "OLLAMA_BASE_URL": "https://fixture.invalid/v1", "CORS_ALLOW_ORIGINS": "https://fixture.invalid",
             "CXONE_INTEGRATION_ENABLED": "false", "JOB_STORE_PATH": str(directory / "import.db"),
             "JOB_DIR": str(directory / "import-jobs"), "RATE_LIMIT_UPLOADS": "10000/minute",
             "RATE_LIMIT_DEFAULT": "10000/minute",  # bounded observer polling; production defaults stay unchanged
@@ -238,6 +238,21 @@ def test_real_http_hard_exit_retains_exact_submission_and_cold_recovers_safely(t
                 assert result.status_code == 409  # uncertain dispatch is not replayed
             else:
                 assert body["status"] == "done" and result.status_code == 200, body
+                metadata = json.loads(body["metadata_json"])
+                assert metadata["quality_result_error"] == "Quality evaluation unavailable."
+                assert "quality_result" not in metadata
+                if point == "ready" and _ == 0:
+                    capability = httpx.get(recovered.url + "/v1/quality/calibration?format=docx",
+                        headers={"X-API-Key": "fixture-key"}, timeout=15, trust_env=False)
+                    assert capability.status_code == 200
+                    readiness = capability.json()["readiness"]
+                    assert readiness["ready"] is False and readiness["capability"] == "unavailable"
+                    assert readiness["evidence_errors"]
+                    refused = httpx.post(recovered.url + "/v1/quality/audit/office",
+                        headers={"X-API-Key": "fixture-key"}, files={"file": ("synthetic.docx", source)},
+                        timeout=15, trust_env=False)
+                    assert refused.status_code == 409
+                    assert httpx.get(recovered.url + "/readyz", timeout=5, trust_env=False).status_code == 200
                 assert "Retained HTTP submission sentinel" in [p.text for p in Document(BytesIO(result.content)).paragraphs]
                 digest = hashlib.sha256(result.content).hexdigest()
                 assert output_hash is None or output_hash == digest
@@ -252,6 +267,51 @@ def test_real_http_hard_exit_retains_exact_submission_and_cold_recovers_safely(t
             assert not recovered.close(), "Cold-recovery API required forced shutdown"
     attempts = tmp_path / "dispatch.jsonl"
     assert (len(attempts.read_text().splitlines()) if attempts.exists() else 0) == (0 if not saved else 1)
+
+
+@pytest.mark.skipif(os.environ.get("REMEDY_FULL_RUNTIME_TESTS") != "1", reason="requires the shipped PDF toolchain")
+def test_real_http_native_pdf_keeps_download_when_calibration_unavailable(tmp_path):
+    """Real API/process/PDF toolchain; no internal engine or acceptance adapter."""
+    from reportlab.pdfgen.canvas import Canvas
+    import fitz
+    path = tmp_path / "synthetic.pdf"
+    canvas = Canvas(str(path))
+    canvas.drawString(72, 720, "Retained real PDF sentinel")
+    canvas.save()
+    source = path.read_bytes()
+    owner = Owner(tmp_path, "recover")
+    try:
+        owner.ready()
+        response = httpx.post(owner.url + "/v1/remediate?quality=true",
+            headers={"X-API-Key": "fixture-key"}, files={"file": (path.name, source)},
+            timeout=15, trust_env=False)
+        assert response.status_code == 202
+        job_id = response.json()["id"]
+        until = time.monotonic() + 65
+        while True:
+            status = httpx.get(owner.url + "/v1/jobs/" + job_id,
+                headers={"X-API-Key": "fixture-key"}, timeout=5, trust_env=False)
+            assert status.status_code == 200
+            job = status.json()
+            if job["status"] in {"done", "failed"}:
+                break
+            assert time.monotonic() < until, job
+        assert job["status"] == "done", job
+        metadata = json.loads(job["metadata_json"])
+        assert metadata["quality_result_error"] == "Quality calibration capability unavailable."
+        result = httpx.get(owner.url + "/v1/jobs/" + job_id + "/result",
+            headers={"X-API-Key": "fixture-key"}, timeout=5, trust_env=False)
+        assert result.status_code == 200
+        with fitz.open(stream=result.content, filetype="pdf") as document:
+            assert document.page_count == 1
+            assert "Retained real PDF sentinel" in document[0].get_text()
+        refused = httpx.post(owner.url + "/v1/quality/audit/pdf",
+            headers={"X-API-Key": "fixture-key"}, files={"file": (path.name, source)},
+            timeout=15, trust_env=False)
+        assert refused.status_code == 409
+        assert httpx.get(owner.url + "/readyz", timeout=5, trust_env=False).status_code == 200
+    finally:
+        assert not owner.close(), "Native PDF API required forced shutdown"
 
 
 if __name__ == "__main__":

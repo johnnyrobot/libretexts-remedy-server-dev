@@ -276,6 +276,13 @@ Vision-planner / Tier-3 agentic remediation is **not** part of this default flow
 
 ## Configuration
 
+Calibration-dependent quality is unavailable until parser-readable,
+attributable evidence is approved independently. The committed bootstrap corpus
+does not qualify. Base remediation can retain usable artifacts with an explicit
+quality advisory. See [calibration evidence](deploy/calibration-evidence.md) for
+capability status and operator requirements; no accessibility certification is
+implied by a completed conversion.
+
 All env-driven. See `.env.example` for the full list. Key knobs:
 
 **HTTP layer** (`backend/app/config.py`):

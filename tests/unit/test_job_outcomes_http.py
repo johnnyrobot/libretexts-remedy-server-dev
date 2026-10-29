@@ -40,7 +40,8 @@ async def api(tmp_path, monkeypatch, request):
     from backend.app.main import create_app
 
     settings = Settings(api_key="fixture-key", job_store_path=tmp_path / "jobs.db",
-                        job_dir=tmp_path / "jobs", backup_dir=tmp_path / "backups")
+                        job_dir=tmp_path / "jobs", backup_dir=tmp_path / "backups",
+                        quality_experiment_store_path=tmp_path / "quality.db")
     app = create_app(settings)
     # These focused adapter-fault tests need parent-local monkeypatches. They
     # retain real HTTP/store/queue orchestration but do not claim spawn coverage.
@@ -48,6 +49,7 @@ async def api(tmp_path, monkeypatch, request):
     # test_execution_http independently proves cancellation and capacity with
     # actual controlled spawned processes and descendants.
     adapter_fault_tests = {
+        "test_unavailable_calibration_keeps_base_pdf_download",
         "test_claimed_office_success_requires_readable_artifact",
         "test_advisory_exception_keeps_output_without_disclosing_error",
         "test_render_failure_then_success_isolated_in_worker",
@@ -90,6 +92,63 @@ async def terminal(client, job_id):
             if job["status"] in {"done", "failed"}:
                 return job
             await asyncio.sleep(0.01)
+
+
+async def test_unavailable_calibration_keeps_base_office_download_and_refuses_quality_audit(api, tmp_path):
+    client, _ = api
+    path = make_docx(tmp_path / "synthetic.docx", body_paragraphs=["Retained sentinel"])
+    response = await client.post("/v1/office/remediate?quality=true", files={"file": (path.name, path.read_bytes())})
+    assert response.status_code == 202
+    job = await terminal(client, response.json()["id"])
+    assert job["status"] == "done", job
+    metadata = json.loads(job["metadata_json"])
+    assert metadata["quality_result_error"] == "Quality evaluation unavailable."
+    assert "quality_result" not in metadata
+    artifact = await client.get(f"/v1/jobs/{job['id']}/result")
+    assert artifact.status_code == 200
+    from docx import Document
+    assert "Retained sentinel" in [paragraph.text for paragraph in Document(BytesIO(artifact.content)).paragraphs]
+    quality = await client.post("/v1/quality/audit/office", files={"file": (path.name, path.read_bytes())})
+    assert quality.status_code == 409
+    capability = (await client.get("/v1/quality/calibration?format=docx")).json()["readiness"]
+    assert capability["ready"] is False and capability["capability"] == "unavailable"
+    assert capability["evidence_errors"]
+    assert (await client.get("/healthz")).status_code == 200
+
+
+async def test_unavailable_calibration_keeps_base_pdf_download(api, tmp_path, monkeypatch):
+    """Real HTTP/store/worker and PDF download, controlled external PDF adapters."""
+    from pathlib import Path
+    from types import SimpleNamespace
+    import shutil
+    import pikepdf
+    from reportlab.pdfgen.canvas import Canvas
+    from backend.app import engine_service
+    client, _ = api
+    path = tmp_path / "synthetic.pdf"
+    canvas = Canvas(str(path))
+    canvas.drawString(72, 720, "Retained sentinel")
+    canvas.save()
+    def fix(source, output, **kwargs):
+        shutil.copyfile(source, output)
+    def acceptance(*args, **kwargs):
+        return SimpleNamespace(passed=True, verapdf_result=SimpleNamespace(checked=False, passed=False))
+    def report(**kwargs):
+        directory = Path(kwargs["output_dir"])
+        directory.mkdir(exist_ok=True)
+        (directory / "report.html").write_text("<html><body>Synthetic report</body></html>")
+    monkeypatch.setattr(engine_service, "fix_and_verify", fix)
+    monkeypatch.setattr(engine_service, "evaluate_pdf_acceptance", acceptance)
+    monkeypatch.setattr(engine_service, "generate_document_report", report)
+    response = await client.post("/v1/remediate?quality=true", files={"file": (path.name, path.read_bytes())})
+    assert response.status_code == 202
+    job = await terminal(client, response.json()["id"])
+    assert job["status"] == "done", job
+    assert json.loads(job["metadata_json"])["quality_result_error"] == "Quality calibration capability unavailable."
+    artifact = await client.get(f"/v1/jobs/{job['id']}/result")
+    assert artifact.status_code == 200
+    with pikepdf.open(BytesIO(artifact.content)) as pdf:
+        assert len(pdf.pages) == 1
 
 
 def office_fixture(tmp_path, suffix):

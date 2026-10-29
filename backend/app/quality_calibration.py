@@ -35,6 +35,8 @@ class QualityCalibrationStatus:
     below_threshold: list[dict[str, Any]] = field(default_factory=list)
     stale_calibrations: list[dict[str, Any]] = field(default_factory=list)
     malformed_calibrations: list[dict[str, Any]] = field(default_factory=list)
+    evidence_errors: list[str] = field(default_factory=list)
+    evidence_digest: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -52,6 +54,9 @@ class QualityCalibrationStatus:
             "below_threshold": self.below_threshold,
             "stale_calibrations": self.stale_calibrations,
             "malformed_calibrations": self.malformed_calibrations,
+            "evidence_errors": self.evidence_errors,
+            "evidence_digest": self.evidence_digest,
+            "capability": "available" if self.ready else "unavailable",
         }
 
 
@@ -59,6 +64,38 @@ def quality_calibration_status(settings: Settings, fmt: str) -> QualityCalibrati
     """Return whether every applicable dimension has an acceptable calibration row."""
     if fmt not in DIMENSIONS_BY_FORMAT:
         raise QualityCalibrationError(f"unsupported quality calibration format: {fmt}")
+
+    from tools.calibrate_judges import (
+        load_annotation_records, load_judge_result_rows, judge_result_binding_errors, summarize_calibration,
+        load_judge_comparison_rows, judge_comparison_binding_errors, summarize_pairwise_calibration,
+    )
+    from project_remedy.quality_judges.shared.corpus_evidence import inspect_corpus_evidence, CALIBRATION_SCORE_THRESHOLD
+    evidence_errors = []
+    expected_metrics = {}
+    evidence_digest = ""
+    try:
+        records, annotation_errors = load_annotation_records(settings.quality_corpus_root_path)
+        evidence_errors.extend(annotation_errors)
+        result_path = settings.quality_corpus_root_path / "judge_results.jsonl"
+        comparison_path = settings.quality_corpus_root_path / "judge_comparisons.jsonl"
+        comparison_path = comparison_path if comparison_path.is_file() else None
+        evidence = inspect_corpus_evidence(records, root=settings.quality_corpus_root_path,
+            judge_results=result_path, approval_path=settings.quality_evidence_approval_path, judge_comparisons=comparison_path)
+        evidence_errors.extend(evidence.errors)
+        evidence_digest = evidence.digest
+        if not evidence_errors:
+            judge_rows = load_judge_result_rows(result_path)
+            evidence_errors.extend(judge_result_binding_errors(records, judge_rows))
+            metrics = summarize_calibration(records, judge_rows, score_threshold=CALIBRATION_SCORE_THRESHOLD)
+            if comparison_path is not None:
+                comparisons = load_judge_comparison_rows(comparison_path)
+                evidence_errors.extend(judge_comparison_binding_errors(records, comparisons))
+                metrics.extend(summarize_pairwise_calibration(records, comparisons))
+            if not evidence_errors:
+                expected_metrics = {(metric.judge_id, metric.judge_version, metric.format, metric.dimension): metric
+                                    for metric in metrics}
+    except Exception as exc:
+        evidence_errors.append(f"Calibration evidence unavailable ({type(exc).__name__}).")
 
     required_dimensions = list(DIMENSIONS_BY_FORMAT[fmt])
     requirements = list(required_judge_calibrations(fmt))
@@ -91,6 +128,10 @@ def quality_calibration_status(settings: Settings, fmt: str) -> QualityCalibrati
             continue
 
         latest = matching_rows[0]
+        expected = expected_metrics.get((requirement.judge_id, requirement.judge_version, fmt, requirement.dimension))
+        if not evidence_errors and (expected is None or latest.get("sample_size") != expected.sample_size
+                                   or latest.get("cohens_kappa") != expected.cohens_kappa):
+            evidence_errors.append("Stored calibration does not match current approved corpus/result evidence.")
         malformed_reason = _malformed_calibration_reason(latest)
         if malformed_reason:
             malformed_calibrations.append(
@@ -218,19 +259,22 @@ def quality_calibration_status(settings: Settings, fmt: str) -> QualityCalibrati
             and not below_threshold
             and not stale_calibrations
             and not malformed_calibrations
+            and not evidence_errors
         ),
         required=settings.quality_require_calibration,
         min_cohens_kappa=settings.quality_min_cohens_kappa,
         min_sample_size=settings.quality_min_calibration_samples,
         required_dimensions=required_dimensions,
         required_judges=[requirement.to_dict() for requirement in requirements],
-        calibrated_dimensions=calibrated_dimensions,
-        calibrated_judges=calibrated_judges,
+        calibrated_dimensions=calibrated_dimensions if not evidence_errors else [],
+        calibrated_judges=calibrated_judges if not evidence_errors else [],
         missing_dimensions=missing_dimensions,
         missing_judges=missing_judges,
         below_threshold=below_threshold,
         stale_calibrations=stale_calibrations,
         malformed_calibrations=malformed_calibrations,
+        evidence_errors=evidence_errors,
+        evidence_digest=evidence_digest,
     )
 
 
@@ -253,9 +297,7 @@ def _summarize_rows(
 
 
 def assert_quality_calibrated(settings: Settings, fmt: str | None = None) -> None:
-    """Raise when deployment settings require calibration and it is incomplete."""
-    if not settings.quality_require_calibration:
-        return
+    """Reject calibration-dependent execution when evidence or agreement is unavailable."""
     formats = [fmt] if fmt else sorted(DIMENSIONS_BY_FORMAT)
     failure_messages: list[str] = []
 
@@ -264,6 +306,7 @@ def assert_quality_calibrated(settings: Settings, fmt: str | None = None) -> Non
         if status.ready:
             continue
         parts = [
+            ("evidence unavailable: " + "; ".join(status.evidence_errors[:3])) if status.evidence_errors else None,
             _summarize_rows(
                 "missing judges",
                 status.missing_judges,
@@ -337,6 +380,8 @@ def _malformed_calibration_reason(row: dict[str, Any]) -> str:
         return "measured_at must be an ISO date-time string"
     if parsed.tzinfo is None:
         return "measured_at must include a timezone"
+    if parsed > datetime.now(timezone.utc):
+        return "measured_at cannot be in the future"
     return ""
 
 
