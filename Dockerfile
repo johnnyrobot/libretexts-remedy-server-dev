@@ -221,6 +221,20 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 CMD exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips "${FORWARDED_ALLOW_IPS}"
 
 # ---------------------------------------------------------------------------
+# Full-runtime integration target. Production images keep dev dependencies
+# and tests out; this target exercises the same runtime layers as USER app.
+# ---------------------------------------------------------------------------
+
+FROM runtime AS runtime-test
+USER root
+COPY uv.lock ./
+RUN uv sync --frozen --extra dev --active --no-install-project
+COPY --chown=app:app tests/unit ./tests/unit
+USER app
+ENV PYTHON_DOTENV_DISABLED=1 REMEDY_FULL_RUNTIME_TESTS=1
+CMD ["python", "-m", "pytest", "tests/unit/test_job_outcomes_http.py", "-v"]
+
+# ---------------------------------------------------------------------------
 # 9. Optional slim target (no Node / Playwright — skips HTML validation
 #     and HTML→PDF conversion, ~1.2 GB smaller)
 # ---------------------------------------------------------------------------

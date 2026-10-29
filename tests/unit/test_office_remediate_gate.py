@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import pytest
 from types import SimpleNamespace
 
 from backend.app.engine_service import _remediate_office
@@ -52,7 +53,7 @@ async def test_remediate_office_attaches_acceptance_metadata(tmp_path):
     assert "evaluating_acceptance" in stages
 
 
-async def test_remediate_office_legacy_type_gets_error_metadata(tmp_path):
+async def test_remediate_office_legacy_type_cannot_finish_done(tmp_path):
     input_path = make_fake_ole2(tmp_path / "legacy.doc")
     job = Job(
         id="job-test-legacy", kind=JOB_KIND_REMEDIATE_OFFICE, status="running", stage="",
@@ -62,15 +63,9 @@ async def test_remediate_office_legacy_type_gets_error_metadata(tmp_path):
     store = _FakeStore()
     settings = SimpleNamespace(job_dir=tmp_path / "jobs")
 
-    await _remediate_office(job, store, settings)
-
-    final = store.updates[-1]
-    assert final.get("status") == "done"
-    meta = json.loads(final["metadata_json"])
-    assert meta["acceptance"] == {
-        "passed": False,
-        "error": "unsupported legacy type doc",
-    }
+    with pytest.raises(RuntimeError, match="did not succeed"):
+        await _remediate_office(job, store, settings)
+    assert not any(update.get("status") == "done" for update in store.updates)
 
 
 async def test_remediate_office_gate_exception_does_not_lose_output(tmp_path, monkeypatch):
@@ -94,7 +89,7 @@ async def test_remediate_office_gate_exception_does_not_lose_output(tmp_path, mo
     assert final.get("status") == "done"
     assert final.get("output_path")
     meta = json.loads(final["metadata_json"])
-    assert meta["acceptance"] == {"passed": False, "error": "boom"}
+    assert meta["acceptance"] == {"passed": False, "error": "Acceptance evaluation unavailable."}
 
 
 async def test_remediate_office_quality_failure_is_nonfatal(tmp_path, monkeypatch):
@@ -121,6 +116,6 @@ async def test_remediate_office_quality_failure_is_nonfatal(tmp_path, monkeypatc
     assert final.get("status") == "done"
     assert final.get("output_path")
     meta = json.loads(final["metadata_json"])
-    assert meta["quality_result_error"] == "not calibrated"
+    assert meta["quality_result_error"] == "Quality evaluation unavailable."
     assert "quality_result" not in meta
     assert "acceptance" in meta

@@ -51,6 +51,7 @@ _OLE2_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"   # legacy .doc/.ppt/.xls
 _PDF_ONLY = {FileType.PDF}
 _OFFICE_ONLY = {FileType.DOCX, FileType.DOC, FileType.PPTX, FileType.PPT, FileType.XLSX, FileType.XLS}
 _PDF_OR_OFFICE = _PDF_ONLY | _OFFICE_ONLY
+_MODERN_OFFICE = {FileType.DOCX, FileType.PPTX, FileType.XLSX}
 
 
 def _validate_magic(contents: bytes, ft: FileType) -> bool:
@@ -183,7 +184,10 @@ def build_router(
     # /v1/remediate — multi-format upload
     # ------------------------------------------------------------------
 
-    @router.post("/v1/remediate", dependencies=[require_key])
+    @router.post(
+        "/v1/remediate", dependencies=[require_key], status_code=202,
+        responses={415: {"description": "Accepts PDF or DOCX/PPTX/XLSX; legacy Office is unsupported."}},
+    )
     @upload_limit
     async def remediate(
         request: Request,
@@ -195,8 +199,8 @@ def build_router(
             description="Opt in to attaching quality-layer audit results to the remediation report.",
         ),
     ) -> JSONResponse:
-        """Upload PDF or Office doc → async remediation job."""
-        staging, ft, _ = await _stage_upload(file, settings, _PDF_OR_OFFICE)
+        """Upload PDF or DOCX/PPTX/XLSX → async remediation (legacy Office: 415)."""
+        staging, ft, _ = await _stage_upload(file, settings, _PDF_ONLY | _MODERN_OFFICE)
         kind = JOB_KIND_REMEDIATE_PDF if ft == FileType.PDF else JOB_KIND_REMEDIATE_OFFICE
         # Persist the rebuild-tier flag in the SAME store.update() that
         # finalizes input_path/stage, BEFORE worker.enqueue. Writing it
@@ -231,12 +235,20 @@ def build_router(
         )
         return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=body)
 
-    @router.post("/v1/convert/office-to-html", dependencies=[require_key])
+    @router.post(
+        "/v1/convert/office-to-html", dependencies=[require_key], status_code=202,
+        responses={415: {"description": "Accepts Office suffixes; legacy inputs have no native converter."}},
+    )
     @upload_limit
     async def convert_office_to_html(
         request: Request,
         file: UploadFile = File(...),
     ) -> JSONResponse:
+        """Convert DOCX/PPTX/XLSX to HTML asynchronously.
+
+        Legacy DOC/PPT/XLS admission is retained, but the extraction path uses
+        modern native parsers and provides no supported legacy converter.
+        """
         staging, ft, _ = await _stage_upload(file, settings, _OFFICE_ONLY)
         body = await _finalize_upload_and_enqueue(
             store, worker, settings, staging, Path(file.filename or "").suffix,
@@ -244,13 +256,16 @@ def build_router(
         )
         return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=body)
 
-    @router.post("/v1/convert/html-to-pdf", dependencies=[require_key])
+    @router.post(
+        "/v1/convert/html-to-pdf", dependencies=[require_key], status_code=202,
+        responses={415: {"description": "Accepts .html/.htm containing an HTML document."}},
+    )
     @upload_limit
     async def convert_html_to_pdf(
         request: Request,
         file: UploadFile = File(...),
     ) -> JSONResponse:
-        """Upload an HTML file → async tagged-PDF conversion."""
+        """Upload .html or .htm → async tagged-PDF conversion."""
         suffix = Path(file.filename or "").suffix.lower()
         if suffix not in (".html", ".htm"):
             raise HTTPException(
@@ -330,7 +345,15 @@ def build_router(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
         return serialize_job(job)
 
-    @router.get("/v1/jobs/{job_id}/result", dependencies=[require_key])
+    @router.get(
+        "/v1/jobs/{job_id}/result", dependencies=[require_key],
+        responses={
+            200: {"description": "Download the produced artifact."},
+            404: {"description": "Job not found."},
+            409: {"description": "Job is queued, running or failed; no result is available."},
+            410: {"description": "Completed job artifact is no longer available."},
+        },
+    )
     async def get_result(job_id: str):
         job = await store.get(job_id)
         if not job:
@@ -341,10 +364,17 @@ def build_router(
                 detail=f"Job status is '{job.status}'; result not available.",
             )
         path = Path(job.output_path)
-        if not path.exists():
+        try:
+            available = bool(job.output_path) and path.is_file() and path.stat().st_size > 0
+            if available:
+                with path.open("rb") as stream:
+                    available = bool(stream.read(1))
+        except OSError:
+            available = False
+        if not available:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Result file missing on server.",
+                status_code=status.HTTP_410_GONE,
+                detail="Result artifact is no longer available.",
             )
         ext_for_media = {
             "application/pdf": ".pdf",

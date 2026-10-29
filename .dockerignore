@@ -15,6 +15,11 @@ build
 
 # Test + dev artifacts
 tests
+!tests/
+tests/*
+!tests/unit/
+tests/unit/*
+!tests/unit/*.py
 docs
 benchmarks
 exports
