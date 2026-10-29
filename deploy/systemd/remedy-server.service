@@ -33,12 +33,13 @@ ExecStart=/opt/remedy-server/.venv/bin/uvicorn \
     --host 127.0.0.1 \
     --port 8000 \
     --workers 1 \
+    --timeout-graceful-shutdown 15 \
     --proxy-headers \
     --forwarded-allow-ips 127.0.0.1
 
-# Graceful shutdown so in-flight jobs get a chance to finish.
+# Bound HTTP draining plus owned-process termination below the supervisor grace.
 KillSignal=SIGTERM
-TimeoutStopSec=30
+TimeoutStopSec=45
 Restart=always
 RestartSec=5
 

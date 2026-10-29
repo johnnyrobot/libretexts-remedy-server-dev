@@ -130,8 +130,8 @@ async def run_job(job: Job, store: JobStore, settings: Settings) -> None:
         handler, message = outcome_handlers[kind]
         try:
             await handler(job, store, settings)
-        except Exception:
-            log.exception("Job %s: %s", job.id, message)
+        except Exception as exc:
+            log.error("Job %s: %s (%s)", job.id, message, type(exc).__name__)
             raise RuntimeError(message) from None
         return
     if kind == JOB_KIND_REMEDIATE_PDF:
@@ -260,6 +260,7 @@ async def _remediate_pdf(job: Job, store: JobStore, settings: Settings) -> None:
         from project_remedy.quality_judges.pdf.audit import audit_pdf_quality
 
         assert_quality_calibrated(settings, "pdf")
+        await store.update(job.id, stage="evaluating_quality", progress=0.75)
         try:
             acceptance.quality_result = await asyncio.wait_for(
                 asyncio.to_thread(

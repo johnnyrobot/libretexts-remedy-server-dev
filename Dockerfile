@@ -45,6 +45,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
         libmagic1 \
         ocrmypdf \
         pkg-config \
+        procps \
         tesseract-ocr \
         tesseract-ocr-eng \
         unzip \
@@ -218,7 +219,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 # address (matching deploy/systemd/remedy-server.service); operators behind a
 # known proxy can override FORWARDED_ALLOW_IPS with the exact upstream IP/CIDR.
 # Shell form is required so ${FORWARDED_ALLOW_IPS} is expanded at runtime.
-CMD exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips "${FORWARDED_ALLOW_IPS}"
+CMD exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --workers 1 --timeout-graceful-shutdown 15 --proxy-headers --forwarded-allow-ips "${FORWARDED_ALLOW_IPS}"
 
 # ---------------------------------------------------------------------------
 # Full-runtime integration target. Production images keep dev dependencies
@@ -232,7 +233,7 @@ RUN uv sync --frozen --extra dev --active --no-install-project
 COPY --chown=app:app tests/unit ./tests/unit
 USER app
 ENV PYTHON_DOTENV_DISABLED=1 REMEDY_FULL_RUNTIME_TESTS=1
-CMD ["python", "-m", "pytest", "tests/unit/test_job_outcomes_http.py", "tests/unit/test_cxone_authenticated_forwarding.py", "tests/unit/test_html_validation_contract.py", "-v"]
+CMD ["python", "-m", "pytest", "tests/unit/test_job_outcomes_http.py", "tests/unit/test_execution_http.py", "tests/unit/test_supervisor_lifetime.py", "tests/unit/test_cxone_authenticated_forwarding.py", "tests/unit/test_html_validation_contract.py", "-v"]
 
 # ---------------------------------------------------------------------------
 # 9. Optional slim target (no Node / Playwright — skips HTML validation
@@ -282,4 +283,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 # address (matching deploy/systemd/remedy-server.service); operators behind a
 # known proxy can override FORWARDED_ALLOW_IPS with the exact upstream IP/CIDR.
 # Shell form is required so ${FORWARDED_ALLOW_IPS} is expanded at runtime.
-CMD exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips "${FORWARDED_ALLOW_IPS}"
+CMD exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --workers 1 --timeout-graceful-shutdown 15 --proxy-headers --forwarded-allow-ips "${FORWARDED_ALLOW_IPS}"

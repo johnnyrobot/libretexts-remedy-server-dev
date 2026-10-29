@@ -18,6 +18,10 @@ Names: distribution / service / container / Docker image label is `remedy-server
 
 ## Quick start (local dev)
 
+Strict engine execution requires Linux amd64 with kernel pidfds and subreaper
+support. On macOS/other profiles engine admission and readiness return 503;
+use the Linux runtime for integration. See [execution and offline recovery](deploy/engine-execution.md).
+
 ```bash
 # 1. Install
 uv sync --extra dev                       # or: pip install -e .[dev]
@@ -275,7 +279,7 @@ All env-driven. See `.env.example` for the full list. Key knobs:
 **HTTP layer** (`backend/app/config.py`):
 `APP_ENV`, `APP_DOCS_ENABLED`, `APP_API_KEY`, `MAX_UPLOAD_MB`, `JOB_STORE_PATH`, `JOB_DIR`,
 `JOB_RETENTION_HOURS`, `JOB_BACKUP_DIR`, `JOB_BACKUP_KEEP_N`, `JOB_BACKUP_INTERVAL_HOURS`,
-`WORKER_CONCURRENCY`, `CORS_ALLOW_ORIGINS`,
+`WORKER_CONCURRENCY`, `WORKER_MAX_PENDING`, `JOB_TOTAL_TIMEOUT_SECONDS`, `CORS_ALLOW_ORIGINS`,
 `CXONE_INTEGRATION_ENABLED`, `CXONE_BRIDGE_BASE_URL`, `CXONE_BRIDGE_TIMEOUT_SECONDS`,
 `CXONE_HEALTH_TIMEOUT_SECONDS`, `REMEDY_REVIEWER_REQUIRED`, `REMEDY_BRIDGE_SERVICE_KEY_FILE`,
 `RATE_LIMIT_DEFAULT`, `RATE_LIMIT_UPLOADS`, `RATE_LIMIT_STORAGE`.
@@ -341,6 +345,11 @@ curl http://127.0.0.1:8000/openapi.json | jq '.paths | keys'
 ```
 
 Use `./.venv/bin/python -m pytest` in this repo. `uv run pytest` can resolve to miniconda's Python and miss the project dependencies.
+
+Engine execution defaults to one actual process plus eight pending admissions,
+with a 900-second total deadline covering queueing and retries. Direct checks
+share the same bound. See [`deploy/engine-execution.md`](deploy/engine-execution.md)
+for overload, process termination, artifact publication and restart policy.
 
 Committed HTTP/lifespan/worker regressions live in `tests/unit/test_job_outcomes_http.py`.
 With Playwright Chromium installed, run the genuine HTML-to-PDF case using

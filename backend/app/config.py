@@ -8,6 +8,7 @@ this module covers only HTTP-layer concerns.
 from __future__ import annotations
 
 import os
+import math
 import re
 from dataclasses import dataclass, field
 from functools import cached_property
@@ -82,6 +83,8 @@ class Settings:
 
     # Queue.
     worker_concurrency: int = 1
+    worker_max_pending: int = 8
+    job_total_timeout_seconds: float = 900.0
 
     # CORS.
     cors_allow_origins: list[str] = field(default_factory=lambda: ["*"])
@@ -130,6 +133,12 @@ class Settings:
             errors.append("MAX_UPLOAD_MB must be greater than 0")
         if self.worker_concurrency < 1:
             errors.append("WORKER_CONCURRENCY must be at least 1")
+        if self.worker_max_pending < 1:
+            errors.append("WORKER_MAX_PENDING must be at least 1")
+        if not math.isfinite(self.job_total_timeout_seconds) or self.job_total_timeout_seconds <= 0:
+            errors.append("JOB_TOTAL_TIMEOUT_SECONDS must be finite and greater than 0")
+        if os.name != "posix":
+            errors.append("Owned engine execution requires a POSIX Linux/macOS host")
         if self.job_retention_hours < 0:
             errors.append("JOB_RETENTION_HOURS must be 0 or greater")
         if self.prune_interval_hours <= 0:
@@ -198,6 +207,8 @@ def load_settings(env_path: Path | None = None) -> Settings:
         backup_keep_n=_env_int("JOB_BACKUP_KEEP_N", 24),
         backup_interval_hours=_env_int("JOB_BACKUP_INTERVAL_HOURS", 1),
         worker_concurrency=_env_int("WORKER_CONCURRENCY", 1),
+        worker_max_pending=_env_int("WORKER_MAX_PENDING", 8),
+        job_total_timeout_seconds=_env_float("JOB_TOTAL_TIMEOUT_SECONDS", 900.0),
         cors_allow_origins=_env_list("CORS_ALLOW_ORIGINS", ["*"]),
         cxone_bridge_base_url=_env(
             "CXONE_BRIDGE_BASE_URL",

@@ -13,11 +13,14 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from backend.app.supervisor import supported
+pytestmark = pytest.mark.skipif(not supported(), reason="strict engine execution requires Linux amd64")
+
 from tests.unit.office_fixtures import make_docx, make_pptx, make_xlsx
 
 
 @pytest_asyncio.fixture
-async def api(tmp_path, monkeypatch):
+async def api(tmp_path, monkeypatch, request):
     for name, value in {
         "PYTHON_DOTENV_DISABLED": "1",
         "APP_ENV": "development",
@@ -39,6 +42,26 @@ async def api(tmp_path, monkeypatch):
     settings = Settings(api_key="fixture-key", job_store_path=tmp_path / "jobs.db",
                         job_dir=tmp_path / "jobs", backup_dir=tmp_path / "backups")
     app = create_app(settings)
+    # These focused adapter-fault tests need parent-local monkeypatches. They
+    # retain real HTTP/store/queue orchestration but do not claim spawn coverage.
+    # Unpatched artifact cases and real Chromium use production owned processes;
+    # test_execution_http independently proves cancellation and capacity with
+    # actual controlled spawned processes and descendants.
+    adapter_fault_tests = {
+        "test_claimed_office_success_requires_readable_artifact",
+        "test_advisory_exception_keeps_output_without_disclosing_error",
+        "test_render_failure_then_success_isolated_in_worker",
+        "test_renderer_cannot_publish_unusable_pdf",
+        "test_office_html_real_extraction_generation_after_corrupt_input",
+        "test_office_html_invalid_claimed_output_fails",
+        "test_queued_and_running_results_are_conflict",
+        "test_generation_provider_error_then_valid_conversion",
+    }
+    if request.node.originalname in adapter_fault_tests:
+        from backend.app.engine_service import run_job
+        async def in_process_adapter_case(job):
+            await run_job(job, app.state.store, settings)
+        app.state.worker.runner = in_process_adapter_case
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://fixture.invalid",

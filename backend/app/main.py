@@ -6,6 +6,8 @@ Run with ``uvicorn backend.app.main:app --reload``.
 from __future__ import annotations
 
 import os
+import asyncio
+import math
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -22,14 +24,15 @@ from slowapi.util import get_remote_address
 from backend.app.backup import backup_jobstore
 from backend.app.auth import require_api_key_dependency
 from backend.app.config import Settings, load_settings
-from backend.app.engine_service import run_job
+from backend.app.execution import EngineAdmissionMiddleware, OwnedExecution, execute_job, execute_http, in_owned_child
 from backend.app.jobs import JobStore, JobWorker, prune_expired_jobs
 from backend.app.logging_setup import configure_logging, request_id_var
 from backend.app.routes import build_router
 from backend.app.scheduler import PeriodicTask
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, job_entrypoint=execute_job,
+               direct_entrypoint=execute_http) -> FastAPI:
     """Application factory. Accepts an injected ``Settings`` for tests."""
     configure_logging()
     log = structlog.get_logger("project_remedy.backend")
@@ -41,10 +44,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     store = JobStore(settings.job_store_path)
 
-    async def _runner(job):
-        await run_job(job, store, settings)
+    execution = OwnedExecution(settings.worker_concurrency, settings.worker_max_pending,
+                               settings.job_total_timeout_seconds)
 
-    worker = JobWorker(store, _runner, concurrency=settings.worker_concurrency)
+    async def _runner(job):
+        async def progress(updates):
+            # Output paths/terminal state are private until every owned process exits.
+            visible = {key: value for key, value in updates.items() if key in {"stage", "progress"}}
+            if updates.get("status") in {"done", "failed"}:
+                visible = {}
+            if visible:
+                await store.update(job.id, **visible)
+        timeouts = {}
+        if job.kind == "remediate_pdf":
+            for stage, variable, default in [
+                ("remediating", "PDF_REMEDIATION_TIMEOUT_SECONDS", 900),
+                ("evaluating_acceptance", "PDF_ACCEPTANCE_TIMEOUT_SECONDS", 300),
+                ("evaluating_quality", "PDF_ACCEPTANCE_TIMEOUT_SECONDS", 300),
+            ]:
+                try:
+                    value = float(os.environ.get(variable, default))
+                    timeouts[stage] = value if math.isfinite(value) and value > 0 else default
+                except ValueError:
+                    timeouts[stage] = default
+        result = await execution.run(job_entrypoint, (job, settings), worker.reservation_for(job.id),
+                                     on_update=progress, operation_timeouts=timeouts)
+        if result.get("status") not in {"done", "failed"}:
+            raise RuntimeError("Engine returned without a terminal outcome.")
+        if result["status"] == "failed":
+            result["error"] = "Engine operation failed."
+        await store.update(job.id, **result)
+
+    worker = JobWorker(store, _runner, concurrency=settings.worker_concurrency, execution=execution)
 
     pruner = PeriodicTask(
         lambda: prune_expired_jobs(
@@ -72,12 +103,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             auth_enabled=bool(settings.api_key),
             worker_concurrency=settings.worker_concurrency,
         )
+        execution.start_ownership(settings.job_store_path.resolve().with_name(settings.job_store_path.resolve().name + ".execution.lock"))
         interrupted = await store.fail_running_jobs(
             "Server restarted while this job was running; submit it again if needed."
         )
         queued = await store.list_by_statuses({"queued"})
         for job in queued:
-            await worker.enqueue(job.id)
+            try:
+                await worker.enqueue(job.id)
+            except HTTPException:
+                await store.update(job.id, status="failed", stage="interrupted",
+                                   error="Restart queue capacity exceeded; input retained.")
         if interrupted or queued:
             log.info(
                 "jobs.recovered",
@@ -91,9 +127,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             yield
         finally:
             log.info("app.shutdown")
+            execution.stop_admission()
             await backup_task.stop()
             await pruner.stop()
-            await worker.stop()
+            await asyncio.gather(worker.stop(), execution.shutdown())
 
     # ----- Rate limiter --------------------------------------------------
 
@@ -123,6 +160,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.upload_rate_limit = upload_limit
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(SlowAPIMiddleware)
+    app.add_middleware(EngineAdmissionMiddleware, execution=execution, settings=settings,
+                       direct_entrypoint=direct_entrypoint)
+
 
     # ----- Request-ID + structured access log middleware -----------------
 
@@ -135,7 +175,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             response = await call_next(request)
         except Exception as exc:  # noqa: BLE001
             elapsed_ms = (time.perf_counter() - started) * 1000.0
-            log.exception(
+            log.error(
                 "request.error",
                 method=request.method,
                 path=request.url.path,
@@ -190,6 +230,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.store = store
     app.state.worker = worker
+    app.state.execution = execution
 
     app.include_router(build_router(settings, store, worker, limiter, upload_limit))
 
@@ -214,4 +255,4 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 # Module-level app for uvicorn convenience
-app = create_app()
+app = None if in_owned_child() else create_app()

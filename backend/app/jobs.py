@@ -14,11 +14,14 @@ import asyncio
 import logging
 import shutil
 import sqlite3
+import time
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Awaitable, Callable, Iterable
+
+from backend.app.execution import OwnedExecution, Reservation, ExecutionDeadline
 
 
 log = logging.getLogger("project_remedy.backend.jobs")
@@ -54,6 +57,7 @@ class Job:
     updated_at: str
     result_media_type: str = "application/pdf"
     metadata_json: str = "{}"
+    deadline_at: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -91,6 +95,7 @@ class JobStore:
                     error TEXT NOT NULL DEFAULT '',
                     result_media_type TEXT NOT NULL DEFAULT 'application/pdf',
                     metadata_json TEXT NOT NULL DEFAULT '{}',
+                    deadline_at TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
@@ -98,6 +103,7 @@ class JobStore:
             )
             # Forward-compat: add columns if upgrading from an older DB.
             for _col, ddl in (
+                ("deadline_at", "ALTER TABLE jobs ADD COLUMN deadline_at TEXT NOT NULL DEFAULT ''"),
                 ("kind", "ALTER TABLE jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'remediate_pdf'"),
                 ("result_media_type", "ALTER TABLE jobs ADD COLUMN result_media_type TEXT NOT NULL DEFAULT 'application/pdf'"),
                 ("metadata_json", "ALTER TABLE jobs ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'"),
@@ -113,6 +119,7 @@ class JobStore:
         *,
         kind: str = JOB_KIND_REMEDIATE_PDF,
         result_media_type: str = "application/pdf",
+        deadline_at: str = "",
     ) -> Job:
         now = datetime.now(timezone.utc).isoformat()
         job = Job(
@@ -128,15 +135,16 @@ class JobStore:
             created_at=now,
             updated_at=now,
             result_media_type=result_media_type,
+            deadline_at=deadline_at,
         )
         async with self._lock:
             with self._connect() as conn:
                 conn.execute(
-                    """INSERT INTO jobs(id,kind,status,stage,progress,input_path,output_path,report_path,error,result_media_type,metadata_json,created_at,updated_at)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    """INSERT INTO jobs(id,kind,status,stage,progress,input_path,output_path,report_path,error,result_media_type,metadata_json,deadline_at,created_at,updated_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (job.id, job.kind, job.status, job.stage, job.progress,
                      job.input_path, job.output_path, job.report_path,
-                     job.error, job.result_media_type, job.metadata_json,
+                     job.error, job.result_media_type, job.metadata_json, job.deadline_at,
                      job.created_at, job.updated_at),
                 )
         return job
@@ -216,7 +224,7 @@ class JobStore:
         async with self._lock:
             with self._connect() as conn:
                 rows = conn.execute(
-                    f"SELECT * FROM jobs WHERE status IN ({placeholders})",
+                    f"SELECT * FROM jobs WHERE status IN ({placeholders}) ORDER BY created_at,id",
                     values,
                 ).fetchall()
         return [_row_to_job(r) for r in rows]
@@ -257,16 +265,20 @@ def _row_to_job(row) -> Job:
         updated_at=row["updated_at"],
         result_media_type=row["result_media_type"] if "result_media_type" in keys else "application/pdf",
         metadata_json=row["metadata_json"] if "metadata_json" in keys else "{}",
+        deadline_at=row["deadline_at"] if "deadline_at" in keys else "",
     )
 
 
 class JobWorker:
     """Consumes a queue of job IDs and runs them in-process."""
 
-    def __init__(self, store: JobStore, runner: JobRunner, *, concurrency: int = 1) -> None:
+    def __init__(self, store: JobStore, runner: JobRunner, *, concurrency: int = 1,
+                 execution: OwnedExecution | None = None) -> None:
         self.store = store
         self.runner = runner
         self.concurrency = max(1, int(concurrency))
+        self.execution = execution or OwnedExecution(concurrency=concurrency)
+        self._reservations: dict[str, Reservation] = {}
         self.queue: asyncio.Queue[str] = asyncio.Queue()
         self._tasks: list[asyncio.Task] = []
 
@@ -288,11 +300,26 @@ class JobWorker:
         if not tasks:
             return
         for task in tasks:
-            task.cancel()
+            if not task.cancelling():
+                task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        for reservation in self._reservations.values():
+            reservation.release()
+        self._reservations.clear()
 
-    async def enqueue(self, job_id: str) -> None:
-        await self.queue.put(job_id)
+    async def enqueue(self, job_id: str, reservation: Reservation | None = None) -> None:
+        if reservation is None:
+            job = await self.store.get(job_id)
+            now = datetime.now(timezone.utc)
+            deadline = (datetime.fromisoformat(job.deadline_at) if job and job.deadline_at
+                        else datetime.fromisoformat(job.created_at) + timedelta(seconds=self.execution.total_seconds))
+            reservation = self.execution.reserve(remaining=(deadline - now).total_seconds())
+        reservation.transferred = True
+        self._reservations[job_id] = reservation
+        self.queue.put_nowait(job_id)
+
+    def reservation_for(self, job_id: str) -> Reservation:
+        return self._reservations[job_id]
 
     async def _loop(self, _worker_index: int) -> None:
         while True:
@@ -301,11 +328,32 @@ class JobWorker:
                 job = await self.store.get(job_id)
                 if not job:
                     continue
+                reservation = self._reservations[job_id]
+                if reservation.deadline <= time.monotonic():
+                    raise ExecutionDeadline("Engine total deadline exceeded while queued.")
                 await self.store.update(job_id, status="running", stage="starting", progress=0.05)
                 await self.runner(job)
+            except asyncio.CancelledError:
+                # runner cancellation finishes owned-process termination first.
+                await self.store.update(job_id, status="failed", stage="interrupted",
+                                        error="Engine execution interrupted by shutdown.")
+                raise
+            except ExecutionDeadline:
+                await self.store.update(job_id, status="failed", stage="timed_out",
+                                        error="Engine execution deadline exceeded.")
             except Exception as exc:  # noqa: BLE001
-                await self.store.update(job_id, status="failed", error=f"{type(exc).__name__}: {exc}")
+                log.error("Job %s failed (%s)", job_id, type(exc).__name__)
+                reservation = self._reservations.get(job_id)
+                retained = reservation is not None and reservation.retained
+                await self.store.update(job_id, status="running" if retained else "failed",
+                                        stage="termination_failed" if retained else "failed",
+                                        error="Engine termination failed; service unavailable." if retained else "Engine operation failed.")
+                if retained:
+                    return  # quarantine pending work; never dispatch it after unknown cleanup
             finally:
+                reservation = self._reservations.pop(job_id, None)
+                if reservation is not None:
+                    reservation.release()
                 self.queue.task_done()
 
 
