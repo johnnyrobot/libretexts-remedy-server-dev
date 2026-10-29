@@ -21,6 +21,11 @@ import time
 import httpx
 import pytest
 
+# Direct fault subprocesses run from source in the non-installed shipping test image.
+if __name__ == "__main__":
+    source_root = Path(__file__).resolve().parents[2]
+    sys.path[:0] = [str(source_root / "src"), str(source_root)]
+
 from backend.app.config import Settings
 from backend.app.supervisor import supported
 
@@ -40,6 +45,10 @@ def retain_synthetic_http_evidence(tmp_path, request):
         except Exception as error:
             receipt["diagnostic_error"] = type(error).__name__
         (destination / "receipt.json").write_text(json.dumps(receipt, indent=2))
+        # pytest temp directories are private. Only this synthetic diagnostic
+        # COPY is readable by the CI artifact uploader outside the test UID.
+        for item in [destination, *destination.rglob("*")]:
+            item.chmod(0o755 if item.is_dir() else 0o644)
 
 
 def settings_for(directory):
@@ -133,6 +142,7 @@ class Owner:
             "OLLAMA_API_KEY": "fixture-provider-key", "CORS_ALLOW_ORIGINS": "https://fixture.invalid",
             "CXONE_INTEGRATION_ENABLED": "false", "JOB_STORE_PATH": str(directory / "import.db"),
             "JOB_DIR": str(directory / "import-jobs"), "RATE_LIMIT_UPLOADS": "10000/minute",
+            "RATE_LIMIT_DEFAULT": "10000/minute",  # bounded observer polling; production defaults stay unchanged
         }
         try:
             self.process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), str(directory), point,

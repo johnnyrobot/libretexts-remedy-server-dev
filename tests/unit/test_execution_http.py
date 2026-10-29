@@ -395,8 +395,12 @@ async def test_restart_respects_persisted_expiry_and_single_owner(execution_sett
     source = settings.job_dir / "recovery.html"
     source.write_text("<html>fast</html>")
     store = JobStore(settings.job_store_path)
-    expired = await store.create(source, kind="convert_html_to_pdf", deadline_at=(
-        datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat())
+    staging = settings.job_dir / "_staging-expired.html"
+    staging.write_bytes(source.read_bytes())
+    expired = await store.prepare_upload(staging, settings.job_dir, ".html", kind="convert_html_to_pdf",
+        result_media_type="text/html", metadata_json="{}", deadline_at=(
+            datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat())
+    assert await store.finish_upload(expired.id, settings.job_dir) is not None
     interrupted = await store.create(source, kind="convert_html_to_pdf")
     await store.update(interrupted.id, status="running")
     app = create_app(settings, job_entrypoint=controlled_job)
@@ -406,6 +410,7 @@ async def test_restart_respects_persisted_expiry_and_single_owner(execution_sett
             assert (await get_terminal(client, expired.id))["stage"] == "timed_out"
             assert (await client.get("/v1/jobs/" + interrupted.id)).json()["stage"] == "interrupted"
             assert source.is_file()
+            assert Path(expired.input_path).is_file()
             second = create_app(settings)
             with pytest.raises(RuntimeError, match="already has an owner"):
                 async with second.router.lifespan_context(second):

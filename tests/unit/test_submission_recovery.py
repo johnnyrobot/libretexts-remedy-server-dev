@@ -9,6 +9,11 @@ import hashlib
 
 import pytest
 
+# Direct fault subprocesses run from source in the non-installed shipping test image.
+if __name__ == "__main__":
+    source_root = Path(__file__).resolve().parents[2]
+    sys.path[:0] = [str(source_root / "src"), str(source_root)]
+
 from backend.app.config import Settings
 from backend.app.jobs import JobStore
 
