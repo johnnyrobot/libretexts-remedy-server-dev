@@ -256,7 +256,8 @@ puppeteer.launch = async (...args) => {
                     continue
                 args = process.cmdline()
                 kind = "renderer" if "--type=renderer" in args else (
-                    "browser" if "--remote-debugging-pipe" in args and not any(arg.startswith("--type=") for arg in args) else None)
+                    "browser" if any(arg == "--remote-debugging-pipe" or arg.startswith("--remote-debugging-port=") for arg in args)
+                    and not any(arg.startswith("--type=") for arg in args) else None)
                 if kind is not None:
                     candidates.setdefault(kind, process.pid)
             except (psutil.NoSuchProcess, FileNotFoundError):
