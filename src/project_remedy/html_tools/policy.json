@@ -1,0 +1,7 @@
+{
+  "document_url": "http://remedy-document.invalid/document",
+  "csp": "default-src 'none'; img-src data:; style-src 'unsafe-inline' data:; font-src data:; script-src 'none'; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-same-origin allow-scripts",
+  "max_document_bytes": 4194304,
+  "timeout_seconds": 60,
+  "incomplete_selector": "script,iframe,frame,object,embed,base[href],meta[http-equiv=\"refresh\" i],*[src^=\"file:\" i],*[href^=\"file:\" i]"
+}

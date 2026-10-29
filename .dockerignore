@@ -60,3 +60,6 @@ deploy
 # Playwright cache — built inside the image
 .playwright-mcp
 .firecrawl
+
+# Local checker dependencies are installed from the pinned lock in the build.
+**/node_modules

@@ -35,6 +35,7 @@ services:
       - remedy
     security_opt:
       - no-new-privileges:true
+      - seccomp=../chromium-seccomp-amd64.json
     cap_drop:
       - ALL
     healthcheck:

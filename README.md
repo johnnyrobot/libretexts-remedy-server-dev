@@ -171,7 +171,7 @@ curl -X POST http://127.0.0.1:8000/v1/convert/pdf-to-html -F "file=@input.pdf"
 | `DELETE` | `/v1/jobs/{id}` | Remove job + on-disk artifacts. |
 
 HTTP 202 means the upload was accepted, not that conversion succeeded. Poll the
-job until `done` or `failed`. Office remediation and HTML conversion publish
+job until `done` or `failed`. Modern Office remediation, modern Office-to-HTML and HTML-to-PDF publish
 `done` only after successful processing and independent structural validation
 of the produced file. A readable file stays downloadable when accessibility
 acceptance or optional quality checks have advisory findings/errors; see job
@@ -229,7 +229,7 @@ supported legacy converter. Convert legacy files to DOCX/PPTX/XLSX first.
 
 | Method | Path | Requires |
 |---|---|---|
-| `POST` | `/v1/validate/html` | Upload HTML → axe + pa11y + Lighthouse merged report. Needs pa11y / lighthouse / chromium installed. |
+| `POST` | `/v1/validate/html` | Upload HTML → axe + pa11y + Lighthouse merged report. Needs the full runtime with pinned local HTML checker assets and sandboxed Chromium. |
 | `POST` | `/v1/validate/html/wave` | Form field `url=...` → WAVE API. Needs `WAVE_API_KEY`. |
 | `POST` | `/v1/validate/pdf/verapdf` | Upload PDF → veraPDF JSON. Needs `verapdf` binary + Java 17+. |
 | `POST` | `/v1/validate/pdf/adobe` | Upload PDF → Adobe PDF Services report. Needs `ADOBE_CLIENT_ID` + `ADOBE_CLIENT_SECRET`. |
@@ -245,6 +245,8 @@ supported legacy converter. Convert legacy files to DOCX/PPTX/XLSX first.
 | `GET` | `/openapi.json` | OpenAPI schema. |
 
 ---
+
+HTML tools default to offline document resources, pinned local checkers and a non-root Chromium sandbox. Documents requiring blocked resources are incomplete; see [HTML resource policy](deploy/html-resource-policy.md) for supported assets, native setup and the Linux container policy.
 
 ## Auth
 

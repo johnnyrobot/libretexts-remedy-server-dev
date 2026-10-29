@@ -271,9 +271,13 @@ jobs:
           cache-to: type=gha,mode=max,scope=full-runtime
       - name: Exercise real HTTP worker and Chromium as non-root without network
         run: |
-          docker run --rm --network none --cap-drop ALL \
-            --security-opt no-new-privileges:true --shm-size=256m \
-            remedy-server:integration
+          bash .github/scripts/prove-html-runtime.sh remedy-server:integration "$RUNNER_TEMP/remedy-html-evidence"
+      - name: Preserve actual browser sandbox and runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: remedy-html-runtime-evidence
+          path: ${{ runner.temp }}/remedy-html-evidence
 
   docker-build:
     name: docker image (smoke)

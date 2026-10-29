@@ -75,5 +75,5 @@ def html_validator_dependency_detail(exc: Exception) -> str:
     """Render a consistent 503 detail for missing HTML validation tooling."""
     return (
         f"External validator tool missing: {exc}. "
-        "Ensure pa11y, lighthouse, and playwright chromium are installed."
+        "Use the full runtime with pinned local checker assets and sandboxed Chromium."
     )

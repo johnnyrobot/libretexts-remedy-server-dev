@@ -15,12 +15,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
 import pikepdf
 from playwright.async_api import async_playwright, Browser
+
+from project_remedy.html_browser import launch_browser, offline_page
 
 from project_remedy.pdf_fixer import (
     fix_alt_text_elements,
@@ -66,7 +69,12 @@ class HTMLToPDFConverter:
     async def start(self) -> None:
         """Launch the Chromium browser."""
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch()
+        try:
+            self._browser = await launch_browser(self._playwright)
+        except BaseException:
+            await self._playwright.stop()
+            self._playwright = None
+            raise
         logger.info(
             "HTMLToPDFConverter started (max_concurrent=%d).",
             self._max_concurrent,
@@ -113,30 +121,17 @@ class HTMLToPDFConverter:
                 # Inject print-optimised CSS to fix common PDF/UA issues.
                 html = _inject_print_css(html)
 
-                # Render HTML → tagged PDF via Chromium.
-                context = await self._browser.new_context()
-                page = await context.new_page()
-                await page.set_content(html, wait_until="networkidle")
-                await page.pdf(
-                    path=str(output_path),
-                    tagged=True,
-                    format="Letter",
-                    print_background=True,
-                    margin={
-                        "top": "0.75in",
-                        "right": "0.75in",
-                        "bottom": "0.75in",
-                        "left": "0.75in",
-                    },
-                )
-                await context.close()
-
-                # Post-process: add PDF/UA-1 metadata via pikepdf.
-                _add_pdfua_metadata(
-                    output_path,
-                    title=title,
-                    language=language,
-                )
+                # Publish only a complete render. A blocked print-only resource
+                # must not leave a partial output at the caller's final path.
+                with tempfile.TemporaryDirectory(prefix="remedy-render-", dir=output_path.parent) as temporary:
+                    candidate = Path(temporary) / "render.pdf"
+                    async with offline_page(self._browser, html) as page:
+                        await page.pdf(
+                            path=str(candidate), tagged=True, format="Letter", print_background=True,
+                            margin={"top": "0.75in", "right": "0.75in", "bottom": "0.75in", "left": "0.75in"},
+                        )
+                    _add_pdfua_metadata(candidate, title=title, language=language)
+                    candidate.replace(output_path)
 
                 logger.debug("Converted to tagged PDF: %s", output_path.name)
                 return PDFConversionResult(
