@@ -232,7 +232,7 @@ RUN uv sync --frozen --extra dev --active --no-install-project
 COPY --chown=app:app tests/unit ./tests/unit
 USER app
 ENV PYTHON_DOTENV_DISABLED=1 REMEDY_FULL_RUNTIME_TESTS=1
-CMD ["python", "-m", "pytest", "tests/unit/test_job_outcomes_http.py", "-v"]
+CMD ["python", "-m", "pytest", "tests/unit/test_job_outcomes_http.py", "tests/unit/test_cxone_authenticated_forwarding.py", "tests/unit/test_html_validation_contract.py", "-v"]
 
 # ---------------------------------------------------------------------------
 # 9. Optional slim target (no Node / Playwright — skips HTML validation
