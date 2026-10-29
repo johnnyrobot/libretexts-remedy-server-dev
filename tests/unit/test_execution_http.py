@@ -553,7 +553,7 @@ async def test_parent_crash_stops_detached_descendant_and_restart_cannot_overlap
         owner.close()
 
 
-async def test_legacy_persisted_queue_excess_is_failed_with_input_retained(execution_settings):
+async def test_legacy_unknown_submission_intent_is_quarantined_with_input_retained(execution_settings):
     from backend.app.jobs import JobStore
     from backend.app.main import create_app
     settings = execution_settings
@@ -567,10 +567,10 @@ async def test_legacy_persisted_queue_excess_is_failed_with_input_retained(execu
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture.invalid",
                                      headers={"X-API-Key": "fixture-key"}) as client:
             terminal = [await get_terminal(client, job.id) for job in jobs]
-            assert sum(job["status"] == "done" for job in terminal) == 9
+            assert sum(job["status"] == "done" for job in terminal) == 0
             rejected = [job for job in terminal if job["status"] == "failed"]
-            assert len(rejected) == 3
-            assert all(job["stage"] == "interrupted" for job in rejected)
+            assert len(rejected) == 12
+            assert all(job["stage"] == "submission_quarantined" for job in rejected)
             assert all("input retained" in job["error"] for job in rejected)
             assert source.is_file()
             assert (await client.get("/readyz")).status_code == 200
@@ -580,21 +580,57 @@ async def test_upload_store_failure_does_not_leak_staging_or_admission(execution
     from backend.app.main import create_app
     settings = execution_settings
     app = create_app(settings, job_entrypoint=controlled_job)
-    original = app.state.store.create
+    original = app.state.store.prepare_upload
     async def unavailable(*args, **kwargs):
         raise OSError("fixture-secret private storage detail")
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture.invalid",
                                      headers={"X-API-Key": "fixture-key"}) as client:
-            monkeypatch.setattr(app.state.store, "create", unavailable)
+            monkeypatch.setattr(app.state.store, "prepare_upload", unavailable)
             response = await post_mode(client, "fast")
             assert response.status_code == 500
             assert "fixture-secret" not in response.text
             assert not list(settings.job_dir.glob("_staging-*"))
             assert not await app.state.store.list_by_statuses({"queued", "running"})
-            monkeypatch.setattr(app.state.store, "create", original)
+            monkeypatch.setattr(app.state.store, "prepare_upload", original)
             job_id = (await post_mode(client, "fast")).json()["id"]
             assert (await get_terminal(client, job_id))["status"] == "done"
+
+
+async def counted_submission_job(job, settings, *, emit):
+    with (settings.backup_dir / "submission-effects.jsonl").open("a") as effects:
+        effects.write(job.id + "\n")
+    return await controlled_job(job, settings, emit=emit)
+
+
+async def test_http_acknowledgement_loss_retains_one_submission_and_never_auto_resubmits(execution_settings, monkeypatch):
+    from backend.app.main import create_app
+    settings = execution_settings
+    settings.backup_dir.mkdir(parents=True, exist_ok=True)
+    app = create_app(settings, job_entrypoint=counted_submission_job)
+    get = app.state.store.get
+    armed = True
+    async def lose_receipt(job_id):
+        nonlocal armed
+        if armed and app.state.worker.reservation_for(job_id).transferred:
+            armed = False
+            raise OSError("Synthetic lost acknowledgement")
+        return await get(job_id)
+    async with app.router.lifespan_context(app):
+        monkeypatch.setattr(app.state.store, "get", lose_receipt)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture.invalid",
+                                     headers={"X-API-Key": "fixture-key"}) as client:
+            response = await post_mode(client, "fast")
+            assert response.status_code == 500
+            rows = await app.state.store.list_by_statuses({"queued", "running", "done"})
+            assert len(rows) == 1
+            job_id = rows[0].id
+            assert (await get_terminal(client, job_id))["status"] == "done"
+            assert Path((await get(job_id)).input_path).read_text() == "<html>fast</html>"
+    replacement = create_app(settings, job_entrypoint=counted_submission_job)
+    async with replacement.router.lifespan_context(replacement):
+        assert len(await replacement.state.store.list_by_statuses({"queued", "running", "done"})) == 1
+    assert (settings.backup_dir / "submission-effects.jsonl").read_text().splitlines() == [job_id]
 
 
 async def test_authentication_precedes_saturated_direct_admission(execution_settings):

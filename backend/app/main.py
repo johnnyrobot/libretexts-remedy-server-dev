@@ -70,7 +70,7 @@ def create_app(settings: Settings | None = None, *, job_entrypoint=execute_job,
             result["error"] = "Engine operation failed."
         await store.update(job.id, **result)
 
-    worker = JobWorker(store, _runner, concurrency=settings.worker_concurrency, execution=execution)
+    worker = JobWorker(store, _runner, concurrency=settings.worker_concurrency, execution=execution, job_dir=settings.job_dir)
 
     pruner = PeriodicTask(
         lambda: prune_expired_jobs(
@@ -104,7 +104,7 @@ def create_app(settings: Settings | None = None, *, job_entrypoint=execute_job,
             interrupted = await store.fail_running_jobs(
                 "Server restarted while this job was running; submit it again if needed."
             )
-            queued = await store.list_by_statuses({"queued"})
+            queued = await store.recover_uploads(settings.job_dir, execution.capacity)
             for job in queued:
                 try:
                     await worker.enqueue(job.id)
