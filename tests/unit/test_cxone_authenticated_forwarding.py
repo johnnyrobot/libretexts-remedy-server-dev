@@ -195,7 +195,7 @@ def test_status_lookup_is_authenticated_readonly_and_preserves_pair_and_metadata
         reply.status, reply.body = 404, {'error': 'operation_not_found'}
         assert client.post('/v1/cxone/page/operation-status', json=pair).status_code == 404
         assert len(observed) == 2
-        assert client.post('/v1/cxone/page/operation-status', json={**pair, 'page_id': '42'}).status_code == 422
+        assert client.post('/v1/cxone/page/operation-status', json={**pair, 'page_id': '42'}).status_code == 400
         assert len(observed) == 2
 
 
@@ -280,13 +280,12 @@ def test_full_app_unknown_alias_auth_and_public_liveness(tmp_path):
 def test_negative_shared_corpus_transport_preserves_bytes_or_rejects_encoding(tmp_path):
     # Synthetic peer deliberately rejects all negative vectors; it is not the
     # product verifier. Policy/crypto rejection belongs to actual Bridge tests.
-    from backend.app.cxone_transport import _compact
     with forwarding_client(tmp_path) as (client, observed, reply):
         reply.status, reply.body = 401, {'error': 'invalid_reviewer_assertion', 'outcome': 'not_attempted'}
         for vector in VECTORS['negative']:
             before = len(observed)
             response = client.post('/v1/cxone/page/apply-fix', json={**mutation(), 'reviewer_assertion': vector['compact']})
-            if _compact(vector['compact']):
+            if vector['name'] not in {'padded-header-segment', 'noncanonical-signature-base64url'}:
                 assert (response.status_code, response.json()) == (401, reply.body), vector['name']
                 assert observed[-1][2]['reviewer_assertion'] == vector['compact'], vector['name']
                 assert len(observed) == before + 1
@@ -314,3 +313,28 @@ def test_invalid_required_mode_environment_never_downgrades(monkeypatch):
     monkeypatch.setenv('REMEDY_REVIEWER_REQUIRED', 'typo')
     with pytest.raises(ValueError, match='explicit boolean'):
         load_settings()
+
+
+def test_invalid_mutation_never_echoes_assertion_in_validation_errors(tmp_path):
+    with forwarding_client(tmp_path) as (client, observed, reply):
+        body = mutation()
+        body.pop('preview_hash')
+        response = client.post('/v1/cxone/page/apply-fix', json=body)
+        assert response.status_code == 422
+        assert body['reviewer_assertion'] not in response.text
+        assert not observed
+
+
+@pytest.mark.parametrize('query', [{}, {'issuer': 'test', 'jti': 7}, {'issuer': 'test', 'jti': 'B' * 43},
+                                   {'issuer': 'test', 'jti': 'A' * 43, 'extra': True}])
+def test_malformed_operation_lookup_is_safe_400(tmp_path, query):
+    with forwarding_client(tmp_path) as (client, observed, reply):
+        assert client.post('/v1/cxone/page/operation-status', json=query).status_code == 400
+        assert not observed
+
+
+def test_openapi_still_documents_inbound_key_header():
+    app = FastAPI()
+    app.include_router(build_router(Settings(api_key=APP_KEY)))
+    parameters = app.openapi()['paths']['/v1/cxone/page/scan']['post']['parameters']
+    assert any(p['name'].lower() == 'x-api-key' and p['in'] == 'header' for p in parameters)

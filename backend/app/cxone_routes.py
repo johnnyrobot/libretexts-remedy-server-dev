@@ -12,7 +12,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 
-from backend.app.cxone_transport import guard_request, bridge_headers
+from backend.app.cxone_transport import CxoneRoute, MUTATION_PATHS, guard_request, bridge_headers
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.app.auth import require_api_key_dependency
@@ -67,7 +67,7 @@ def build_router(settings: Settings) -> APIRouter:
         errors = settings.validation_errors()
         if errors:
             raise RuntimeError("Invalid CXone settings: " + "; ".join(errors))
-    router = APIRouter(dependencies=[Depends(require_api_key_dependency(settings)), Depends(guard_request)])
+    router = APIRouter(route_class=CxoneRoute, dependencies=[Depends(require_api_key_dependency(settings)), Depends(guard_request)])
 
     @router.get("/v1/cxone/health")
     async def cxone_health() -> Any:
@@ -157,7 +157,7 @@ async def _forward(settings: Settings, path: str, payload: dict[str, Any]) -> An
 
     bridge_url = settings.cxone_bridge_base_url.rstrip("/")
     if (settings.remedy_reviewer_required
-            and path in {"/v1/cxone/page/apply-fix", "/v1/cxone/page/restore"}
+            and path in MUTATION_PATHS
             and not payload.get("reviewer_assertion")):
         raise HTTPException(status_code=401, detail="Reviewer assertion is required.")
     try:
@@ -199,7 +199,7 @@ def _json_response(response: httpx.Response) -> Any:
 
 def _transport_failure(path: str, status_code: int, error: str) -> HTTPException:
     detail: dict[str, Any] = {"error": error, "retryable": False}
-    if path in {"/v1/cxone/page/apply-fix", "/v1/cxone/page/restore"}:
+    if path in MUTATION_PATHS:
         # A lost response cannot establish whether Bridge dispatched the write.
         detail.update(outcome="unknown_write", operation_id=None,
                       requires_reconciliation=True, evidence_effect="invalidate")

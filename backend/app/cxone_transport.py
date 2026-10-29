@@ -6,8 +6,29 @@ import json
 import re
 
 from fastapi import HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 
 from backend.app.config import Settings
+
+MUTATION_PATHS = frozenset({"/v1/cxone/page/apply-fix", "/v1/cxone/page/restore"})
+
+
+class CxoneRoute(APIRoute):
+    """Framework validation must never echo the signed input object."""
+
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def sanitized(request: Request):
+            try:
+                return await handler(request)
+            except RequestValidationError:
+                status = 400 if request.url.path.endswith("/operation-status") else 422
+                return JSONResponse(status_code=status, content={"detail": "Invalid CXone request."})
+
+        return sanitized
 
 
 def bridge_headers(settings: Settings) -> dict[str, str]:
@@ -41,22 +62,21 @@ def _check_body(value, *, top=False) -> None:
             _check_body(item)
 
 
+def _canonical_segment(value) -> bool:
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+        return False
+    try:
+        raw = base64.b64decode(value + "=" * (-len(value) % 4), altchars=b"-_", validate=True)
+    except ValueError:
+        return False
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii") == value
+
+
 def _compact(value) -> bool:
     if not isinstance(value, str) or len(value) > 8192:
         return False
     parts = value.split(".")
-    if len(parts) != 3:
-        return False
-    for part in parts:
-        if not re.fullmatch(r"[A-Za-z0-9_-]+", part):
-            return False
-        try:
-            raw = base64.b64decode(part + "=" * (-len(part) % 4), altchars=b"-_", validate=True)
-        except ValueError:
-            return False
-        if base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii") != part:
-            return False
-    return True
+    return len(parts) == 3 and all(_canonical_segment(part) for part in parts)
 
 
 async def guard_request(request: Request) -> None:
@@ -75,7 +95,10 @@ async def guard_request(request: Request) -> None:
         if not isinstance(body, dict):
             raise ValueError("object required")
         _check_body(body, top=True)
-        if request.url.path.endswith("/operation-status") and "reviewer_assertion" in body:
-            raise ValueError("assertion not allowed on status")
+        if request.url.path.endswith("/operation-status"):
+            nonce = body.get("jti")
+            if ("reviewer_assertion" in body or not isinstance(nonce, str)
+                    or len(nonce) != 43 or not _canonical_segment(nonce)):
+                raise ValueError("invalid operation lookup")
     except (ValueError, UnicodeError, RecursionError):
         raise HTTPException(status_code=400, detail="Invalid CXone JSON or assertion transport.") from None
