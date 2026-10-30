@@ -1,5 +1,6 @@
 """Read-only host observations, limited to live identities in owned containers."""
 import json
+import errno
 import os
 from pathlib import Path
 import re
@@ -18,7 +19,7 @@ def is_renderer(process):
 class Observer:
     def __init__(self,directories):
         self.directories=directories;self.stop=threading.Event();self.records=[];self.errors=[]
-        self.vanished_rows={'FileNotFoundError':0,'ProcessLookupError':0}
+        self.vanished_rows={'FileNotFoundError':0,'ProcessLookupError':0,'ENODEVAfterTaskExit':0}
         self.thread=threading.Thread(target=self.observe,daemon=True)
     def start(self): self.thread.start()
     def close(self):
@@ -30,11 +31,13 @@ class Observer:
         result={}
         for line in value.stdout.splitlines()[1:]:
             host=int(line.strip());proc=Path('/proc')/str(host)
+            captured_start=None
             try:
                 fields=dict(line.split(':',1) for line in (proc/'status').read_text().splitlines())
                 ids=list(map(int,fields['NSpid'].split()))
                 if len(ids)<2: raise ValueError('container namespace not found')
                 stat=(proc/'stat').read_text().rsplit(')',1)[1].split()
+                captured_start=stat[19]
                 result[host]={'hostPid':host,'containerPid':ids[1],'namespacePids':ids,
                     'parent':int(stat[1]),'group':int(stat[2]),'startTicks':stat[19],
                     'userNamespace':os.readlink(proc/'ns/user'),'pidNamespace':os.readlink(proc/'ns/pid'),
@@ -46,6 +49,23 @@ class Observer:
                 # required retained owner/renderer must still be found by one()
                 # before its unchanged deadline; this never publishes success.
                 self.vanished_rows[type(error).__name__]+=1
+                continue
+            except OSError as error:
+                if error.errno != errno.ENODEV:
+                    raise
+                # Namespace/cmdline reads can lose an exiting proc row after
+                # docker-top. Prove that this identity ended before classifying
+                # ENODEV as census churn; the same LIVE identity stays fatal.
+                try:
+                    current=(proc/'stat').read_text().rsplit(')',1)[1].split()
+                    ended=current[0] in {'Z','X','x'} or (captured_start is not None and current[19] != captured_start)
+                except (FileNotFoundError,ProcessLookupError):
+                    ended=True
+                if not ended:
+                    raise
+                self.vanished_rows['ENODEVAfterTaskExit']+=1
+                # This publishes no observation. Required retained identities
+                # still have to pass one() under its unchanged deadline.
                 continue
         return result
     def one(self,container,path):
