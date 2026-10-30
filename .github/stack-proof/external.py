@@ -13,6 +13,14 @@ from urllib.parse import urlsplit
 
 HTML='<!doctype html><html lang="en"><head><title>Synthetic question</title></head><body><main><h1>Retained stack sentinel</h1><h3>Skipped heading fixture</h3><p>Controlled external data.</p><img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="></main></body></html>'
 
+# Only the separate development write rehearsal uses this source. The explicit
+# thead/columnheader declarations let the reviewed table-header rule convert td
+# to th/scope without inventing meaning or calling an unavailable AI provider.
+SIGNED_SOURCE = ('<h1>Retained signed stack sentinel</h1><p>Exact Unicode café; α; 水.</p>'
+    '<table><caption>Explicit synthetic header meanings</caption><thead><tr>'
+    '<td role="columnheader">Item</td><td role="columnheader">Value</td>'
+    '</tr></thead><tbody><tr><td>Alpha</td><td>One</td></tr></tbody></table>')
+
 
 def synthetic_cxone_auth(token):
     """Only the pinned SDK's public fake credentials, never provider credentials."""
@@ -27,7 +35,7 @@ def build_handler(kind, *, synthetic_development_mutations=False, synthetic_sour
         raise ValueError('synthetic development mutations require cxone')
     lock=threading.Lock()
     state={'reads':0,'mutations':0,'denied':0,'fail':False,'empty':False,'malformed':False,'clean':False,'hold':False,'held':0,'requests':[]}
-    source=HTML.split('<main>',1)[1].split('</main>',1)[0]
+    source=SIGNED_SOURCE if synthetic_development_mutations else HTML.split('<main>',1)[1].split('</main>',1)[0]
     fragment=source
     source_controls=synthetic_source_changes or synthetic_development_mutations
     if source_controls:state['revision']=1

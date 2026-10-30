@@ -94,6 +94,27 @@ def test_explicit_synthetic_mode_preserves_exact_utf8_and_revision_in_all_reads(
     assert fragment not in json.dumps(meta)
 
 
+def test_signed_write_fixture_provides_explicit_headers_without_ai(external):
+    from html.parser import HTMLParser
+    class Table(HTMLParser):
+        def __init__(self):
+            super().__init__(); self.in_head = False; self.header_cells = []; self.actual_headers = 0
+        def handle_starttag(self, name, attrs):
+            if name == 'thead': self.in_head = True
+            if name == 'th': self.actual_headers += 1
+            if self.in_head and name == 'td': self.header_cells.append(dict(attrs).get('role'))
+        def handle_endtag(self, name):
+            if name == 'thead': self.in_head = False
+    request = external(synthetic=True)
+    status, raw = request('GET', CONTENTS + '?mode=edit', headers=AUTH)
+    assert status == 200
+    source = json.loads(raw)['body']; table = Table(); table.feed(source)
+    assert table.header_cells == ['columnheader', 'columnheader']
+    assert table.actual_headers == 0
+    assert 'café' in source
+    assert json.loads(request('GET', '/control/status', headers=CONTROL)[1])['writes'] == 0
+
+
 def test_lost_response_commits_once_and_controls_never_expose_auth_or_source(external):
     request = external(synthetic=True)
     assert request("POST", "/control/state", '{"lost_remote_response":true}', {})[0] == 401

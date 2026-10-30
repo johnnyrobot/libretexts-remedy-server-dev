@@ -141,8 +141,8 @@ async function run() {
       'synthetic_test_bridge_write_readiness_required');
     const scan = await request(page + '/rendered-scan', input);
     requireFact(scan.status === 200 && scan.data.wcag_review?.rendered?.state === 'complete', 'actual_rendered_scan_required');
-    const findingIDs = scan.data.findings.filter(f => f.fixable).map(f => f.id);
-    requireFact(findingIDs.length > 0, 'actual_fixable_findings_required');
+    const findingIDs = scan.data.findings.filter(f => f.fixable && f.ruleId === 'table-header').map(f => f.id);
+    requireFact(findingIDs.length === 1, 'actual_explicit_table_header_finding_required');
     const selected = {...input, findingIDs};
     const preview = await request(page + '/preview', selected);
     requireFact(preview.status === 200 && preview.data.localReviewID && preview.data.review_binding?.action === 'cxone.apply',
@@ -150,6 +150,8 @@ async function run() {
     const current = await control();
     requireFact(current.source_sha256 === preview.data.review_binding.before_sha256
       && digest(preview.data.after_html) === preview.data.review_binding.after_sha256, 'reviewed_exact_source_bytes_required');
+    requireFact(preview.data.review_binding.before_sha256 !== preview.data.review_binding.after_sha256
+      && preview.data.applied_finding_ids?.includes(findingIDs[0]), 'actual_deterministic_changed_preview_required');
     checkpoint('actual_rendered_scan_selected_findings_stored_preview', {findingCount: findingIDs.length});
     return {selected, preview: preview.data, confirmed: {...selected, confirmed: true, localReviewID: preview.data.localReviewID,
       previewHash: preview.data.preview_hash, previewToken: preview.data.preview_token}};
@@ -177,6 +179,7 @@ async function run() {
       } catch { /* Preserve the original failing assertion even if reads fail. */ }
       console.error(JSON.stringify({phase, passed: false, code: 'known_write_response_diagnostic', status: result.status,
         outcome: category(result.data?.outcome, ['not_attempted', 'pending', 'known_success', 'unknown_write']),
+        operationReason: category(result.data?.reason, ['no_change', 'pre_dispatch_failure', 'stale_preview', 'target_mismatch', 'write_outcome_unknown']),
         writeOutcome: category(result.data?.writeOutcome, ['not_started', 'written', 'not_written', 'uncertain']),
         reason: reasons.get(result.data?.errMsg) || 'other',
         responseSHA256: digest(JSON.stringify(result.data)), ...local}));
