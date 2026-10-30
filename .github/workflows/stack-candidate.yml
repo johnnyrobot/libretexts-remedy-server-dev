@@ -161,6 +161,23 @@ jobs:
           local=json.loads((p/'conductor-imports-local.json').read_text())
           assert local['verificationComplete'] and local==original
           PY
+      - name: Check original Conductor kernel and cryptographic prerequisites early
+        run: |
+          sudo python3 - <<'PY'
+          import importlib.util,json
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('early_preflight',Path('deploy/stack/preflight.py'))
+          preflight=importlib.util.module_from_spec(spec);spec.loader.exec_module(preflight)
+          pins=json.loads(Path('deploy/stack/bundle.json').read_text())
+          originals=json.loads(Path('.stack-proof-evidence/conductor-imports.json').read_text())
+          results={}
+          for target,pin in originals['targets'].items():
+              result=preflight.probe(pin['loadedDockerImageID'],'conductor',pins,None,integration=True,
+                  command_override=['node','-e',preflight.CONDUCTOR_CRYPTO_PROBE])
+              assert result=='compiled-node22-crypto-and-file-credentials-available'
+              results[target]={'originalImageID':pin['loadedDockerImageID'],'passed':True,'network':'none'}
+          Path('.stack-proof-evidence/conductor-prerequisites.json').write_text(json.dumps(results,indent=2)+'\n')
+          PY
       - name: Exercise actual services with only synthetic external systems
         run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/prove.py
       - name: Exercise actual compiled Conductor against the owned stack

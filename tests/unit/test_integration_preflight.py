@@ -54,6 +54,21 @@ def preflight():
     return module
 
 
+@pytest.mark.parametrize('version,compiled,success', [('v22.22.3', True, True),
+    ('v20.0.0', True, False), ('v22.22.3', False, False)])
+def test_conductor_prerequisite_controls_use_actual_crypto(preflight, tmp_path, version, compiled, success):
+    # Only OS version metadata is an adapter here. Native crypto and file checks
+    # are real; actual original Node22/Linux execution remains a separate gate.
+    if compiled:
+        (tmp_path/'dist').mkdir()
+        (tmp_path/'dist/server.js').write_text('// synthetic file-presence sentinel\n')
+    script = "const vm=require('node:vm');vm.runInNewContext("+json.dumps(preflight.CONDUCTOR_CRYPTO_PROBE)+", {require,Buffer,console,process:{version:"+json.dumps(version)+"}});"
+    process = subprocess.run(['node', '-e', script], cwd=tmp_path, capture_output=True, text=True, timeout=20)
+    assert (process.returncode == 0) is success
+    if success:
+        assert process.stdout.strip() == 'compiled-node22-crypto-and-file-credentials-available'
+
+
 @pytest.fixture
 def receipts():
     policy = json.loads((ROOT / 'deploy/stack/bundle.json').read_text())

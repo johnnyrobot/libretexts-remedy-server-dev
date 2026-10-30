@@ -99,6 +99,17 @@ if(process.env.REMEDY_PREFLIGHT_UID)assert.equal(process.getuid(),Number(process
 const r=require('node:child_process').spawnSync(process.argv[1],process.argv.slice(2),{env:process.env,stdio:'inherit'});
 if(r.error)process.exit(1);process.exit(r.status??1);"""
 
+CONDUCTOR_CRYPTO_PROBE = """const fs=require('node:fs'),assert=require('node:assert/strict'),crypto=require('node:crypto');
+assert.equal(process.version,'v22.22.3');assert.ok(fs.statSync('dist/server.js').isFile());
+// RFC8032 section7.1 test1: public key/signature only, no private material.
+// All-zero key bytes are not a portable negative control.
+const publicKey=crypto.createPublicKey({key:Buffer.from('302a300506032b6570032100'+'d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a','hex'),format:'der',type:'spki'});
+const signature=Buffer.from('e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b','hex');
+assert.equal(publicKey.asymmetricKeyType,'ed25519');assert.equal(crypto.verify(null,Buffer.alloc(0),publicKey,signature),true);
+assert.equal(crypto.verify(null,Buffer.from('preflight'),publicKey,signature),false);
+assert.equal(crypto.verify(null,Buffer.alloc(0),publicKey,Buffer.alloc(64)),false);
+console.log('compiled-node22-crypto-and-file-credentials-available');"""
+
 
 def probe(image, role, policy, profile, secret_root=None, bridge=False, expression=None,
           *, integration=False, mounts=(), environment=None, command_override=None, uid=None):
@@ -169,7 +180,8 @@ def probe(image, role, policy, profile, secret_root=None, bridge=False, expressi
         else:
             require(not seccomp_options, 'unexpected_probe_seccomp_filter')
         result=subprocess.run(['docker','start','--attach',container],capture_output=True,text=True,timeout=60)
-        require(result.returncode==0, 'image_kernel_or_private_credentials_failed:'+role)
+        kind = 'command' if command_override is not None else 'expression' if expression else 'credentials' if secret_root is not None else 'runtime'
+        require(result.returncode==0, 'image_kernel_or_private_credentials_failed:'+role+':'+kind)
         final=read_json(run('docker','inspect',container))[0]
         require(final['Id']==container and final['State'].get('Running') is False and final['State'].get('ExitCode')==0 and
                 final['State'].get('OOMKilled') is False, 'disposable_probe_did_not_complete_successfully:'+role)
@@ -889,12 +901,7 @@ def integration_check(args, candidate, baseline, policy):
     nss_version = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=nss_mount,
                         command_override=['dpkg-query','-W','-f=${Version}','libnss3'])
     require(nss_version == full['NSSSetup']['runtimePackage'], 'immutable_renderer_nss_runtime_mismatch')
-    crypto = """const fs=require('node:fs'),assert=require('node:assert/strict'),crypto=require('node:crypto');
-assert.equal(process.version,'v22.22.3');assert.ok(fs.statSync('dist/server.js').isFile());
-const publicKey=crypto.createPublicKey({key:Buffer.from('302a300506032b6570032100'+'00'.repeat(32),'hex'),format:'der',type:'spki'});
-assert.equal(publicKey.asymmetricKeyType,'ed25519');assert.equal(crypto.verify(null,Buffer.from('preflight'),publicKey,Buffer.alloc(64)),false);
-console.log('compiled-node22-crypto-and-file-credentials-available');"""
-    runtime_checks['conductor'] = probe(identities['conductor'],'conductor',policy,None,args.secret_root,True,crypto,integration=True)
+    runtime_checks['conductor'] = probe(identities['conductor'],'conductor',policy,None,args.secret_root,True,CONDUCTOR_CRYPTO_PROBE,integration=True)
     mongo = """set -eu
 [ "$(id -u)" = 999 ]
 awk '/^CapEff:/ {if ($2 !~ /^0+$/) exit 1; c=1} /^NoNewPrivs:/ {if ($2 != 1) exit 1; n=1} /^Seccomp:/ {if ($2 != 2) exit 1; s=1} END {if (!(c && n && s)) exit 1}' /proc/1/status
