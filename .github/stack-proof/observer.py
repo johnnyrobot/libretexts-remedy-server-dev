@@ -7,6 +7,14 @@ import subprocess
 import threading
 import time
 
+def flag(process,name):
+    # Chromium can rewrite argv into a single process-title string. Match a
+    # complete flag token in either representation; never infer identity from it.
+    return re.search(r'(?:^|\s)'+re.escape(name)+r'(?:=|\s|$)',' '.join(process['commandLine'])) is not None
+
+def is_renderer(process):
+    return re.search(r'(?:^|\s)--type=renderer(?:\s|$)',' '.join(process['commandLine'])) is not None
+
 class Observer:
     def __init__(self,directories):
         self.directories=directories;self.stop=threading.Event();self.records=[];self.errors=[]
@@ -55,20 +63,20 @@ class Observer:
                     visited.add(process['parent']);process=census[process['parent']]
                 return False
             browsers=[p for p in census.values() if descends(p,owner['hostPid']) and
-                any(a=='--remote-debugging-pipe' or a.startswith('--remote-debugging-port=') for a in p['commandLine']) and
-                not any(a.startswith('--type=') for a in p['commandLine'])]
+                (flag(p,'--remote-debugging-pipe') or flag(p,'--remote-debugging-port')) and
+                not flag(p,'--type')]
             diagnostic['browserCandidates']=browsers
             if len(browsers)!=1:
                 path.with_name(key+'.census.json').write_text(json.dumps(diagnostic,indent=2)+'\n');time.sleep(.02);continue
             browser=browsers[0]
-            renderers=[p for p in census.values() if '--type=renderer' in p['commandLine'] and descends(p,browser['hostPid'])]
+            renderers=[p for p in census.values() if is_renderer(p) and descends(p,browser['hostPid'])]
             diagnostic['rendererCandidates']=renderers
             if not renderers:
                 path.with_name(key+'.census.json').write_text(json.dumps(diagnostic,indent=2)+'\n');time.sleep(.02);continue
             renderer=renderers[0]
             for record in (owner,browser,renderer):
                 status=record['status'];assert int(status['Uid'].split()[0])!=0 and status['NoNewPrivs']=='1' and int(status['CapEff'],16)==0 and status['Seccomp']=='2'
-                assert not any(a in {'--no-sandbox','--disable-namespace-sandbox','--disable-seccomp-filter-sandbox','--single-process'} for a in record['commandLine'])
+                assert not any(flag(record,name) for name in ('--no-sandbox','--disable-namespace-sandbox','--disable-seccomp-filter-sandbox','--single-process'))
             assert renderer['userNamespace']!=browser['userNamespace'] and renderer['userNamespace']!=owner['userNamespace']
             assert renderer['pidNamespace']!=browser['pidNamespace'] and renderer['pidNamespace']!=owner['pidNamespace']
             assert len(renderer['namespacePids'])>len(browser['namespacePids'])
