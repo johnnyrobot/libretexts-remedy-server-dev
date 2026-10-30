@@ -175,6 +175,11 @@ try:
         directory=EVIDENCE/('observations-'+role);directory.mkdir();directory.chmod(0o777);audit[role]=directory
     observer=Observer({PREFIX+'-'+role:directory for role,directory in audit.items()});observer.start()
     base_mounts=[(wrapper,'/proof/secret-env.mjs',True)]
+    # Run the public package first, with exclusive access to disposable state.
+    # Failures retain startup health/command/log evidence before instrumentation.
+    report['publicCompose']=verify_compose(ROOT,WORK,EVIDENCE,PREFIX,report['images'],state,fixture,
+        {'server':server_keys,'scanner':scanner_keys,'bridge':bridge_keys})
+    report['sections'].append('public-compose')
     server_env=write_env('server',{'APP_ENV':'production','PYTHON_DOTENV_DISABLED':'1','APP_API_KEY_FILE':'/run/secrets/app','OLLAMA_API_KEY_FILE':'/run/secrets/ollama','OLLAMA_BASE_URL':'https://provider.invalid/v1','CORS_ALLOW_ORIGINS':'https://conductor.fixture.invalid','JOB_DIR':'/app/state/jobs','JOB_STORE_PATH':'/app/state/jobs.sqlite3','JOB_BACKUP_DIR':'/app/state/backups','OUTPUT_DIR':'/app/state/output','LOG_DIR':'/app/state/logs','LOG_FORMAT':'json','HOME':'/tmp','TMPDIR':'/tmp','CXONE_INTEGRATION_ENABLED':'false','WORKER_CONCURRENCY':'1','WORKER_MAX_PENDING':'8','JOB_TOTAL_TIMEOUT_SECONDS':'900','RATE_LIMIT_DEFAULT':'10000/minute','RATE_LIMIT_UPLOADS':'10000/minute','MAX_UPLOAD_MB':'4','MAX_REQUEST_BYTES':'5000000','PYTHONPATH':'/proof-hooks:/app:/app/src'})
     server_options=['--network',network,'--dns','127.0.0.1','--dns','127.0.0.1','--cpus','4','--memory','4g','--pids-limit','512','--shm-size','256m','--stop-timeout','120','--tmpfs','/tmp:rw,nosuid,nodev,size=512m','--security-opt','seccomp='+str(ROOT/'deploy/chromium-seccomp-amd64.json')]
     server_command=['node','/proof/secret-env.mjs','server','uvicorn','backend.app.main:app','--host','0.0.0.0','--port','8000','--workers','1','--timeout-graceful-shutdown','15']
@@ -431,15 +436,6 @@ try:
         assert elapsed<15 and stopped['ExitCode']==0,(elapsed,stopped)
         assert all(code==503 and body.get('ok') is False for code,body in result),result
     report['activeShutdown']={'heldExternalResponseReached':True,'admissionOverflow503':True,'all10Callers503':True,'stopSeconds':elapsed,'exitCode':stopped['ExitCode']}
-    # Drain the manual instrumentation run before opening the same retained
-    # state with the unchanged public Compose package. Never concurrent owners.
-    for role in ('bridge','server'):
-        cmd('docker','stop','--time',str(INPUT['limits'][role]['stopSeconds']),PREFIX+'-'+role)
-        stopped=json.loads(cmd('docker','inspect',PREFIX+'-'+role))[0]['State']
-        assert stopped['ExitCode'] in ({0,143} if role=='server' else {0}),stopped
-    report['publicCompose']=verify_compose(ROOT,WORK,EVIDENCE,PREFIX,report['images'],state,fixture,
-        {'server':server_keys,'scanner':scanner_keys,'bridge':bridge_keys})
-    report['sections'].append('public-compose')
 
     # Additional causal sandbox/storage/envelope cases must pass before this
     # rehearsal may be described as complete; initial branch runs are tracers.

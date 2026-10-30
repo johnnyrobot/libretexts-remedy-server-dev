@@ -51,9 +51,10 @@ def verify(root, work, evidence, prefix, images, state, fixture, keys):
             'networks':{'remedy':{'aliases':['dev.libretexts.org']}}},
         'remedy-bridge':{'volumes':[str(fixture/'cert.pem')+':/fixtures/cert.pem:ro']}}}
 
-    def run(*args,check=True):
-        value=subprocess.run(list(map(str,args)),env=env,text=True,capture_output=True,timeout=180)
-        if check and value.returncode: raise RuntimeError('Compose rehearsal command failed: '+str(args[:3])+': '+value.stderr[-1200:])
+    def run(*args,check=True,combined=False):
+        value=subprocess.run(list(map(str,args)),env=env,text=True,stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT if combined else subprocess.PIPE,timeout=180)
+        if check and value.returncode: raise RuntimeError('Compose rehearsal command failed: '+str(args[:3])+': '+(value.stdout if combined else value.stderr)[-1200:])
         return value.stdout
 
     def compose(bridge,*args):
@@ -136,11 +137,18 @@ def verify(root, work, evidence, prefix, images, state, fixture, keys):
             for identifier in ids:
                 value=json.loads(run('docker','inspect',identifier))[0]
                 assert value['Config']['Labels']['com.docker.compose.project']==project
+                service=value['Config']['Labels']['com.docker.compose.service']
+                receipt.setdefault('startupDiagnostics',{})[service]={
+                    'state':value['State'],'entrypoint':value['Config']['Entrypoint'],'command':value['Config']['Cmd'],
+                    'healthcheck':value['Config'].get('Healthcheck')}
+                if service=='adapt-scanner' and value['State']['Running']:
+                    receipt['startupDiagnostics'][service]['actualHealthProbe']=run('docker','exec',identifier,'node','-e',
+                        'fetch("http://127.0.0.1:5176/healthz").then(async r=>console.log(JSON.stringify({status:r.status,body:await r.text()}))).catch(e=>{console.error(e.cause?.code??e.name);process.exitCode=1})',check=False,combined=True)[-2000:]
             compose(True,'stop')
             for identifier in ids:
                 value=json.loads(run('docker','inspect',identifier))[0]
                 service=value['Config']['Labels']['com.docker.compose.service']
-                logs=run('docker','logs',identifier,check=False)
+                logs=run('docker','logs',identifier,check=False,combined=True)
                 for secret in ('synthetic-server-key','synthetic-provider-key','synthetic-scanner-key',
                     'synthetic-adapt-token','synthetic-control-only','synthetic-secret','a1'*32):
                     logs=logs.replace(secret,'[synthetic credential redacted]')
