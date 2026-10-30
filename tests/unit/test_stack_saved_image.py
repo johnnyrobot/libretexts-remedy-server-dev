@@ -26,9 +26,14 @@ def image(tmp_path, corrupt_layer=False):
     config = json.dumps({"architecture": "amd64", "os": "linux", "rootfs": {"type": "layers", "diff_ids": ["sha256:" + digest]}}).encode()
     config_id = hashlib.sha256(config).hexdigest()
     manifest = json.dumps([{"Config": config_id + ".json", "RepoTags": ["candidate:test"], "Layers": ["layer.tar"]}]).encode()
+    oci = json.dumps({'schemaVersion':2,'mediaType':'application/vnd.oci.image.manifest.v1+json',
+        'config':{'digest':'sha256:'+config_id,'size':len(config)},
+        'layers':[{'mediaType':'application/vnd.oci.image.layer.v1.tar','digest':'sha256:'+digest,'size':len(layer)}]}).encode()
+    oci_id = hashlib.sha256(oci).hexdigest()
+    index = json.dumps({'schemaVersion':2,'manifests':[{'digest':'sha256:'+oci_id,'size':len(oci)}]}).encode()
     path = tmp_path / "image.tar.gz"
     with tarfile.open(path, "w:gz") as archive:
-        for name, data in [("manifest.json", manifest), (config_id + ".json", config), ("layer.tar", b"changed" if corrupt_layer else layer)]:
+        for name, data in [("manifest.json", manifest), (config_id + ".json", config), ("layer.tar", b"changed" if corrupt_layer else layer), ("index.json", index), ("blobs/sha256/"+oci_id, oci)]:
             info = tarfile.TarInfo(name)
             info.size = len(data)
             archive.addfile(info, io.BytesIO(data))
@@ -58,7 +63,7 @@ def test_loaded_identity_mapping_binds_runtime_instead_of_assuming_config_id(tmp
     module = load()
     path, image_id = image(tmp_path)
     source = module.verify_saved_image(path, image_id)
-    actual = {'Id': 'sha256:' + 'a' * 64, 'Architecture': 'amd64', 'Os': 'linux',
+    actual = {'Id': source['sourceManifestDigest'], 'Architecture': 'amd64', 'Os': 'linux',
               'RootFS': {'Type': 'layers', 'Layers': source['filesystemDiffIDs']}, 'Config': {}}
     mapping = module.verify_loaded_image(source, actual)
     assert mapping['sourceConfigDigest'] == image_id
@@ -79,4 +84,14 @@ def test_loaded_identity_mapping_rejects_tag_substitution(tmp_path, change):
     if change == 'platform': actual['Architecture'] = 'arm64'
     if change == 'identity': actual['Id'] = 'mutable:tag'
     with pytest.raises(ValueError):
+        module.verify_loaded_image(source, actual)
+
+
+def test_loaded_mapping_refuses_an_identity_outside_original_archive(tmp_path):
+    module = load()
+    path, image_id = image(tmp_path)
+    source = module.verify_saved_image(path, image_id)
+    actual = {'Id': 'sha256:' + 'e' * 64, 'Architecture': 'amd64', 'Os': 'linux',
+              'RootFS': {'Type': 'layers', 'Layers': source['filesystemDiffIDs']}, 'Config': {}}
+    with pytest.raises(ValueError, match='archive identity'):
         module.verify_loaded_image(source, actual)

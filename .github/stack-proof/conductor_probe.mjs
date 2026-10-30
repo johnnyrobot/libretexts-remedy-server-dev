@@ -1,6 +1,7 @@
 // Actual compiled consumer, Mongo, fallback sessions and HTTP calls; no engine fake.
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
+import {createPrivateKey,createPublicKey,randomBytes,sign,verify} from 'node:crypto';
 import {MongoClient,ObjectId} from '/usr/src/conductor/server/node_modules/mongodb/lib/index.js';
 import bcrypt from '/usr/src/conductor/server/node_modules/bcryptjs/index.js';
 const phase=process.argv[2], config=JSON.parse(fs.readFileSync('/fixture/app.json'));
@@ -55,6 +56,17 @@ const before=await db.collection('projects').findOne({projectID:config.projectID
 for(const endpoint of [matrix+'/apply',page+'/apply',page+'/restore']){
   const denied=await request(endpoint,{...input,localReviewID:preview.data.localReviewID,previewToken:preview.data.preview_token,previewHash:preview.data.preview_hash,confirmed:true});
   assert.equal(denied.status,503,JSON.stringify(denied));
+}
+if(phase==='production-held'){
+  const key=createPrivateKey(fs.readFileSync(process.env.REMEDY_REVIEWER_SIGNING_KEY_FILE));
+  const now=Math.floor(Date.now()/1000);
+  const header=Buffer.from(JSON.stringify({alg:'Ed25519',kid:process.env.REMEDY_REVIEWER_KEY_ID,typ:'remedy-review+jwt'})).toString('base64url');
+  const claims=Buffer.from(JSON.stringify({v:1,iss:process.env.REMEDY_REVIEWER_ISSUER,aud:process.env.REMEDY_REVIEWER_AUDIENCE,sub:config.editor,iat:now,nbf:now,exp:Math.min(now+60,preview.data.review_expires_at),jti:randomBytes(32).toString('base64url'),binding:preview.data.review_binding})).toString('base64url');
+  const payload=header+'.'+claims,signature=sign(null,Buffer.from(payload),key);
+  assert.equal(verify(null,Buffer.from(payload),createPublicKey(key),signature),true,'synthetic assertion cryptographically valid');
+  const response=await fetch(process.env.REMEDY_API_BASE_URL+'/v1/cxone/page/apply-fix',{method:'POST',headers:{'Content-Type':'application/json','X-API-Key':process.env.REMEDY_API_KEY},body:JSON.stringify({page_url:config.pageURL,preview_hash:preview.data.preview_hash,preview_token:preview.data.preview_token,reviewer_assertion:payload+'.'+signature.toString('base64url')})});
+  const denied=await response.json();assert.equal(response.status,503,JSON.stringify(denied));
+  assert.equal(denied.error,'conditional_write_unproven');assert.equal(denied.outcome,'not_attempted');assert.equal(denied.operation_id,null);
 }
 assert.deepEqual(await db.collection('projects').findOne({projectID:config.projectID}),before,'held writes never consume preview or page state');
 assert.equal(await db.collection('remedyoperationrecords').countDocuments({projectID:config.projectID}),0,'held writes never append an intent');

@@ -59,11 +59,31 @@ def verify_saved_image(path, expected_id):
                 actual = 'sha256:' + hashlib.file_digest(stream, 'sha256').hexdigest()
             if actual != expected:
                 raise ValueError('saved-image layer digest mismatch')
+        manifest_digest = None
+        if 'index.json' in names:
+            index = json.load(archive.extractfile('index.json'))
+            if index.get('schemaVersion') != 2 or len(index.get('manifests', [])) != 1:
+                raise ValueError('one original OCI manifest required')
+            descriptor = index['manifests'][0]
+            manifest_digest = descriptor['digest']
+            if not re.fullmatch(r'sha256:[a-f0-9]{64}', manifest_digest):
+                raise ValueError('invalid OCI manifest digest')
+            manifest_raw = archive.extractfile('blobs/sha256/' + manifest_digest.split(':')[1]).read()
+            if 'sha256:' + hashlib.sha256(manifest_raw).hexdigest() != manifest_digest or len(manifest_raw) != descriptor['size']:
+                raise ValueError('original OCI manifest digest mismatch')
+            oci = json.loads(manifest_raw)
+            if oci.get('schemaVersion') != 2 or oci.get('mediaType') != 'application/vnd.oci.image.manifest.v1+json':
+                raise ValueError('unsupported original OCI manifest')
+            if oci['config']['digest'] != digest or oci['config']['size'] != len(raw):
+                raise ValueError('OCI manifest config differs from saved config')
+            if len(oci['layers']) != len(layers) or any(layer['mediaType'] != 'application/vnd.oci.image.layer.v1.tar' or layer['digest'] != expected or layer['size'] != archive.getmember(name).size
+                for layer,name,expected in zip(oci['layers'],record['Layers'],layers)):
+                raise ValueError('OCI manifest layers differ from saved layers')
         runtime_configuration(config.get('config', {}))
         tags = record.get('RepoTags', [])
         if len(tags) != 1 or not isinstance(tags[0], str) or not tags[0]:
             raise ValueError('one verified saved-image reference required')
-        return {'imageID': digest, 'sourceConfigDigest': digest, 'verifiedReference': tags[0],
+        return {'imageID': digest, 'sourceConfigDigest': digest, 'sourceManifestDigest':manifest_digest, 'verifiedReference': tags[0],
                 'filesystemDiffIDs': layers, 'runtimeConfiguration': config.get('config', {})}
 
 
@@ -72,6 +92,8 @@ def verify_loaded_image(source, loaded):
     identity = loaded.get('Id', '')
     if not re.fullmatch(r'sha256:[a-f0-9]{64}', identity):
         raise ValueError('immutable loaded image identity required')
+    if identity not in {source['sourceConfigDigest'], source['sourceManifestDigest']}:
+        raise ValueError('loaded image is not an original archive identity')
     if loaded.get('Architecture') != 'amd64' or loaded.get('Os') != 'linux' or loaded.get('Variant'):
         raise ValueError('loaded platform differs from saved Linux amd64 image')
     if loaded.get('RootFS') != {'Type':'layers', 'Layers': source['filesystemDiffIDs']}:
@@ -82,8 +104,13 @@ def verify_loaded_image(source, loaded):
         raise ValueError('loaded runtime configuration differs from saved image')
     return {'sourceConfigDigest':source['sourceConfigDigest'], 'loadedDockerImageID':identity,
             'identityChanged': identity != source['sourceConfigDigest'],
+            'loadedIdentityKind':'source-config' if identity==source['sourceConfigDigest'] else 'source-OCI-manifest',
             'runtimeConfigurationSHA256':hashlib.sha256(json.dumps(actual,sort_keys=True,separators=(',',':')).encode()).hexdigest(),
-            'inspectConfiguration':loaded['Config'], 'filesystemDiffIDs':source['filesystemDiffIDs']}
+            'inspectConfiguration':loaded['Config'], 'filesystemDiffIDs':source['filesystemDiffIDs'],
+            'configurationRepresentationChanges':{key:{'sourcePresent':key in source['runtimeConfiguration'],
+                'source':source['runtimeConfiguration'].get(key),'loadedPresent':key in loaded['Config'],'loaded':loaded['Config'].get(key)}
+                for key in set(source['runtimeConfiguration'])|set(loaded['Config'])
+                if (key in source['runtimeConfiguration'],source['runtimeConfiguration'].get(key)) != (key in loaded['Config'],loaded['Config'].get(key))}}
 
 
 def main():
