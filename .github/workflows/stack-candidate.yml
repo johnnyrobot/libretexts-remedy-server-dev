@@ -128,8 +128,24 @@ jobs:
           skopeo copy --override-os linux --override-arch amd64 oci-archive:.stack-artifacts/server.oci.tar docker-daemon:remedy-server:stack-candidate
           skopeo copy --override-os linux --override-arch amd64 oci-archive:.stack-artifacts/bridge.oci.tar docker-daemon:remedy-bridge:stack-candidate
           docker pull ghcr.io/johnnyrobot/adapt-a11y-scanner-dev-candidate@sha256:00ab363669ccc7ae50fe7fc79286508af5923d3326d397f87cff91ee76e379a6
+          docker pull mongo:7.0.14@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6
           skopeo copy --override-os linux --override-arch amd64 oci-archive:.stack-artifacts/renderer.oci.tar docker-daemon:remedy-renderer:stack-candidate
           python3 .github/stack-proof/verify_imports.py
+      - name: Verify pinned registry identities before expensive service proof
+        run: |
+          python3 - <<'PY'
+          import importlib.util,json,subprocess
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('registry_preflight',Path('deploy/stack/preflight.py'))
+          preflight=importlib.util.module_from_spec(spec);spec.loader.exec_module(preflight)
+          pins=json.loads(Path('deploy/stack/bundle.json').read_text())
+          observed={}
+          for role,reference in [('scanner',pins['scannerImage']),('mongo',preflight.MONGO)]:
+              value=json.loads(subprocess.check_output(['docker','image','inspect',reference],text=True))[0]
+              preflight.require_registry_manifest(value,reference,role)
+              observed[role]={'reference':reference,**{key:value.get(key) for key in ['Id','Os','Architecture','Variant','RepoDigests']}}
+          Path('.stack-proof-evidence/registry-bindings.json').write_text(json.dumps(observed,indent=2)+'\n')
+          PY
       - name: Download, verify and import both original compiled Conductor candidates
         env:
           GH_TOKEN: ${{ github.token }}

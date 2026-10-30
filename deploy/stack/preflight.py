@@ -734,6 +734,20 @@ def validate_compose(config, args, policy, identities, scanner_uid, signing, *, 
     return mounted
 
 
+def require_registry_manifest(loaded,reference,role):
+    expected={reference}
+    if reference == MONGO:
+        # RepoDigests normally omits the pull tag. These are only Docker Hub's
+        # familiar and fully qualified spellings of this exact official image.
+        digest=MONGO.split('@',1)[1]
+        expected.update({'mongo@'+digest,'docker.io/library/mongo@'+digest})
+    observed=loaded.get('RepoDigests',[])
+    require(loaded.get('Os') == 'linux' and loaded.get('Architecture') == 'amd64' and not loaded.get('Variant') and
+            isinstance(observed,list) and all(isinstance(item,str) for item in observed) and bool(expected.intersection(observed)) and
+            re.fullmatch(r'sha256:[a-f0-9]{64}',loaded.get('Id','')) is not None,
+            'exact_registry_manifest_image_required:'+role)
+
+
 def verify_integration_images(args, candidate, baseline, artifact, policy):
     runtime, consumer = verifiers()
     identities = {}
@@ -767,9 +781,7 @@ def verify_integration_images(args, candidate, baseline, artifact, policy):
     identities['conductor'] = mapping['loadedDockerImageID']
     for role, reference in [('scanner',policy['scannerImage']),('mongo',MONGO)]:
         loaded = read_json(run('docker','image','inspect',reference))[0]
-        require(loaded.get('Os') == 'linux' and loaded.get('Architecture') == 'amd64' and not loaded.get('Variant') and
-                reference in loaded.get('RepoDigests',[]) and re.fullmatch(r'sha256:[a-f0-9]{64}',loaded.get('Id','')) is not None,
-                'exact_registry_manifest_image_required')
+        require_registry_manifest(loaded,reference,role)
         if role == 'scanner': require(loaded['Id'] == baseline['images']['scanner']['id'] and loaded['RootFS']['Layers'] == baseline['images']['scanner']['layers'],
                                       'scanner_runtime_identity_mismatch')
         identities[role] = loaded['Id']

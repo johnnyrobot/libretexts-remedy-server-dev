@@ -128,6 +128,10 @@ docker pull mongo:7.0.14@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453f
 These temporary import tags only let the verifier find the loaded objects; they
 are never trusted launch identities. Use `loadedDockerImageID` from the new
 `imports.json`/`conductor-imports.json` for the four Compose image variables.
+Docker may report the pinned Mongo pull's digest without its tag, as
+`mongo@sha256:…` or `docker.io/library/mongo@sha256:…`. Preflight accepts only
+these official spellings with the exact pinned digest; a tag alone, another
+repository or a different manifest remains refused.
 The local importer validates the original ZIP, saved archive, all layers,
 configuration and source before accepting either original config or original
 manifest identity. `--from-package` makes no GitHub download and needs no new

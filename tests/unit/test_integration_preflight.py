@@ -7,6 +7,27 @@ import sys
 
 import pytest
 
+
+@pytest.mark.parametrize('name', ['mongo', 'docker.io/library/mongo', 'mongo:7.0.14'])
+def test_tagged_pinned_pull_matches_the_canonical_repo_digest(preflight,name):
+    loaded={'Os':'linux','Architecture':'amd64','Id':'sha256:'+'a'*64,
+        'RepoDigests':[name+'@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6']}
+    preflight.require_registry_manifest(loaded,preflight.MONGO,'mongo')
+
+
+@pytest.mark.parametrize('damage', ['wrong-digest','wrong-repository','tag-only','arm','mutable-id','malformed-list'])
+def test_registry_pin_cannot_be_replaced_by_tag_alias_or_other_image(preflight,damage):
+    loaded={'Os':'linux','Architecture':'amd64','Id':'sha256:'+'a'*64,
+        'RepoDigests':['mongo@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6']}
+    if damage=='wrong-digest': loaded['RepoDigests']=['mongo@sha256:'+'0'*64]
+    elif damage=='wrong-repository': loaded['RepoDigests']=['other/mongo@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6']
+    elif damage=='tag-only': loaded['RepoDigests']=['mongo:7.0.14']
+    elif damage=='arm': loaded['Architecture']='arm64'
+    elif damage=='mutable-id': loaded['Id']='mongo:7.0.14'
+    elif damage=='malformed-list': loaded['RepoDigests']={loaded['RepoDigests'][0]:True}
+    with pytest.raises(ValueError,match='exact_registry_manifest_image_required:mongo'):
+        preflight.require_registry_manifest(loaded,preflight.MONGO,'mongo')
+
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'deploy/stack/preflight.py'
 
