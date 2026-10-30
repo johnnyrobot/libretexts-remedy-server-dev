@@ -454,6 +454,7 @@ except Exception as error:
 finally:
     if observer is not None:
         observer.close();report['sandboxObservations']=observer.records;report['errors'].extend(observer.errors)
+        report['vanishedCensusRows']=observer.vanished_rows
     for name in reversed(containers):
         # Only containers created by this invocation; preserve product failure
         # metadata and sanitized logs, then drain through the configured grace.

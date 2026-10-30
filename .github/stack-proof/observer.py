@@ -18,6 +18,7 @@ def is_renderer(process):
 class Observer:
     def __init__(self,directories):
         self.directories=directories;self.stop=threading.Event();self.records=[];self.errors=[]
+        self.vanished_rows={'FileNotFoundError':0,'ProcessLookupError':0}
         self.thread=threading.Thread(target=self.observe,daemon=True)
     def start(self): self.thread.start()
     def close(self):
@@ -39,7 +40,13 @@ class Observer:
                     'userNamespace':os.readlink(proc/'ns/user'),'pidNamespace':os.readlink(proc/'ns/pid'),
                     'commandLine':(proc/'cmdline').read_bytes().decode().split('\0'),
                     'status':{k:fields[k].strip() for k in ('Uid','NoNewPrivs','CapEff','Seccomp','Seccomp_filters')}}
-            except FileNotFoundError: continue
+            except (FileNotFoundError,ProcessLookupError) as error:
+                # A docker-top census is not atomic with /proc reads. A row
+                # may exit/reap while its namespace links are inspected. A
+                # required retained owner/renderer must still be found by one()
+                # before its unchanged deadline; this never publishes success.
+                self.vanished_rows[type(error).__name__]+=1
+                continue
         return result
     def one(self,container,path):
         request=json.loads(path.read_text());key=request['key']
