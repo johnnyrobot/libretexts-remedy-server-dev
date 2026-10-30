@@ -96,8 +96,9 @@ def start(role,image,command,env=None,mounts=(),extra=(),uid=None,limits=(1,'256
     if env:args+=['--env-file',str(env)]
     for source,target,ro in mounts:args+=['--mount',f'type=bind,src={source},dst={target}'+(',readonly' if ro else '')]
     args+=list(extra)+['--entrypoint',command[0],image,*command[1:]]
-    run(*args)
+    assert name not in owned
     owned.append(name);container_roles[name]=role
+    run(*args)
     value=inspect(name)
     host=value['HostConfig']
     assert not host.get('PortBindings')
@@ -118,25 +119,30 @@ def start(role,image,command,env=None,mounts=(),extra=(),uid=None,limits=(1,'256
 
 def stop(role,retain=False):
     name=PREFIX+'-'+role;value=inspect(name)
-    assert value['Config']['Labels']['org.libretexts.stack-proof-owner']==OWNER
+    container=value['Id']
+    assert re.fullmatch(r'[a-f0-9]{64}',container) and value['Config']['Labels']['org.libretexts.stack-proof-owner']==OWNER
     usage={}
     if value['State']['Running']:
         for field,path in [('memoryPeakBytes','memory.peak'),('pidPeak','pids.peak')]:
-            raw=run('docker','exec',name,'cat','/sys/fs/cgroup/'+path,check=False).strip()
+            raw=run('docker','exec',container,'cat','/sys/fs/cgroup/'+path,check=False).strip()
             usage[field]=int(raw) if raw.isdigit() else None
-        usage['cpuStat']=run('docker','exec',name,'cat','/sys/fs/cgroup/cpu.stat',check=False).strip()
-    started=time.monotonic();run('docker','stop',name)
+        usage['cpuStat']=run('docker','exec',container,'cat','/sys/fs/cgroup/cpu.stat',check=False).strip()
+    started=time.monotonic();run('docker','stop',container)
     elapsed=time.monotonic()-started
-    final=inspect(name)
+    final=inspect(container)
+    assert final['Id']==container and final['Image']==value['Image'],'owned_container_identity_changed'
     # Signed product logs can contain request metadata. Publish only the client's
     # bounded structured checkpoints, never raw product bodies/assertions/headers.
-    report.setdefault('stopped',[]).append({'role':role,'image':value['Image'],'exitCode':final['State']['ExitCode'],'stopSeconds':round(elapsed,3),'usageIncludingDiagnosticExec':usage})
+    report.setdefault('stopped',[]).append({'role':role,'image':value['Image'],'exitCode':final['State']['ExitCode'],'stopSeconds':round(elapsed,3),'usageIncludingDiagnosticExec':usage,
+        'containerID':container,'running':final['State']['Running'],'oomKilled':final['State']['OOMKilled'],'errorEmpty':not bool(final['State'].get('Error'))})
+    assert final['State']['Running'] is False and final['State']['Pid']==0,'owned_container_stop_unconfirmed'
+    assert final['State']['OOMKilled'] is False and not final['State'].get('Error'),'owned_container_exit_unhealthy'
     actual_role=container_roles.get(name,role)
     expected = {143} if actual_role in {'cxone','adapt','server'} else {0}
     if role=='ui' and report.get('uiFailures'):expected={0,1} # failed test driver, never a product success
     assert final['State']['ExitCode'] in expected,(role,final['State'])
     if not retain:
-        run('docker','rm',name);owned.remove(name);container_roles.pop(name,None)
+        run('docker','rm',container);owned.remove(name);container_roles.pop(name,None)
 
 def address(role):return inspect(PREFIX+'-'+role)['NetworkSettings']['Networks'][network]['IPAddress']
 def request(role,port,path,body=None,key=None,control=False):
@@ -705,19 +711,21 @@ finally:
             observed=fixture_state()
             report['syntheticExternalWrites']=observed['writes'];report['syntheticExternalAttempts']=observed['mutations']
         except Exception as error:report['counterError']=safe_error(error);report['verificationComplete']=False
-    for name in list(reversed(owned)):
-        try:stop(name.removeprefix(PREFIX+'-'))
-        except Exception as error:report.setdefault('shutdownErrors',[]).append(safe_error(error)[:600])
-    if rule_installed:run('iptables','-D',*rule,check=False)
-    if network_created:
-        try:
-            info=json.loads(run('docker','network','inspect',network))[0]
-            assert info['Labels']['org.libretexts.stack-proof-owner']==OWNER
-            run('docker','network','rm',network)
-        except Exception as error:report.setdefault('shutdownErrors',[]).append(safe_error(error)[:600])
-    for directory in reversed(mounted):
-        try:run('umount',directory)
-        except Exception as error:report.setdefault('shutdownErrors',[]).append(safe_error(error)[:600])
+    def shutdown_error(error): report.setdefault('shutdownErrors',[]).append(safe_error(error)[:600])
+    def release_resources():
+        if rule_installed:run('iptables','-D',*rule,check=False)
+        if network_created:
+            try:
+                info=json.loads(run('docker','network','inspect',network))[0]
+                assert info['Labels']['org.libretexts.stack-proof-owner']==OWNER
+                run('docker','network','rm',network)
+            except Exception as error:shutdown_error(error)
+        for directory in reversed(mounted):
+            try:run('umount',directory)
+            except Exception as error:shutdown_error(error)
+    from lifecycle import shutdown_owned
+    confirmed=shutdown_owned(owned,lambda name:stop(name.removeprefix(PREFIX+'-')),release_resources,shutdown_error)
+    if not confirmed:report['unconfirmedShutdownIsolationAndStateRetained']=True
     if report.get('shutdownErrors') or report.get('error'):report['verificationComplete']=False
     (OUT/'synthetic-signed-result.json').write_text(json.dumps(report,indent=2)+'\n')
 if not report['verificationComplete']:raise SystemExit('Synthetic test signed proof incomplete; all release flags remain false')
