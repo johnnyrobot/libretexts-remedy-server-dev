@@ -1,7 +1,7 @@
 #!/bin/sh
 # Isolated CI trust setup only; the unchanged product keeps TLS validation on.
 set -eu
-case "$HOME" in /tmp/renderer-home|/tmp/renderer-rebased-home) ;; *) exit 1 ;; esac
+case "$HOME" in /tmp/renderer-home|/tmp/renderer-rebased-home|/home/pwuser) ;; *) exit 1 ;; esac
 rebase=false
 if [ "${1:-}" = --rebase-config ]; then rebase=true; shift; fi
 umask 077

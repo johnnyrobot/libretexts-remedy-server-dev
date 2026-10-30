@@ -19,6 +19,8 @@ if(phase==='review'){
   await db.collection('organizations').insertOne({orgID:'libretexts',active:true,name:'Synthetic candidate',subdomain:'candidate',domain:'https://conductor.invalid',commonsModules:{projects:{enabled:true,order:1}}});
   await db.collection('projects').insertOne({projectID:config.projectID,orgID:'libretexts',title:'Full owned stack synthetic',status:'open',classification:'construction',projectURL:'',libreLibrary:'',libreCoverID:'',contentArea:'Synthetic',visibility:'private',members:[config.editor],leads:[],liaisons:[],auditors:[config.auditor],tags:[],a11yReview:[{_id:new ObjectId(config.sectionID),sectionTitle:'Synthetic reader',sectionURL:config.pageURL,pageID:'42'}]});
 }
+const checkpoint=stage=>console.log(JSON.stringify({checkpoint:stage,passed:true,phase}));
+checkpoint('actual-compiled-node22-and-authenticated-mongo');
 const origin='http://127.0.0.1:5000',cookies={};
 for(const name of ['editor','auditor','outsider']){
   const r=await fetch(origin+'/api/v1/auth/fallback-auth',{method:'POST',redirect:'manual',headers:{'Content-Type':'application/json',Origin:'https://conductor.invalid'},body:JSON.stringify({email:name+'@candidate.example.invalid',password:config.password})});
@@ -26,6 +28,7 @@ for(const name of ['editor','auditor','outsider']){
   const set=r.headers.getSetCookie();assert.ok(set.some(c=>/Secure/i.test(c)));assert.ok(set.some(c=>/Domain=conductor.invalid/i.test(c)));
   cookies[name]=set.map(c=>c.split(';')[0]).join('; ');
 }
+checkpoint('actual-fallback-sessions');
 async function request(path,body,user='editor'){
   const r=await fetch(origin+'/api/v1'+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',Origin:'https://conductor.invalid','X-Requested-With':'XMLHttpRequest',...(user?{Cookie:cookies[user]}:{})},...(body?{body:JSON.stringify(body)}:{})});
   return {status:r.status,data:await r.json()};
@@ -42,16 +45,20 @@ assert.equal(health.data.capabilities.scan,true,JSON.stringify(health));
 assert.equal(health.data.capabilities.preview,true,JSON.stringify(health));
 assert.equal(health.data.capabilities.mutate,false,JSON.stringify(health));
 assert.equal(health.data.profile.name,phase==='review'?'review-only':'full-write');
+checkpoint('project-authorization-and-required-read-capabilities');
 const scan=await request(page+'/scan',input);assert.equal(scan.status,200,JSON.stringify(scan));
+checkpoint('actual-source-scan');
 const rendered=await request(page+'/rendered-scan',input);assert.equal(rendered.status,200,JSON.stringify(rendered));
 const project=await db.collection('projects').findOne({projectID:config.projectID}),evidence=project.a11yReview[0].wcagReview;
 assert.ok(evidence.sourceHash,'real authored source hash');
 assert.equal(evidence.rendered.state,'complete',JSON.stringify(evidence.rendered));
 assert.match(evidence.rendered.renderedHash,/^[a-f0-9]{64}$/);assert.match(evidence.rendered.platformHash,/^[a-f0-9]{64}$/);
+checkpoint('actual-rendered-browser-evidence');
 input.findingIDs=rendered.data.findings.filter(f=>f.fixable).map(f=>f.id);
 assert.ok(input.findingIDs.length,'actual source scan supplies selected fixable finding IDs');
 const preview=await request(matrix+'/preview',input);assert.equal(preview.status,200,JSON.stringify(preview));
 assert.ok(preview.data.localReviewID&&preview.data.preview_hash&&preview.data.preview_token);
+checkpoint('authoritative-preview');
 const before=await db.collection('projects').findOne({projectID:config.projectID});
 for(const endpoint of [matrix+'/apply',page+'/apply',page+'/restore']){
   const denied=await request(endpoint,{...input,localReviewID:preview.data.localReviewID,previewToken:preview.data.preview_token,previewHash:preview.data.preview_hash,confirmed:true});

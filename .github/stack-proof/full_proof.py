@@ -135,6 +135,7 @@ try:
     run('openssl','x509','-req','-in',authority/'server.csr','-CA',fixture/'ca.pem','-CAkey',authority/'ca.key','-CAcreateserial','-days','1','-sha256','-extfile',extensions,'-out',fixture/'cert.pem')
     run('openssl','verify','-CAfile',fixture/'ca.pem',fixture/'cert.pem')
     (fixture/'ca.pem').chmod(0o444)
+    for name in ('ca.pem','cert.pem'):(OUT/('public-fixture-'+name)).write_bytes((fixture/name).read_bytes())
     tls_fixture=WORK/'frontend-tls';tls_fixture.mkdir(mode=0o755)
     for name in ('key.pem','cert.pem'):
         (tls_fixture/name).write_bytes((fixture/name).read_bytes());os.chown(tls_fixture/name,1000,1000);(tls_fixture/name).chmod(0o400 if name=='key.pem' else 0o444)
@@ -178,7 +179,8 @@ try:
     report['rendererInitialNamespaceChrootDenied']=True
     bridge_base={'NODE_ENV':'production','CONDUCTOR_API_HOST':'127.0.0.1','REMEDY_REVIEWER_REQUIRED':'true','REMEDY_BRIDGE_SERVICE_KEY_FILE':'/run/secrets/service','CXONE_INTEGRATION_ENABLED':'true','SERVER_DOMAIN':'dev.libretexts.org','SERVER_KEY_FILE':'/run/secrets/key','SERVER_SECRET_FILE':'/run/secrets/secret','SERVER_USER_FILE':'/run/secrets/user','REMEDY_WRITE_ALLOWLIST':'^Sandboxes/johnnyphung(?:/|$)','REMEDY_MAX_REQUEST_BYTES':'5000000','REMEDY_WORK_ACTIVE':'1','REMEDY_WORK_QUEUED':'8','REMEDY_WORK_TIMEOUT_MS':'120000','HOME':'/tmp','NODE_EXTRA_CA_CERTS':'/fixtures/ca.pem','RENDER_SCANNER_URL':'http://remedy-renderer:5180','RENDER_SCANNER_TOKEN':'synthetic-renderer-token'}
     for target,pin in consumers['targets'].items():
-        phases=[];mongo_data=WORK/('mongo-'+target);mongo_data.mkdir();os.chown(mongo_data,999,999)
+        phases=[];report['targets'][target]={'artifact':pin,'phases':phases,'complete':False}
+        mongo_data=WORK/('mongo-'+target);mongo_data.mkdir();os.chown(mongo_data,999,999)
         mongo_bootstrap=private('mongo-bootstrap-'+target,999,{'credentials.json':json.dumps({'admin':uuid.uuid4().hex,'application':uuid.uuid4().hex})})
         start('mongo',MONGO,['mongod','--auth','--bind_ip_all'],mounts=[(mongo_data,'/data/db',False),(mongo_bootstrap,'/run/bootstrap',True),(source/'mongo_bootstrap.js','/proof/mongo_bootstrap.js',True)],extra=[*net,'--network-alias','mongo'],uid=999,limits=(1,'1g',128,'64m',60))
         deadline=time.monotonic()+60
@@ -214,7 +216,10 @@ try:
                 assert time.monotonic()<deadline,'actual Bridge readiness';time.sleep(.2)
             start('conductor',pin['loadedDockerImageID'],['node','/proof/secret-env.mjs','conductor','node','dist/server.js'],envfile('conductor',{**app_env,**signer_env}),[(loader,'/proof/secret-env.mjs',True),(conductor_keys,'/run/secrets',True),(app_fixture,'/fixture',True),(fixture/'ca.pem','/fixtures/ca.pem',True),(source/'conductor_probe.mjs','/proof/conductor_probe.mjs',True),*([(signer/'private.pem','/run/signing/private.pem',True)] if phase!='review' else [])],extra=[*net,'--network-alias','conductor'],uid=1000,limits=(2,'1536m',256,'64m',30))
             wait('conductor',5000,'/health')
-            raw=run('docker','exec',PREFIX+'-conductor','node','/proof/secret-env.mjs','conductor','node','/proof/conductor_probe.mjs',phase)
+            probe=subprocess.run(['docker','exec',PREFIX+'-conductor','node','/proof/secret-env.mjs','conductor','node','/proof/conductor_probe.mjs',phase],capture_output=True,text=True,timeout=180)
+            write_product_log(OUT/('conductor-'+target+'-'+phase+'.log'),probe.stdout+probe.stderr,sensitive_values)
+            if probe.returncode:raise RuntimeError('actual compiled consumer '+target+'/'+phase+': '+probe.stderr[-1500:])
+            raw=probe.stdout
             observation=json.loads(raw.strip().splitlines()[-1]);assert observation['passed'];phases.append(observation)
             if phase=='review':
                 browser_evidence=WORK/('browser-'+target);browser_evidence.mkdir();os.chown(browser_evidence,renderer_uid,renderer_uid)
@@ -230,7 +235,7 @@ try:
                 stop('ui');stop('tls')
             stop('conductor');stop('bridge')
         stop('mongo')
-        report['targets'][target]={'artifact':pin,'phases':phases}
+        report['targets'][target]['complete']=True
     code,status=request('cxone',8082,'/control/status',key='synthetic-control-only',control=True)
     assert code==200 and status['mutations']==0,status
     report['externalMutations']=0;report['verificationComplete']=len(report['targets'])==2
@@ -252,6 +257,17 @@ except Exception as error:
                     process=subprocess.run(['docker','exec','--env','DEBUG=pw:browser','--env','HOME=/tmp/renderer-rebased-home',PREFIX+'-renderer','sh','/proof/nss_home.sh','--rebase-config','node','/proof/renderer_diagnose.mjs'],capture_output=True,text=True,timeout=180)
                     write_product_log(OUT/'renderer-rebased-nss-process.log',process.stderr,sensitive_values)
                     process.check_returncode();write_product_log(OUT/'renderer-rebased-nss-diagnostic.json',process.stdout,sensitive_values)
+                    if json.loads(process.stdout).get('error','').find('ERR_CERT_AUTHORITY_INVALID')>=0:
+                        # Same verified image/CA/filter, now initialize at the
+                        # actual passwd HOME on bounded private temporary state.
+                        start('nss-fixed-home',imports['images']['renderer']['loadedDockerImageID'],['sh','/proof/nss_home.sh','--rebase-config','node','/proof/renderer_diagnose.mjs'],envfile('nss-fixed-home',{'HOME':'/home/pwuser','RENDER_ALLOWED_HOSTS':'dev.libretexts.org'}),[(source/'nss_home.sh','/proof/nss_home.sh',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True),(nss,'/fixture-nss',True)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json'),'--tmpfs',f'/home/pwuser:rw,nosuid,nodev,noexec,size=64m,uid={renderer_uid},gid={renderer_uid},mode=0700'],uid=renderer_uid,limits=(1.5,'2g',256,'1g',30))
+                        assert run('docker','wait',PREFIX+'-nss-fixed-home').strip()=='0','fixed real HOME diagnostic failed'
+                        write_product_log(OUT/'renderer-fixed-home-nss-diagnostic.json',product_log(PREFIX+'-nss-fixed-home'),sensitive_values)
+                        stop('nss-fixed-home')
+                        start('tls-channel',imports['images']['renderer']['loadedDockerImageID'],['sh','/proof/nss_home.sh','--rebase-config','node','/proof/tls_channel_diagnose.mjs'],envfile('tls-channel',{'HOME':'/home/pwuser'}),[(source/'nss_home.sh','/proof/nss_home.sh',True),(source/'tls_channel_diagnose.mjs','/proof/tls_channel_diagnose.mjs',True),(nss,'/fixture-nss',True)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json'),'--tmpfs',f'/home/pwuser:rw,nosuid,nodev,noexec,size=64m,uid={renderer_uid},gid={renderer_uid},mode=0700'],uid=renderer_uid,limits=(1.5,'2g',256,'1g',30))
+                        assert run('docker','wait',PREFIX+'-tls-channel').strip()=='0','TLS channel diagnostic failed'
+                        write_product_log(OUT/'renderer-tls-channel-diagnostic.json',product_log(PREFIX+'-tls-channel'),sensitive_values)
+                        stop('tls-channel')
         except Exception as diagnostic_error:report['rendererDiagnosticError']=safe_error(diagnostic_error)
     raise RuntimeError(report['error']) from None
 finally:
