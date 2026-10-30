@@ -14,6 +14,7 @@ import tarfile
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from urllib.parse import urlsplit
 import zipfile
+from verify_imports import runtime_configuration
 
 class ArtifactRedirect(HTTPRedirectHandler):
     def redirect_request(self, request, response, code, message, headers, new_url):
@@ -97,7 +98,7 @@ def main():
             loaded = json.loads(subprocess.check_output(['docker', 'image', 'inspect', pin['imageID']], text=True))[0]
             if loaded['Id'] != source['imageID'] or loaded['RootFS']['Layers'] != source['filesystemDiffIDs']:
                 raise ValueError('loaded image differs from verified saved image')
-            if loaded['Config'] != source['runtimeConfiguration']:
+            if runtime_configuration(loaded['Config']) != runtime_configuration(source['runtimeConfiguration']):
                 raise ValueError('saved-image runtime configuration changed during import')
             receipt['targets'][name] = {'baseCommit': target['baseCommit'], 'sourceTree': target['sourceTree'],
                 'artifactID': pin['artifactID'], 'ZIPDigest': pin['artifactDigest'], 'archiveSHA256': pin['archiveSHA256'],

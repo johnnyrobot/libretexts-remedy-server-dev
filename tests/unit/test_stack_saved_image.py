@@ -5,6 +5,7 @@ import io
 import json
 from pathlib import Path
 import tarfile
+import sys
 
 import pytest
 
@@ -12,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def load():
+    sys.path.insert(0, str(ROOT / '.github/stack-proof'))
     spec = importlib.util.spec_from_file_location("conductor_artifacts", ROOT / ".github/stack-proof/conductor_artifacts.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

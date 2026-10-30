@@ -4,6 +4,7 @@ on:
     branches: [main, feat/lt-175-integration-bundle, feat/lt-197-integration-operations]
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: private-stack-${{ github.ref }}
   cancel-in-progress: true
