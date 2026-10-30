@@ -72,7 +72,8 @@ def build_router(settings: Settings) -> APIRouter:
     @router.get("/v1/cxone/health")
     async def cxone_health() -> Any:
         if not settings.cxone_integration_enabled:
-            return {"ok": True, "state": "disabled", "enabled": False}
+            return {"ok": True, "state": "disabled", "enabled": False,
+                    "capabilities": {name: False for name in ("scan", "preview", "mutate", "operation_status")}}
         try:
             async with httpx.AsyncClient(
                 base_url=settings.cxone_bridge_base_url.rstrip("/"),
@@ -89,13 +90,15 @@ def build_router(settings: Settings) -> APIRouter:
             })
         capabilities = data.get("capabilities") if isinstance(data, dict) else None
         if (not isinstance(data, dict) or type(data.get("ok")) is not bool
+                or not isinstance(data.get("state"), str)
                 or data.get("state") not in {"ready", "degraded", "misconfigured"}
                 or not isinstance(capabilities, dict)
                 or any(type(capabilities.get(name)) is not bool
                        for name in ("scan", "preview", "mutate", "operation_status"))
                 or data["ok"] != (data["state"] == "ready")
                 or response.status_code not in {200, 503}
-                or (response.status_code == 200) != data["ok"]):
+                or (response.status_code == 200) != data["ok"]
+                or not _valid_profile_readiness(data, capabilities)):
             return JSONResponse(status_code=503, content={
                 "ok": False, "state": "misconfigured", "enabled": True,
                 "error": "cxone_readiness_invalid",
@@ -204,3 +207,26 @@ def _transport_failure(path: str, status_code: int, error: str) -> HTTPException
         detail.update(outcome="unknown_write", operation_id=None,
                       requires_reconciliation=True, evidence_effect="invalidate")
     return HTTPException(status_code=status_code, detail=detail)
+
+
+def _valid_profile_readiness(data: dict[str, Any], capabilities: dict[str, bool]) -> bool:
+    """Check the published named-capability contract; old producers stay full-write."""
+    if "profile" not in data:
+        return not data["ok"] or all(capabilities[name] for name in ("scan", "preview", "mutate", "operation_status"))
+    profile = data["profile"]
+    if not isinstance(profile, dict) or profile.get("contract") != "cxone-review-v1":
+        return False
+    name = profile.get("name")
+    if name not in ("review-only", "full-write"):
+        return False
+    required = ["scan", "preview"] if name == "review-only" else ["scan", "preview", "mutate", "operation_status"]
+    declared = profile.get("required_capabilities")
+    reasons = profile.get("unavailable_reasons")
+    if (not isinstance(declared, list) or not all(isinstance(item, str) for item in declared)
+            or len(declared) != len(required) or set(declared) != set(required)
+            or not isinstance(reasons, list) or not all(isinstance(item, str) and item for item in reasons)):
+        return False
+    if name == "review-only" and capabilities["mutate"]:
+        return False
+    ready = all(capabilities[item] for item in required)
+    return ready == data["ok"] and bool(reasons) == (not ready)

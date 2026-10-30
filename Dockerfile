@@ -85,13 +85,13 @@ RUN case "${TARGETARCH}" in \
 
 FROM base AS verapdf
 
-# verapdf-installer.zip must be present in the build context. Fetch with:
-#   curl -fsSLO https://software.verapdf.org/releases/1.30/verapdf-greenfield-1.30.1-installer.zip \
-#     && mv verapdf-greenfield-*-installer.zip verapdf-installer.zip
-# (skipping curl during build avoids transient outbound network failures.)
+# Fetch the checksum-pinned input before building:
+#   python3 tools/fetch_verapdf_installer.py verapdf-installer.zip
 COPY verapdf-installer.zip /tmp/verapdf/installer.zip
+COPY tools/build-inputs/verapdf-installer.json /tmp/verapdf/pin.json
 
-RUN mkdir -p /opt/verapdf \
+RUN python -c 'import hashlib,json,pathlib,sys; p=pathlib.Path("/tmp/verapdf/installer.zip"); v=json.loads(pathlib.Path("/tmp/verapdf/pin.json").read_text()); h=hashlib.file_digest(p.open("rb"),"sha256").hexdigest(); sys.exit(0 if p.stat().st_size==v["sizeBytes"] and h==v["sha256"] else "veraPDF installer integrity mismatch")' \
+    && mkdir -p /opt/verapdf \
     && unzip -q /tmp/verapdf/installer.zip -d /tmp/verapdf \
     && JAR="$(find /tmp/verapdf -maxdepth 3 -type f -name 'verapdf-izpack-installer-*.jar' | head -n1)" \
     && [ -n "$JAR" ] || (echo "verapdf installer jar not found" >&2; exit 1) \
@@ -237,7 +237,7 @@ RUN uv sync --frozen --extra dev --active --no-install-project
 COPY --chown=app:app tests/unit ./tests/unit
 USER app
 ENV PYTHON_DOTENV_DISABLED=1 REMEDY_FULL_RUNTIME_TESTS=1
-CMD ["python", "-m", "pytest", "tests/unit/test_job_outcomes_http.py", "tests/unit/test_execution_http.py", "tests/unit/test_execution_replay.py", "tests/unit/test_worker_slot_state.py", "tests/unit/test_pinned_fixture_cleanup.py", "tests/unit/test_supervisor_lifetime.py", "tests/unit/test_submission_recovery.py", "tests/unit/test_submission_http_crash.py", "tests/unit/test_calibration_evidence.py", "tests/unit/test_cxone_authenticated_forwarding.py", "tests/unit/test_html_validation_contract.py", "tests/unit/test_html_resource_policy.py", "-v"]
+CMD ["python", "-m", "pytest", "tests/unit/test_job_outcomes_http.py", "tests/unit/test_execution_http.py", "tests/unit/test_execution_replay.py", "tests/unit/test_worker_slot_state.py", "tests/unit/test_pinned_fixture_cleanup.py", "tests/unit/test_supervisor_lifetime.py", "tests/unit/test_submission_recovery.py", "tests/unit/test_submission_http_crash.py", "tests/unit/test_calibration_evidence.py", "tests/unit/test_cxone_authenticated_forwarding.py", "tests/unit/test_html_validation_contract.py", "tests/unit/test_html_resource_policy.py", "tests/unit/test_request_envelope.py", "-v"]
 
 # ---------------------------------------------------------------------------
 # 9. Optional slim target (no Node / Playwright — skips HTML validation

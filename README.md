@@ -1,433 +1,131 @@
 # Remedy Server
 
-**PDF + Office accessibility remediation + conversion engine, exposed as an HTTP API.**
+Remedy Server is the PDF, modern Office and HTML accessibility checking,
+remediation and conversion engine. FastAPI exposes `/v1/*`; it has no frontend.
+The Python package remains `project_remedy`. Conductor is the staff integration,
+[ADAPT Scanner](https://github.com/johnnyrobot/adapt-a11y-scanner-dev#readme)
+submits rendered questions, and
+[Remedy Bridge](https://github.com/johnnyrobot/libretexts-remedy-bridge-dev#readme)
+provides CXone page scan/preview and guarded write/history operations.
 
-Every tool, checker, fixer, and pipeline lives behind FastAPI at `/v1/*`. No frontend — bring your own client.
+One maintained codebase/package retains the full signed integration, including
+apply, restore and outcome recovery. Engine/Scanner standalone operation and
+Bridge review-only operation are **optional rollout choices**. LibreTexts chooses
+its rollout timing. A scan, preview, readable download or reduced finding count
+does not mean content was fixed, specialist-reviewed or WCAG/PDF-UA conformant.
 
-Names: distribution / service / container / Docker image label is `remedy-server`. The Python import package remains `project_remedy` (e.g. `from project_remedy.pdf_checker import ...`), and the dev CLI script is `remedy-pdf`. Public API paths under `/v1/*` and SQLite identifiers are unchanged.
+**Production automatic writes are held. There is no bypass toggle.** Before
+activation, LibreTexts' integration/deployment team must obtain vendor-supported
+revision-atomic conditional-write confirmation and authorized validation, and
+review any required conditional adapter, target policy and allowlist changes.
+Keys alone do not enable production writes. This is not a Johnny checkpoint.
+The current Bridge policy is restricted to its reviewed host/owner sandbox;
+this package does not silently widen it to other libraries.
 
-> ### Deploying the full Remedy stack?
-> This server is the hub of a three-repository stack — it plus
-> `libretexts-remedy-bridge` (CXone pages) and `adapt-a11y-scanner` (ADAPT
-> questions). **[`deploy/stack/README.md`](deploy/stack/README.md)** is the
-> single entry point: what each repo does, which ones you actually need, a
-> portable compose file for all three, and the failure modes that are not
-> obvious. Start there rather than wiring them together by hand.
+## Release status and supported candidate
 
----
+The deployment package remains a candidate until the exact archives and pulled
+Scanner digest pass the complete Linux service proof and operational acceptance.
+`deploy/stack/bundle.json` deliberately keeps `deploymentReady` and
+`productionWritesEnabled` false. Do not infer acceptance from image build,
+process liveness, partial test output or component-only tests.
 
-## Quick start (local dev)
+The selected Bridge pin includes the reviewed upstream-read readiness correction.
+The preserved failed assertion and complete selected-profile Linux proof must
+pass on the exact new archives before this candidate is accepted.
+[Known limitations](deploy/stack/README.md#health-bounds-and-failures), final review
+and the full operational slice still apply.
 
-Strict engine execution requires Linux amd64 with kernel pidfds and subreaper
-support. On macOS/other profiles engine admission and readiness return 503;
-use the Linux runtime for integration. See [execution and offline recovery](deploy/engine-execution.md).
+The [stack guide](deploy/stack/README.md) is the next entry point. It describes
+artifact verification, exact configuration/credential **file names**, private
+transport, modes, mounts, limits and operator checks. Current fixed inputs are:
 
-```bash
-# 1. Install
-uv sync --extra dev                       # or: pip install -e .[dev]
-./.venv/bin/playwright install chromium   # for HTML validation + HTML→PDF
-
-# 2. Configure (optional — defaults work for local dev)
-cp .env.example .env
-
-# 3. Run
-./.venv/bin/uvicorn backend.app.main:app --reload   # → http://127.0.0.1:8000
-
-# 4. Smoke test
-curl http://127.0.0.1:8000/healthz        # {"ok": true}
-curl http://127.0.0.1:8000/readyz         # readiness: SQLite + job dir + worker
-curl http://127.0.0.1:8000/openapi.json   # full schema
-# Interactive docs: http://127.0.0.1:8000/docs
-```
-
-### Local Conductor + LibreTexts Remedy testing
-
-For local CXone page remediation, run `remedy-server` as the stable API surface
-and forward the page-specific work to the **`libretexts-remedy-bridge`** Node
-bridge (cloned as a sibling directory):
-
-```bash
-# Terminal 1: CXone bridge
-cd ../libretexts-remedy-bridge
-npm run dev:api --workspace @libretexts/remedy-conductor-panel
-# -> http://127.0.0.1:5175
-
-# Terminal 2: remedy-server
-cd ../libretexts-remedy-server
-CXONE_BRIDGE_BASE_URL=http://127.0.0.1:5175 \
-./.venv/bin/uvicorn backend.app.main:app --reload
-# -> http://127.0.0.1:8000
-```
-
-> To run the whole stack (server + bridge + ADAPT scanner) in containers
-> instead, see **[`deploy/stack/README.md`](deploy/stack/README.md)**.
-
-Point Conductor at `remedy-server`:
-
-```bash
-PROJECT_REMEDY_BASE_URL=http://127.0.0.1:8000
-# Leave PROJECT_REMEDY_API_KEY empty unless APP_API_KEY is set in remedy-server.
-```
-
-Enabled CXone integration requires `CXONE_INTEGRATION_ENABLED=true`, an inbound
-`APP_API_KEY`, and a private `REMEDY_BRIDGE_SERVICE_KEY_FILE` by default. The local
-commands above need those settings too; explicit `REMEDY_REVIEWER_REQUIRED=false`
-is limited to development on loopback. See [signed forwarding](deploy/stack/contracts/reviewer-forwarding.md)
-for auth, readiness, status lookup and remaining integration gates.
-
-This enables:
-
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/v1/cxone/page/scan` | Scan a CXone page URL/id and return Conductor criteria + findings. |
-| `POST` | `/v1/cxone/page/preview-fix` | Preview selected deterministic fixes, or page-wide pipeline fixes with `fix_mode=pipeline`. |
-| `POST` | `/v1/cxone/page/apply-fix` | Apply the approved preview through the `libretexts-remedy-bridge` guardrails. |
-
-## Deploy (single-node)
-
-### Option A — docker-compose (recommended)
-
-One-command deploy to any Linux host with Docker. Ships Ghostscript + veraPDF + pa11y + Lighthouse + Playwright Chromium + ocrmypdf baked in. Caddy fronts it with automatic HTTPS via Let's Encrypt.
-
-```bash
-# On the server:
-git clone https://github.com/johnnyrobot/libretexts-remedy-server-dev
-cd libretexts-remedy-server-dev
-
-# Set domain + optional Caddy global options + your API key.
-cp .env.example .env
-# edit .env:
-#   DOMAIN=api.example.com
-#   CADDY_GLOBAL_OPTIONS=email ops@example.com
-#   APP_API_KEY=<generated>
-#   CORS_ALLOW_ORIGINS=https://your-client.example
-
-# Build + start.
-docker compose up -d --build
-
-# Follow logs.
-docker compose logs -f remedy-server
-```
-
-The compose deployment runs with `APP_ENV=production`: startup fails if `APP_API_KEY` is empty or `CORS_ALLOW_ORIGINS` contains `*`. It stores SQLite, backups, and engine artefacts under the `job_state` named volume, and uses `/readyz` for container health.
-
-The build takes ~10 minutes first time (includes Chromium, veraPDF, the QuestPDF sidecar, and Playwright downloads) and produces a large image. Use `target: runtime-slim` in `docker-compose.yml` to skip Node + Playwright if you don't need HTML validation or HTML→PDF.
-
-### Option B — systemd (no Docker)
-
-See [`deploy/systemd/README.md`](deploy/systemd/README.md) for native install instructions. Summary: install Ghostscript / veraPDF / ocrmypdf / pa11y / Lighthouse via apt + npm, set up a `remedy` system user, drop the provided unit file in `/etc/systemd/system/`, point Caddy at `127.0.0.1:8000`.
-
-### Updating
-
-```bash
-# docker-compose:
-cd libretexts-remedy-server
-git pull
-docker compose up -d --build
-
-# systemd:
-cd /opt/remedy-server
-sudo -u remedy git pull
-sudo -u remedy uv sync
-sudo systemctl restart remedy-server
-```
-
-### Example: remediate a PDF end-to-end
-
-```bash
-# Upload → async job
-curl -X POST http://127.0.0.1:8000/v1/remediate \
-     -F "file=@input.pdf"
-# {"id":"<id>","kind":"remediate_pdf","status":"queued",...}
-
-# Poll status
-curl http://127.0.0.1:8000/v1/jobs/<id>
-# {"id":"...","status":"done","stage":"complete","progress":1.0,...}
-
-# Download
-curl -OJ http://127.0.0.1:8000/v1/jobs/<id>/result    # remediated.pdf
-curl -OJ http://127.0.0.1:8000/v1/jobs/<id>/report    # HTML conformance report
-```
-
-### Example: convert PDF → accessible HTML
-
-```bash
-curl -X POST http://127.0.0.1:8000/v1/convert/pdf-to-html -F "file=@input.pdf"
-```
-
----
-
-## Endpoints
-
-### High-level (async jobs)
-
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/v1/remediate` | Upload PDF **or** modern Office (DOCX/PPTX/XLSX) → async remediation. Legacy DOC/PPT/XLS return 415. |
-| `POST` | `/v1/office/remediate` | Modern Office-only variant of the above (DOCX/PPTX/XLSX). |
-| `POST` | `/v1/convert/pdf-to-html` | PDF → accessible HTML (async). |
-| `POST` | `/v1/convert/office-to-html` | Office → accessible HTML (async). |
-| `POST` | `/v1/convert/html-to-pdf` | HTML → tagged PDF (async, via Playwright). |
-| `POST` | `/v1/vision-plan/run` | **Opt-in Tier 3.** Vision-planner rescue (async). Not the default. |
-| `GET` | `/v1/jobs/{id}` | Status (`queued`/`running`/`done`/`failed`), stage, progress. |
-| `GET` | `/v1/jobs/{id}/result` | Download the produced file (media type depends on job kind). |
-| `GET` | `/v1/jobs/{id}/report` | HTML conformance report (when available). |
-| `DELETE` | `/v1/jobs/{id}` | Remove job + on-disk artifacts. |
-
-HTTP 202 means the upload was accepted, not that conversion succeeded. Poll the
-job until `done` or `failed`. Modern Office remediation, modern Office-to-HTML and HTML-to-PDF publish
-`done` only after successful processing and independent structural validation
-of the produced file. A readable file stays downloadable when accessibility
-acceptance or optional quality checks have advisory findings/errors; see job
-metadata. Structural readability does not certify accessibility or fidelity.
-
-Result download responses:
-
-| Status | Meaning |
+| Input | Exact reference |
 |---|---|
-| 200 | Completed job artifact available; response media type matches the output. |
-| 404 | Job does not exist. |
-| 409 | Job is queued, running or failed; no result is available. |
-| 410 | Job completed, but its artifact is now missing, empty or unreadable. |
+| Server baseline | `065c86ebb0d856d5b9ada8bd7b41bd8c4d90ce10` or the reviewed descendant recorded in the candidate manifest |
+| Bridge | `998fa1ecee9eaa69aee350c05ca5ad34e5ccb20f` (`cxone-review-v1`, `cxone-terminal-v1`) |
+| Scanner | Registry manifest `sha256:00ab363669ccc7ae50fe7fc79286508af5923d3326d397f87cff91ee76e379a6`, source `1541bb8f3962553b65dab7bfd5aeb429354a8a4f` |
+| Platform | Linux amd64, Docker Engine/Compose v2, host Python 3.11+ for preflight, compatible pidfd/subreaper/user/PID namespace and Chromium seccomp support |
 
-Legacy Office admission on checking, markdown extraction and Office-to-HTML
-has not changed. Those paths use modern native parsers and do not provide a
-supported legacy converter. Convert legacy files to DOCX/PPTX/XLSX first.
+Server uses the full runtime, never runtime-slim for HTML/Scanner. The candidate
+workflow archives Server/Bridge OCI images, downloads/imports those same archives
+in another job, and pulls Scanner by its exact registry manifest digest. Resolved
+base, lock, profile, source, archive and runtime measurements belong to that
+immutable run's metadata. No `latest` tag or rebuilt Scanner is a substitute.
+Actual production host, storage/network policy and external providers are not
+verified merely by that synthetic CI run.
 
-### Synchronous: PDF analysis
+## Choose the needed modules
 
-| Method | Path | Returns |
+| Mode | Required modules | Readiness and unavailable work |
 |---|---|---|
-| `POST` | `/v1/pdf/check` | All accessibility checks (Adobe-equivalent). |
-| `POST` | `/v1/pdf/tags` | Structure-tree dump. |
-| `POST` | `/v1/pdf/info` | Metadata, pages, tagged/language flags, font keys. |
-| `POST` | `/v1/pdf/reading-order` | XY-Cut++ reading order per page. |
-| `POST` | `/v1/pdf/screen-reader` | Screen-reader simulation + issues. |
-| `POST` | `/v1/pdf/alt-text/audit` | Missing / generic alt text findings. |
-| `POST` | `/v1/pdf/artifacts` | Artifact marker counts per page. |
-| `POST` | `/v1/pdf/fonts/check` | Per-font ToUnicode / embedding / encoding status. |
+| Engine | Server | `/readyz` proves engine/store admission; Bridge absent is valid and CXone capabilities are explicitly false. |
+| Engine + ADAPT | Server + exact Scanner | Authenticated scan results matter; Scanner `/healthz` proves admission availability, not live ADAPT credentials or complete rendering. |
+| Optional Bridge review | Add actual Bridge with `REMEDY_BRIDGE_PROFILE=review-only` | Authenticated named scan+preview required; mutation always false; historical status optional. No signer/keyring/ledger needed for scan/preview. |
+| Full signed integration | Same images/implementation plus reviewed signing/history configuration | All required capabilities and production hold apply. Signed paths remain delivered; automatic production writes are unavailable while the vendor/policy gate remains open. |
 
-### Synchronous: PDF mutations
+An absent/unknown producer profile is never interpreted as review-only. Malformed
+or inconsistent known readiness fields fail closed. Optional nonsecret
+`REMEDY_REVIEWER_TRUST_EPOCH` belongs to Bridge/Conductor terminal-proof recovery,
+separately from signer settings; absence does not break engine/scan/preview
+startup. Lookup remains read-only, can work with signing disabled when configured,
+and a 404/null proof is never proof of no write.
 
-| Method | Path | Returns |
-|---|---|---|
-| `POST` | `/v1/pdf/fix` | Run `fix_and_verify` — JSON with changes + `download_token`. |
-| `GET` | `/v1/pdf/fix/download/{token}` | Download the fixed PDF. |
-| `POST` | `/v1/pdf/fix/{rule_id}` | Apply a single fix rule → PDF inline. |
-| `POST` | `/v1/pdf/vision/alt-text` | Generate alt text for an uploaded image. |
-| `POST` | `/v1/pdf/contrast/audit` | Vision-detected WCAG contrast issues. |
-| `POST` | `/v1/pdf/contrast/fix` | Remediate contrast issues → PDF inline. |
-| `POST` | `/v1/pdf/rebuild` | Faithful rebuild (`force_mode=preserving\|mode_a\|mode_b\|simple_font`). |
-| `GET` | `/v1/pdf/rebuild/download/{token}` | Download rebuilt PDF. |
-| `POST` | `/v1/pdf/redistill` | Ghostscript redistillation (optional `use_ocr=1`). |
-| `POST` | `/v1/pdf/ocr` | ocrmypdf subprocess (requires `ocrmypdf` on PATH). |
+## Safe starting sequence
 
-### Synchronous: Office + conversions
+1. Read the [stack prerequisites and mode/config matrix](deploy/stack/README.md).
+2. Obtain only reviewed exact candidate archives/metadata and the matching proof;
+   verify hashes before import. Keep private credentials outside repository/image
+   layers and use the documented per-role files/UID permissions.
+3. Pre-provision the bounded local POSIX state/mounts and approved private network.
+   Run the documented fail-closed preflight on the intended Linux host. An
+   unsupported host is a stop condition, never a reason to disable sandbox/auth,
+   add capabilities or loosen host policy.
+4. Follow that guide's drain/start/health and operator acceptance order. Production
+   candidate acceptance, coherent backup/restore, compatible upgrade/rollback and
+   full Conductor recovery remain required release gates; this README grants no
+   live deployment, credential provisioning or write activation.
 
-| Method | Path | Returns |
-|---|---|---|
-| `POST` | `/v1/office/check` | `evaluate_office_acceptance` report (checks + screen-reader + package validity). |
-| `POST` | `/v1/convert/extract-markdown` | Inline markdown extract (sync, no job). |
+The current isolated CI topology denies non-fixture egress. Real external-service
+connectivity requires the deployment team's reviewed target network/TLS policy;
+no permissive outbound or public-Bridge workaround is supplied. Bridge stays on
+127.0.0.1 in a shared private network namespace and has no published staff panel.
 
-### Synchronous: validators
+## API, artifacts and limitations
 
-| Method | Path | Requires |
-|---|---|---|
-| `POST` | `/v1/validate/html` | Upload HTML → axe + pa11y + Lighthouse merged report. Needs the full runtime with pinned local HTML checker assets and sandboxed Chromium. |
-| `POST` | `/v1/validate/html/wave` | Form field `url=...` → WAVE API. Needs `WAVE_API_KEY`. |
-| `POST` | `/v1/validate/pdf/verapdf` | Upload PDF → veraPDF JSON. Needs `verapdf` binary + Java 17+. |
-| `POST` | `/v1/validate/pdf/adobe` | Upload PDF → Adobe PDF Services report. Needs `ADOBE_CLIENT_ID` + `ADOBE_CLIENT_SECRET`. |
-| `POST` | `/v1/validate/pdf/wcag` | Upload PDF → 2-tier vision WCAG verifier. Needs a vision provider. |
+[HTTP routes and engine configuration](docs/http-api.md) document the interface.
+All `/v1/*` calls require `X-API-Key` in production. The bundle reads credentials
+from private files; Server never holds a reviewer signing private key. `/healthz`
+is liveness; `/readyz` is engine/store readiness. Authenticated `/v1/cxone/health`
+checks the private Bridge's `/readyz` and named capabilities.
 
-### Infrastructure
+HTTP 202 is acceptance, not success. Poll jobs to `done` or `failed`; result 409
+means unavailable for queued/running/failed work, 410 means a completed artifact is
+now missing/empty/unreadable. Modern Office/HTML outcomes independently validate
+usable artifacts; accessibility/quality advisories preserve genuine downloads.
+Legacy DOC/PPT/XLS remediation is 415, without changing unrelated handlers.
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/healthz` | Liveness (unauthenticated). |
-| `GET` | `/readyz` | Readiness: SQLite open/query, writable job directory, worker running. |
-| `GET` | `/docs` | Swagger UI. |
-| `GET` | `/openapi.json` | OpenAPI schema. |
+Calibration-dependent quality is unavailable until parser-readable, attributable
+corpus/result evidence has independent operator approval. The historical bootstrap
+corpus does not qualify; no approval is manufactured to make readiness green.
+See [calibration evidence](deploy/calibration-evidence.md). Optional AI/WAVE/Adobe
+work needs its own authorized provider configuration and actual failures remain
+failures; availability of the base engine does not prove those providers.
 
----
-
-HTML tools default to offline document resources, pinned local checkers and a non-root Chromium sandbox. Documents requiring blocked resources are incomplete; see [HTML resource policy](deploy/html-resource-policy.md) for supported assets, native setup and the Linux container policy.
-
-## Auth
-
-Set `APP_API_KEY` in `.env` to require clients to send `X-API-Key: <key>` on all `/v1/*` routes. Leave empty only for local/dev. When `APP_ENV=production`, the app refuses to start unless `APP_API_KEY` and `OLLAMA_API_KEY` are set and `CORS_ALLOW_ORIGINS` does not contain `*`.
-
-## AI provider
-
-The active cloud provider is **Ollama Cloud** (`kimi-k2.7-code:cloud`) via `OllamaClient`. `vision_planner` runs through the same Ollama-backed factory used by `pdf_vision.py`.
-
----
-
-## What the engine does
-
-Each job kind maps to a dedicated handler in `backend/app/engine_service.py`. The **default** PDF remediation (`/v1/remediate` for PDFs) runs:
-
-1. **`fix_and_verify()`** — 48 auto-fix functions + up to 3 verify-refine cycles + optional veraPDF-driven conformance repair.
-2. **`evaluate_pdf_acceptance()`** — composite gate (checker + screen reader + veraPDF + visual diff).
-3. **`generate_document_report()`** — per-PDF HTML conformance report.
-
-Vision-planner / Tier-3 agentic remediation is **not** part of this default flow. It's an opt-in tool (`/v1/vision-plan/run`) because the deterministic path is faster, cheaper, and more reliable on the corpus we've tested.
-
----
-
-## Configuration
-
-Calibration-dependent quality is unavailable until parser-readable,
-attributable evidence is approved independently. The committed bootstrap corpus
-does not qualify. Base remediation can retain usable artifacts with an explicit
-quality advisory. See [calibration evidence](deploy/calibration-evidence.md) for
-capability status and operator requirements; no accessibility certification is
-implied by a completed conversion.
-
-All env-driven. See `.env.example` for the full list. Key knobs:
-
-**HTTP layer** (`backend/app/config.py`):
-`APP_ENV`, `APP_DOCS_ENABLED`, `APP_API_KEY`, `MAX_UPLOAD_MB`, `JOB_STORE_PATH`, `JOB_DIR`,
-`JOB_RETENTION_HOURS`, `JOB_BACKUP_DIR`, `JOB_BACKUP_KEEP_N`, `JOB_BACKUP_INTERVAL_HOURS`,
-`WORKER_CONCURRENCY`, `WORKER_MAX_PENDING`, `JOB_TOTAL_TIMEOUT_SECONDS`, `CORS_ALLOW_ORIGINS`,
-`CXONE_INTEGRATION_ENABLED`, `CXONE_BRIDGE_BASE_URL`, `CXONE_BRIDGE_TIMEOUT_SECONDS`,
-`CXONE_HEALTH_TIMEOUT_SECONDS`, `REMEDY_REVIEWER_REQUIRED`, `REMEDY_BRIDGE_SERVICE_KEY_FILE`,
-`RATE_LIMIT_DEFAULT`, `RATE_LIMIT_UPLOADS`, `RATE_LIMIT_STORAGE`.
-
-**Engine** (`src/project_remedy/config.py`):
-- Ollama Cloud: `OLLAMA_BASE_URL` (default `https://ollama.com/v1`), `OLLAMA_API_KEY`,
-  `OLLAMA_MODEL`, `OLLAMA_VISION_MODEL`, `OLLAMA_ESCALATION_MODEL` — all default to
-  `kimi-k2.7-code:cloud`. `APP_ENV=production` requires `OLLAMA_API_KEY` to be non-empty.
-  Optional `OLLAMA_VISION_FALLBACK_MODELS` and `OLLAMA_VISION_FALLBACK_BASE_URLS`
-  configure ordered vision fallbacks such as a local `gemma4:26b` model.
-  The `/v1` path is used because `OllamaClient` speaks the OpenAI-compatible
-  `/chat/completions` surface; new direct callers should prefer native
-  `https://ollama.com/api` with `/api/chat`.
-- Quality layer model separation: `QUALITY_JUDGE_MODEL` and `BEHAVIORAL_TEST_MODEL`
-  must be different model families from `OLLAMA_MODEL`, `OLLAMA_VISION_MODEL`, and
-  `OLLAMA_ESCALATION_MODEL`. The default separated setup uses
-  `QUALITY_JUDGE_MODEL=mistral-large-3:675b` and
-  `BEHAVIORAL_TEST_MODEL=gemma4:31b-cloud`.
-  Runtime checks reject same-family judge or behavioral models.
-- Ghostscript: `GHOSTSCRIPT_ENABLED`, `GHOSTSCRIPT_PATH`
-- veraPDF: `VERAPDF_PATH`
-- Rebuild tier (semantic-rebuild escalation, opt-in per job via `allow_semantic_rebuild`):
-  `REBUILD_ENABLED` (default `true`), `REBUILD_BACKEND=questpdf|typst` (default `questpdf`),
-  `REBUILD_TYPST_TIMEOUT_S` (default `120`). Per job, `POST /v1/remediate` also accepts an
-  `allow_semantic_rebuild` form field and an optional `rebuild_backend` form field that
-  overrides `REBUILD_BACKEND` for that job. The Typst backend adds a compile-time PDF/UA-1
-  gate (`typst compile --pdf-standard ua-1`) plus a struct-tree assertion pass — verifying the
-  compiled tag tree round-trips the semantic AST — before the shared veraPDF acceptance gate.
-- Adobe PDF Services: `ADOBE_CLIENT_ID` / `ADOBE_CLIENT_SECRET`
-- WAVE: `WAVE_API_KEY`
-- Contrast: `CONTRAST_ENABLED`, `CONTRAST_LEVEL`, `CONTRAST_DPI`
-- Branding (HTML output): `BRAND_NAME`, `BRAND_PRIMARY`, `BRAND_ACCENT`, `BRAND_NEUTRAL`, `BRAND_START_URL`
-- Feature flags: `FONT_MODE_A_ENABLED`, `FONT_MODE_B_ENABLED`, `SIMPLE_FONT_*`, `VISION_PLANNER_AS_FALLBACK`
-
-See `config.example.yaml` for the equivalent YAML template.
-
----
-
-## CLI
-
-Optional dev CLI for local inspection:
-
-```bash
-remedy-pdf check   file.pdf
-remedy-pdf fix     file.pdf -o fixed.pdf
-remedy-pdf report  fixed.pdf --original file.pdf
-remedy-pdf tags    file.pdf
-remedy-pdf vision  file.pdf
-# ... remedy-pdf --help
-```
-
-The API is the primary interface; the CLI is for ad-hoc debugging.
-
----
+[Execution, admission and offline recovery](deploy/engine-execution.md) covers
+Linux ownership, finite deadlines, quarantined work and one process per store.
+[HTML policy](deploy/html-resource-policy.md) covers offline resources and real
+sandbox requirements. The [stack operations guide](deploy/stack/README.md#operations-and-remaining-acceptance)
+is the entry for storage, backup/upgrade/rollback and target-host acceptance.
+Never erase unresolved markers, restore an old independent fence to force trust,
+blindly retry uncertain writes/jobs, or turn a preview into conformance evidence.
 
 ## Development
 
-```bash
-./.venv/bin/python -m pytest -v       # all tests
-./.venv/bin/python -m pytest tests/api -v  # HTTP tests only
-./.venv/bin/uvicorn backend.app.main:app --reload
-curl http://127.0.0.1:8000/openapi.json | jq '.paths | keys'
-```
-
-Use `./.venv/bin/python -m pytest` in this repo. `uv run pytest` can resolve to miniconda's Python and miss the project dependencies.
-
-Engine execution defaults to one actual process plus eight pending admissions,
-with a 900-second total deadline covering queueing and retries. Direct checks
-share the same bound. See [`deploy/engine-execution.md`](deploy/engine-execution.md)
-for overload, process termination, artifact publication and restart policy.
-
-Committed HTTP/lifespan/worker regressions live in `tests/unit/test_job_outcomes_http.py`.
-With Playwright Chromium installed, run the genuine HTML-to-PDF case using
-`REMEDY_FULL_RUNTIME_TESTS=1 ./.venv/bin/python -m pytest tests/unit/test_job_outcomes_http.py`.
-CI also builds the `runtime-test` target from the full Linux runtime and runs
-these tests as the non-root application user with networking disabled. It
-substitutes external AI responses and controlled fault cases, while the real
-render test uses Chromium and parses the downloaded PDF. This is separate from
-the slim image smoke and does not establish cross-stack deployment readiness.
-
-### Layout
-
-```
-remedy-server/
-├── backend/app/                HTTP API (FastAPI)
-│   ├── main.py                 app factory + lifespan worker
-│   ├── config.py               Settings (env-backed)
-│   ├── routes.py               /v1/remediate, /v1/convert/*, /v1/jobs/*
-│   ├── pdf_routes.py           /v1/pdf/* analysis
-│   ├── pdf_fix_routes.py       /v1/pdf/* fix + rebuild + redistill + ocr
-│   ├── office_routes.py        /v1/office/*
-│   ├── validate_routes.py      /v1/validate/*
-│   ├── vision_plan_routes.py   /v1/vision-plan/run (opt-in Tier 3)
-│   ├── engine_service.py       job-kind dispatcher
-│   ├── jobs.py                 JobStore (SQLite) + JobWorker
-│   └── auth.py                 X-API-Key dependency
-├── src/project_remedy/         engine
-│   ├── pdf_checker.py          accessibility checks
-│   ├── pdf_fixer.py            auto-fixes + fix_and_verify
-│   ├── pdf_acceptance.py       composite acceptance gate
-│   ├── pdf_vision.py           vision provider + VisionAnalyzer
-│   ├── pdf_ghostscript.py      redistillation
-│   ├── pdf_rebuilder.py        hybrid rebuild
-│   ├── pdf_wcag_verifier.py    2-tier WCAG verifier
-│   ├── compliance_report.py    HTML conformance report
-│   ├── tag_tree_reader.py      screen-reader simulation
-│   ├── extractor.py            doc → markdown
-│   ├── converter.py            markdown → accessible HTML
-│   ├── validator.py            axe + pa11y + lighthouse + WAVE
-│   ├── vision.py               HTML-path alt text / chart recreation
-│   ├── html_to_pdf.py          HTML → tagged PDF (Playwright + pikepdf)
-│   ├── html_strategy_remediator.py    pre-LLM HTML fixes
-│   ├── accessibility_strategies.py    LLM remediation strategies
-│   ├── office_remediator.py    DOCX/PPTX/XLSX remediation
-│   ├── office_acceptance.py    Office acceptance gate
-│   ├── vision_planner/         Tier-3 grounder/planner/executor
-│   ├── contrast/               color-contrast detection + remediation
-│   ├── content_stream/         BDC/EMC + graphics-state tooling
-│   ├── faithful_rebuild/       Mode A / Mode B / simple-font rebuild
-│   ├── ocr_escalation.py       OCR triage
-│   ├── adobe_checker.py        Adobe PDF Services integration
-│   ├── ollama_client.py        Ollama Cloud/local client
-│   ├── liteparse_adapter.py    LiteParse triage
-│   ├── xy_cut.py               XY-Cut++ reading order (Hancom port)
-│   ├── vision_prompts.py       shared prompts
-│   ├── token_tracker.py        API usage counter
-│   ├── image_extractor.py      PDF image extraction
-│   ├── cli_pdf.py              dev CLI (remedy-pdf)
-│   ├── database.py             in-memory DocumentJob store
-│   ├── config.py               PipelineConfig + APIConfig + etc.
-│   ├── models.py               DocumentJob, FileType, ExtractedImage, etc.
-│   └── logging_config.py
-└── tests/
-    ├── api/                    HTTP tests
-    └── test_*.py               engine tests
-```
-
----
-
-## License
-
-MIT. See `LICENSE`.
+Use `uv sync --extra dev --frozen`, then `uv run --frozen pytest tests/unit`.
+macOS/unsupported platforms intentionally refuse strict engine admission with 503;
+profile-gated local skips do not establish shipping support. Actual Linux CI uses
+nonroot processes, cap-drop ALL, NNP, reviewed seccomp and real Chromium/native
+work. No Docker Desktop/host-policy relaxation or fake frontend is required.
+See `.github/workflows/ci.yml` and `stack-candidate.yml` for exact checks. TestSprite
+work is separate and is not claimed by these API/stack tests.

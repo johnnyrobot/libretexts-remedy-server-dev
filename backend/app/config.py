@@ -78,6 +78,9 @@ class Settings:
 
     # Uploads.
     max_upload_mb: int = 50
+    # Total raw API envelope, including ignored fields and multipart overhead.
+    # Unset retains the existing file limit plus1MiB request overhead budget.
+    max_request_bytes: int | None = None
 
     # Storage.
     job_store_path: Path = Path("./jobs.db")
@@ -136,11 +139,17 @@ class Settings:
     def is_production(self) -> bool:
         return self.app_env.strip().lower() in _PRODUCTION_ENVS
 
+    @property
+    def request_byte_limit(self) -> int:
+        return self.max_request_bytes if self.max_request_bytes is not None else (self.max_upload_mb+1)*1024*1024
+
     def validation_errors(self) -> list[str]:
         """Return startup-blocking configuration errors."""
         errors: list[str] = []
         if self.max_upload_mb <= 0:
             errors.append("MAX_UPLOAD_MB must be greater than 0")
+        if self.max_request_bytes is not None and self.max_request_bytes <= 0:
+            errors.append("MAX_REQUEST_BYTES must be greater than 0")
         if self.worker_concurrency < 1:
             errors.append("WORKER_CONCURRENCY must be at least 1")
         if self.worker_max_pending < 1:
@@ -209,6 +218,7 @@ def load_settings(env_path: Path | None = None) -> Settings:
         api_key=_env("APP_API_KEY", ""),
         ollama_api_key=_env("OLLAMA_API_KEY", ""),
         max_upload_mb=_env_int("MAX_UPLOAD_MB", 50),
+        max_request_bytes=_env_int("MAX_REQUEST_BYTES", 0) if "MAX_REQUEST_BYTES" in os.environ else None,
         job_store_path=Path(_env("JOB_STORE_PATH", "./jobs.db")),
         job_dir=Path(_env("JOB_DIR", "./job_data")),
         job_retention_hours=_env_int("JOB_RETENTION_HOURS", 24),

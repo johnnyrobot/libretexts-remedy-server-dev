@@ -321,9 +321,12 @@ class EngineAdmissionMiddleware:
         from slowapi.errors import RateLimitExceeded
         from slowapi.middleware import _find_route_handler
         from dataclasses import replace
+        from backend.app.request_envelope import declared_too_large, refusal
         import shutil
         import uuid
 
+        if declared_too_large(scope,self.settings.request_byte_limit):
+            return await refusal()(scope,receive,send)
         reservation = None
         request_dir = None
         request = Request(scope, receive=receive)
@@ -357,7 +360,7 @@ class EngineAdmissionMiddleware:
                 if message["type"] == "http.disconnect":
                     return
                 contents.extend(message.get("body", b""))
-                if len(contents) > self.settings.max_upload_mb * 1024 * 1024 + 1024 * 1024:
+                if len(contents) > self.settings.request_byte_limit:
                     raise HTTPException(413, "Request exceeds upload size limit.")
                 if not message.get("more_body", False):
                     break

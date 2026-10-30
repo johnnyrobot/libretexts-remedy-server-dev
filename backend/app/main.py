@@ -28,6 +28,7 @@ from backend.app.jobs import JobStore, JobWorker, prune_expired_jobs
 from backend.app.logging_setup import configure_logging, request_id_var
 from backend.app.routes import build_router
 from backend.app.scheduler import PeriodicTask
+from backend.app.request_envelope import RequestEnvelopeMiddleware
 
 
 def create_app(settings: Settings | None = None, *, job_entrypoint=execute_job,
@@ -158,6 +159,10 @@ def create_app(settings: Settings | None = None, *, job_entrypoint=execute_job,
     app.state.limiter = limiter
     app.state.upload_rate_limit = upload_limit
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    # Keep byte-counting immediately outside routing/parsing. Exceptions from
+    # receive must reach multipart cleanup without a BaseHTTP task-group wrap.
+    app.add_middleware(RequestEnvelopeMiddleware,
+        maximum=settings.request_byte_limit)
     app.add_middleware(SlowAPIMiddleware)
     app.add_middleware(EngineAdmissionMiddleware, execution=execution, settings=settings,
                        direct_entrypoint=direct_entrypoint)
