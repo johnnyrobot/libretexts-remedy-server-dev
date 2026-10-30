@@ -12,7 +12,7 @@ import platform
 import subprocess
 import time
 import uuid
-from evidence import write_product_log
+from evidence import write_product_log, collect_browser_evidence
 
 ROOT=Path.cwd();OUT=ROOT/'.stack-proof-evidence'
 if os.environ.get('GITHUB_ACTIONS')!='true' or platform.system()!='Linux' or platform.machine()!='x86_64':
@@ -23,6 +23,7 @@ sensitive_values=set()
 OWNER=uuid.uuid4().hex;network=PREFIX+'-private';owned=[];rule=None;mounted=False;network_created=False
 report={'serverSource':os.environ['GITHUB_SHA'],'deploymentReady':False,'productionWritesEnabled':False,'targets':{},'verificationScope':'compiled-auth-scan-rendered-preview-and-production-hold','operationalAcceptanceComplete':False,'verificationComplete':False}
 INPUT=json.loads((ROOT/'deploy/stack/bundle.json').read_text())
+consumers={'targets':{}}
 MONGO='mongo:7.0.14@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6'
 
 def run(*args,check=True):
@@ -218,6 +219,9 @@ try:
             if phase=='review':
                 browser_evidence=WORK/('browser-'+target);browser_evidence.mkdir();os.chown(browser_evidence,renderer_uid,renderer_uid)
                 start('tls',pin['loadedDockerImageID'],['node','/proof/tls_proxy.mjs'],mounts=[(source/'tls_proxy.mjs','/proof/tls_proxy.mjs',True),(tls_fixture,'/fixtures',True)],extra=[*net,'--network-alias','conductor.invalid'],uid=1000)
+                tls_deadline=time.monotonic()+20
+                while run('docker','exec',PREFIX+'-server','curl','--cacert','/fixtures/ca.pem','-sS','-o','/dev/null','-w','%{http_code}','https://conductor.invalid:8443/health',check=False).strip()!='200':
+                    assert time.monotonic()<tls_deadline,'verified private TLS frontend readiness';time.sleep(.2)
                 start('ui',imports['images']['renderer']['loadedDockerImageID'],['node','/proof/conductor_browser.mjs'],envfile('ui',{'HOME':'/home/pwuser'}),[(source/'conductor_browser.mjs','/proof/conductor_browser.mjs',True),(browser_fixture,'/fixture',True),(nss,'/home/pwuser/.pki/nssdb',True),(source/'nss_home.sh','/proof/nss_home.sh',True),(nss,'/fixture-nss',True),(browser_evidence,'/browser-evidence',False)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],uid=renderer_uid,limits=(1.5,'2g',256,'1g',30))
                 assert run('docker','wait',PREFIX+'-ui').strip()=='0','actual UI browser failed; see sanitized ui log'
                 browser_result=json.loads(run('docker','logs',PREFIX+'-ui').strip().splitlines()[-1]);assert browser_result['passed']
@@ -232,18 +236,22 @@ try:
     report['externalMutations']=0;report['verificationComplete']=len(report['targets'])==2
 except Exception as error:
     report['error']=safe_error(error)
-    for browser_directory in WORK.glob('browser-*'):
-        if not browser_directory.is_dir():continue
-        for file in browser_directory.iterdir():
-            if file.is_file() and file.suffix in {'.png','.json'}:
-                (OUT/(browser_directory.name+'-'+file.name)).write_bytes(file.read_bytes())
+    collect_browser_evidence(WORK,OUT,consumers['targets'],sensitive_values)
     if PREFIX+'-renderer' in owned and inspect(PREFIX+'-renderer')['State']['Running']:
         try:
-            diagnostic=run('docker','exec',PREFIX+'-renderer','node','/proof/renderer_diagnose.mjs')
+            process=subprocess.run(['docker','exec','--env','DEBUG=pw:browser',PREFIX+'-renderer','node','/proof/renderer_diagnose.mjs'],capture_output=True,text=True,timeout=180)
+            write_product_log(OUT/'renderer-browser-process.log',process.stderr,sensitive_values)
+            process.check_returncode();diagnostic=process.stdout
             write_product_log(OUT/'renderer-diagnostic.json',diagnostic,sensitive_values)
             if json.loads(diagnostic).get('error','').find('ERR_CERT_AUTHORITY_INVALID')>=0:
-                alternate=run('docker','exec','--env','HOME=/tmp/renderer-home',PREFIX+'-renderer','sh','/proof/nss_home.sh','node','/proof/renderer_diagnose.mjs')
+                process=subprocess.run(['docker','exec','--env','DEBUG=pw:browser','--env','HOME=/tmp/renderer-home',PREFIX+'-renderer','sh','/proof/nss_home.sh','node','/proof/renderer_diagnose.mjs'],capture_output=True,text=True,timeout=180)
+                write_product_log(OUT/'renderer-initialized-nss-process.log',process.stderr,sensitive_values)
+                process.check_returncode();alternate=process.stdout
                 write_product_log(OUT/'renderer-initialized-nss-diagnostic.json',alternate,sensitive_values)
+                if json.loads(alternate).get('error','').find('ERR_CERT_AUTHORITY_INVALID')>=0:
+                    process=subprocess.run(['docker','exec','--env','DEBUG=pw:browser','--env','HOME=/tmp/renderer-rebased-home',PREFIX+'-renderer','sh','/proof/nss_home.sh','--rebase-config','node','/proof/renderer_diagnose.mjs'],capture_output=True,text=True,timeout=180)
+                    write_product_log(OUT/'renderer-rebased-nss-process.log',process.stderr,sensitive_values)
+                    process.check_returncode();write_product_log(OUT/'renderer-rebased-nss-diagnostic.json',process.stdout,sensitive_values)
         except Exception as diagnostic_error:report['rendererDiagnosticError']=safe_error(diagnostic_error)
     raise RuntimeError(report['error']) from None
 finally:
