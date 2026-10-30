@@ -35,6 +35,12 @@ identity, host and measurements. OCI manifest/config IDs and registry manifest
 digests are distinct. Global `deploymentReady`/`productionWritesEnabled` stay false
 until the release owner reviews the complete compatible bundle.
 
+OCI config digests and Docker's imported image IDs can differ across the import
+format conversion. The proof records both in `imports.json` and requires equal
+filesystem diffIDs and runtime configuration (including credentials-free image
+environment, user, command, labels and healthcheck). An archive hash alone is
+insufficient to identify the running image. No rebuild is substituted.
+
 ## Modes and command order
 
 One base Compose file plus optional overlays use the same images/data formats:

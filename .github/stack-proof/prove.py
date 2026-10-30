@@ -124,6 +124,9 @@ def start(name,image,env=None,mounts=(),extra=(),command=(),uid=None):
     return name
 
 try:
+    imports=json.loads((EVIDENCE/'imports.json').read_text())
+    assert imports['verificationComplete'] and imports['serverSource']==os.environ['GITHUB_SHA']
+    report['importedArtifacts']=imports
     cmd('docker','network','create','--internal','--label','org.libretexts.stack-proof-owner='+owner_token,network);network_created=True
     inspection=json.loads(cmd('docker','network','inspect',network))[0]
     assert inspection['Internal'] is True
@@ -146,6 +149,9 @@ try:
         assert info['Architecture']=='amd64' and info['Os']=='linux'
         if name in {'server','scanner'}: assert info['Config'].get('User','') not in {'','0','root'}
         report['images'][name]={'id':info['Id'],'repoDigests':info['RepoDigests'],'layers':info['RootFS']['Layers'],'user':info['Config'].get('User',''),'runtimeUserOverride':'1000:1000' if name=='bridge' else None}
+        if name in {'server','bridge'}:
+            assert info['Id']==imports['images'][name]['loadedDockerImageID']
+            assert info['RootFS']['Layers']==imports['images'][name]['filesystemDiffIDs']
     assert SCANNER in report['images']['scanner']['repoDigests']
     scanner_inputs=json.loads((ROOT/'deploy/stack/scanner-profile-source.json').read_text())
     actual_lock=cmd('docker','run','--rm','--network','none','--entrypoint','node',SCANNER,'-e',
