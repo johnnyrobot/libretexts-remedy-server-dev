@@ -264,9 +264,11 @@ try:
         image_aliases['remedy-'+role+':stack-candidate']=imports['images'][role]['loadedDockerImageID']
         actual=runtime_configuration(value['Config'])
         assert hashlib.sha256(json.dumps(actual,sort_keys=True,separators=(',',':')).encode()).hexdigest()==imports['images'][role]['runtimeConfigurationSHA256']
+    registry_spec=importlib.util.spec_from_file_location('signed_registry_preflight',ROOT/'deploy/stack/preflight.py')
+    registry_preflight=importlib.util.module_from_spec(registry_spec);registry_spec.loader.exec_module(registry_preflight)
+    assert MONGO==registry_preflight.MONGO,'same pinned Mongo manifest required across proofs'
     scanner_image=json.loads(run('docker','image','inspect',INPUT['scannerImage']))[0]
-    assert scanner_image['Architecture']=='amd64' and scanner_image['Os']=='linux'
-    assert INPUT['scannerImage'] in scanner_image['RepoDigests']
+    registry_preflight.require_registry_manifest(scanner_image,INPUT['scannerImage'],'scanner')
     image_aliases[INPUT['scannerImage']]=scanner_image['Id']
     for pin in consumers['targets'].values():
         loaded=json.loads(run('docker','image','inspect',pin['loadedDockerImageID']))[0]
@@ -274,7 +276,7 @@ try:
         assert hashlib.sha256(json.dumps(runtime_configuration(loaded['Config']),sort_keys=True,separators=(',',':')).encode()).hexdigest()==pin['runtimeConfigurationSHA256']
     run('docker','pull',MONGO)
     mongo_image=json.loads(run('docker','image','inspect',MONGO))[0]
-    assert mongo_image['Architecture']=='amd64' and mongo_image['Os']=='linux' and MONGO in mongo_image['RepoDigests']
+    registry_preflight.require_registry_manifest(mongo_image,MONGO,'mongo')
     image_aliases[MONGO]=mongo_image['Id']
     run('docker','network','create','--internal','--subnet','198.51.100.0/24','--label','org.libretexts.stack-proof-owner='+OWNER,network);network_created=True
     info=json.loads(run('docker','network','inspect',network))[0];assert info['Internal']
