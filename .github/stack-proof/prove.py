@@ -365,16 +365,29 @@ try:
     filled=0
     try:
         with filler.open('xb',buffering=0) as stream:
+            # A failed bulk allocation can leave a smaller allocatable tail.
+            # Consume filesystem blocks as well; ENOSPC on1MiB alone is not
+            # proof that the product cannot allocate its readiness probe.
+            block=os.statvfs(state).f_frsize
+            chunk=1024*1024
             while filled<=INPUT['limits']['server']['stateBytes']:
-                try: filled+=stream.write(b'0'*(1024*1024))
+                try:
+                    written=stream.write(b'0'*chunk)
+                    if not written: raise RuntimeError('Owned filler write made no progress')
+                    filled+=written
                 except OSError as error:
                     if error.errno!=errno.ENOSPC: raise
+                    if chunk>block:
+                        chunk=block
+                        continue
                     break
             try: os.fsync(stream.fileno())
             except OSError as error:
                 if error.errno!=errno.ENOSPC: raise
         assert filled<=INPUT['limits']['server']['stateBytes']
-        assert os.statvfs(state).f_bavail==0,'fixture did not exhaust bounded store'
+        space=os.statvfs(state)
+        report['storage']['exhaustionFixture']={'filledBytes':filled,'freeBlocks':space.f_bfree,'availableBlocks':space.f_bavail,'blockBytes':space.f_frsize}
+        assert space.f_bavail==0,'fixture did not exhaust bounded store: '+json.dumps(report['storage']['exhaustionFixture'])
         full_code,full_state=request(server_url,'/readyz')
         assert full_code==503,full_state
         failed_code,failed_upload,_=multipart(server_url,'/v1/convert/html-to-pdf',html)
