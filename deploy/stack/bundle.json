@@ -4,7 +4,7 @@
   "productionWritesEnabled": false,
   "platform": "linux/amd64",
   "serverMinimumSource": "065c86ebb0d856d5b9ada8bd7b41bd8c4d90ce10",
-  "bridgeSource": "03d961d7fbfbcc36bad885f5ec06d5f289cba09e",
+  "bridgeSource": "998fa1ecee9eaa69aee350c05ca5ad34e5ccb20f",
   "scannerSource": "1541bb8f3962553b65dab7bfd5aeb429354a8a4f",
   "scannerImage": "ghcr.io/johnnyrobot/adapt-a11y-scanner-dev-candidate@sha256:00ab363669ccc7ae50fe7fc79286508af5923d3326d397f87cff91ee76e379a6",
   "contracts": ["cxone-review-v1", "cxone-terminal-v1"],

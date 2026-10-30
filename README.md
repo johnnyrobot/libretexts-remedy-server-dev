@@ -30,10 +30,11 @@ Scanner digest pass the complete Linux service proof and operational acceptance.
 `productionWritesEnabled` false. Do not infer acceptance from image build,
 process liveness, partial test output or component-only tests.
 
-Optional Bridge review acceptance is currently blocked by an upstream-read
-readiness defect in the pinned Bridge; the [health limitations](deploy/stack/README.md#health-bounds-and-failures)
-record the actual failure. The corrective Server envelope and packaging work
-still require complete Linux proof and review.
+The selected Bridge pin includes the reviewed upstream-read readiness correction.
+The preserved failed assertion and complete selected-profile Linux proof must
+pass on the exact new archives before this candidate is accepted.
+[Known limitations](deploy/stack/README.md#health-bounds-and-failures), final review
+and the full operational slice still apply.
 
 The [stack guide](deploy/stack/README.md) is the next entry point. It describes
 artifact verification, exact configuration/credential **file names**, private
@@ -42,7 +43,7 @@ transport, modes, mounts, limits and operator checks. Current fixed inputs are:
 | Input | Exact reference |
 |---|---|
 | Server baseline | `065c86ebb0d856d5b9ada8bd7b41bd8c4d90ce10` or the reviewed descendant recorded in the candidate manifest |
-| Bridge | `03d961d7fbfbcc36bad885f5ec06d5f289cba09e` (`cxone-review-v1`, `cxone-terminal-v1`) |
+| Bridge | `998fa1ecee9eaa69aee350c05ca5ad34e5ccb20f` (`cxone-review-v1`, `cxone-terminal-v1`) |
 | Scanner | Registry manifest `sha256:00ab363669ccc7ae50fe7fc79286508af5923d3326d397f87cff91ee76e379a6`, source `1541bb8f3962553b65dab7bfd5aeb429354a8a4f` |
 | Platform | Linux amd64, Docker Engine/Compose v2, compatible pidfd/subreaper/user/PID namespace and Chromium seccomp support |
 

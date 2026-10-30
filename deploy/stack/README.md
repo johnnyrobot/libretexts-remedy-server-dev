@@ -125,11 +125,14 @@ Liveness is not readiness. Server `/readyz` concerns its store/engine; authentic
 Review mode requires scan+preview, explicitly `mutate:false`; status is optional.
 Full-write requires its published capability set. Unknown/malformed/partial
 producer profiles are not inferred as review-only. Required read failure must
-remain unavailable until genuine successful retry. The pinned Bridge03d961d7
-currently violates that requirement for an upstream401: scan fails while health
-still reports200 (actual Linux run40982422525). This blocks acceptance of the
-optional review deployment until a reviewed compatible producer correction is
-tested; a healthy metadata response alone is insufficient. Scanner `/healthz` concerns admission;
+remain unavailable until genuine successful retry. Reviewed Bridge998fa1e corrects the observed upstream401/403 failure
+classification without changing the public contract. The preserved red
+run40987997157 remains evidence; acceptance requires a fresh exact-artifact
+run with the corrected pin. Successful required/default scan or deterministic
+preview is the verified recovery path; optional-source success does not itself
+clear the latch (LT202). Full-write read-capability debt (LT204) remains a
+separate blocker for the later full-integration freeze. A healthy metadata
+response alone is insufficient. Scanner `/healthz` concerns admission;
 only an actual authorized scan establishes its external/render/validator outcome.
 Empty/malformed/partial data is not a clean pass. Calibration remains unavailable
 on historical placeholder evidence; usable artifacts preserve explicit advisories.

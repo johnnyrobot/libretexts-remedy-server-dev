@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: johnnyrobot/libretexts-remedy-bridge-dev
-          ref: 03d961d7fbfbcc36bad885f5ec06d5f289cba09e
+          ref: 998fa1ecee9eaa69aee350c05ca5ad34e5ccb20f
           path: .stack-inputs/bridge
           persist-credentials: false
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
@@ -48,7 +48,7 @@ jobs:
           platforms: linux/amd64
           outputs: type=oci,dest=.stack-artifacts/bridge.oci.tar
           provenance: mode=max
-          labels: org.opencontainers.image.revision=03d961d7fbfbcc36bad885f5ec06d5f289cba09e
+          labels: org.opencontainers.image.revision=998fa1ecee9eaa69aee350c05ca5ad34e5ccb20f
           cache-from: type=gha,scope=stack-bridge
           cache-to: type=gha,mode=max,scope=stack-bridge
       - name: Bind archives and configuration to this source
@@ -58,7 +58,7 @@ jobs:
           from pathlib import Path
           root=Path('.stack-artifacts')
           names=['server.oci.tar','bridge.oci.tar','build-inputs.json']
-          value={'serverSource':os.environ['GITHUB_SHA'],'bridgeSource':'03d961d7fbfbcc36bad885f5ec06d5f289cba09e','deploymentReady':False,'productionWritesEnabled':False,'retentionDays':30,'sha256':{}}
+          value={'serverSource':os.environ['GITHUB_SHA'],'bridgeSource':'998fa1ecee9eaa69aee350c05ca5ad34e5ccb20f','deploymentReady':False,'productionWritesEnabled':False,'retentionDays':30,'sha256':{}}
           for name in names:
               with (root/name).open('rb') as stream: value['sha256'][name]=hashlib.file_digest(stream,'sha256').hexdigest()
           value['configurationSha256']={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in Path('deploy/stack').rglob('*') if p.is_file() and p.suffix in {'.py','.mjs','.json','.yml','.example','.md'}}
