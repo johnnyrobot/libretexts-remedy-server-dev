@@ -11,7 +11,7 @@ concurrency:
 jobs:
   build:
     if: github.repository == 'johnnyrobot/libretexts-remedy-server-dev'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -84,7 +84,7 @@ jobs:
           include-hidden-files: true
   prove:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
