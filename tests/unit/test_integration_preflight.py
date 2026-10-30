@@ -225,6 +225,42 @@ def test_full_startup_compatibility_can_be_preflighted_without_signer(preflight,
     assert '/run/reviewer/keyring.json' not in mounts['bridge']
 
 
+def test_actual_compose_byte_serialization_preserves_exact_resource_limits(preflight, integration_config):
+    """Resolve only static YAML; never starts or contacts a container daemon."""
+    import shutil
+    if shutil.which('docker') is None:
+        pytest.skip('Docker Compose CLI is unavailable on this local profile')
+    version = subprocess.run(['docker', 'compose', 'version'], capture_output=True, timeout=20)
+    if version.returncode != 0:
+        pytest.skip('Docker Compose plugin is unavailable on this local profile')
+    config, args, policy, identities = integration_config
+    for service in config['services'].values():
+        fragment = {'services': {'sample': {name: service[name] for name in
+                    ('image', 'cpus', 'mem_limit', 'pids_limit', 'shm_size')}}}
+        process = subprocess.run(['docker', 'compose', '-f', '-', 'config', '--format', 'json'],
+                                 input=json.dumps(fragment), capture_output=True, text=True, timeout=20)
+        assert process.returncode == 0, process.stderr
+        resolved = json.loads(process.stdout)['services']['sample']
+        for name in ('cpus', 'mem_limit', 'pids_limit', 'shm_size'):
+            service[name] = resolved[name]
+    preflight.validate_compose(config, args, policy, identities, 1002, {}, configuration_hashes=args.configuration_hashes)
+
+
+def test_canonical_decimal_byte_limits_are_accepted_without_docker(preflight, integration_config):
+    config, args, policy, identities = integration_config
+    config['services']['remedy-renderer'].update(mem_limit='2147483648', shm_size='1073741824')
+    preflight.validate_compose(config, args, policy, identities, 1002, {}, configuration_hashes=args.configuration_hashes)
+
+
+@pytest.mark.parametrize('value', ['2147483649', '2g', ' 2147483648', '+2147483648',
+                                   '02147483648', '2147483648.0', True, 2147483648.0, None])
+def test_compose_memory_representation_never_changes_or_guesses_budget(preflight, integration_config, value):
+    config, args, policy, identities = integration_config
+    config['services']['remedy-renderer']['mem_limit'] = value
+    with pytest.raises(ValueError, match='compose_resource_limits_mismatch'):
+        preflight.validate_compose(config, args, policy, identities, 1002, {}, configuration_hashes=args.configuration_hashes)
+
+
 @pytest.mark.parametrize('damage', [
     'direct-secret', 'wrong-mount', 'implicit-create', 'weak-renderer', 'mongo-no-auth',
     'mutable-consumer', 'http-server', 'wrong-mode', 'unbounded-configdb', 'signer-leak',

@@ -608,7 +608,13 @@ def validate_compose(config, args, policy, identities, scanner_uid, signing, *, 
                 'unsupported_compose_host_access')
         for field, expected in {'cpus':limits['cpus'],'mem_limit':limits['memoryBytes'],'pids_limit':limits['pids'],
                                 'shm_size':limits.get('shmBytes',64*1024**2)}.items():
-            require(service.get(field, 64*1024**2 if field=='shm_size' else None) == expected, 'compose_resource_limits_mismatch')
+            value = service.get(field, 64*1024**2 if field=='shm_size' else None)
+            # Compose serializes byte quantities as either JSON integers or
+            # canonical decimal strings. Never parse units or round a float.
+            if field in {'mem_limit','shm_size'} and isinstance(value,str) and re.fullmatch(r'[1-9][0-9]{0,19}',value):
+                value = int(value)
+            numeric_types = (int,float) if field == 'cpus' else (int,)
+            require(type(value) in numeric_types and value == expected, 'compose_resource_limits_mismatch')
         duration = service.get('stop_grace_period','')
         match = re.fullmatch(r'(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?',duration) if isinstance(duration,str) else None
         require(match is not None and bool(duration) and sum(int(value or 0)*scale for value,scale in zip(match.groups(),(3600,60,1))) == limits['stopSeconds'],
