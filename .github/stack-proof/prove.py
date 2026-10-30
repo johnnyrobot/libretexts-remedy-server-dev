@@ -221,7 +221,13 @@ try:
         except OSError: pass
         assert time.monotonic()<deadline;time.sleep(.1)
     # Replace only our exact container, retaining its private job store.
-    cmd('docker','stop','--time','120',PREFIX+'-server');cmd('docker','rm',PREFIX+'-server');containers.remove(PREFIX+'-server')
+    prior=json.loads(cmd('docker','inspect',PREFIX+'-server'))[0]
+    metrics.begin_stop(prior['Id'])
+    cmd('docker','stop','--time','120',PREFIX+'-server')
+    prior_stopped=json.loads(cmd('docker','inspect',PREFIX+'-server'))[0]
+    metrics.finish_stop(prior_stopped)
+    assert prior_stopped['State']['ExitCode'] in {0,143},'initial Server stop failed'
+    cmd('docker','rm',PREFIX+'-server');containers.remove(PREFIX+'-server')
     text=server_env.read_text().replace('CXONE_INTEGRATION_ENABLED=false','CXONE_INTEGRATION_ENABLED=true')+'CXONE_BRIDGE_BASE_URL=http://127.0.0.1:5175\nREMEDY_BRIDGE_SERVICE_KEY_FILE=/run/secrets/service\n'
     server_env.write_text(text)
     start(PREFIX+'-server',SERVER,server_env,[*base_mounts,(server_keys,'/run/secrets',True),(state,'/app/state',False),(public/'hooks','/proof-hooks',True),(audit['server'],'/proof-audit',False)],server_options,server_command)
@@ -437,9 +443,12 @@ try:
         while not any(f.done() for f in pending): assert time.monotonic()<deadline;time.sleep(.02)
         early=[f.result() for f in pending if f.done()]
         assert early and all(code==503 and body.get('ok') is False for code,body in early),early
+        metrics.begin_stop(json.loads(cmd('docker','inspect',PREFIX+'-scanner'))[0]['Id'])
         began=time.monotonic();cmd('docker','stop','--time','20',PREFIX+'-scanner');elapsed=time.monotonic()-began
         result=[f.result(timeout=20) for f in pending]
-        stopped=json.loads(cmd('docker','inspect',PREFIX+'-scanner'))[0]['State']
+        stopped_info=json.loads(cmd('docker','inspect',PREFIX+'-scanner'))[0]
+        metrics.finish_stop(stopped_info)
+        stopped=stopped_info['State']
         assert elapsed<15 and stopped['ExitCode']==0,(elapsed,stopped)
         assert all(code==503 and body.get('ok') is False for code,body in result),result
     report['activeShutdown']={'heldExternalResponseReached':True,'admissionOverflow503':True,'all10Callers503':True,'stopSeconds':elapsed,'exitCode':stopped['ExitCode']}
@@ -462,9 +471,12 @@ finally:
             info=json.loads(cmd('docker','inspect',name))[0]
             assert info['Config'].get('Labels',{}).get('org.libretexts.stack-proof-owner')==owner_token,'refusing unowned container cleanup'
             report.setdefault('containers',{})[name]={'state':info['State'],'runtimeUser':info['Config'].get('User',''),'hostConfig':{k:info['HostConfig'].get(k) for k in ['Memory','NanoCpus','PidsLimit','ShmSize','Init','ReadonlyRootfs','NetworkMode']}}
+            if name in {PREFIX+'-server',PREFIX+'-scanner',PREFIX+'-bridge'}: metrics.begin_stop(info['Id'])
             started=time.monotonic();cmd('docker','stop',name,check=False)
             report['containers'][name]['stopSeconds']=time.monotonic()-started
-            stopped=json.loads(cmd('docker','inspect',name))[0]['State']
+            stopped_info=json.loads(cmd('docker','inspect',name))[0]
+            if name in {PREFIX+'-server',PREFIX+'-scanner',PREFIX+'-bridge'}: metrics.finish_stop(stopped_info)
+            stopped=stopped_info['State']
             report['containers'][name]['stoppedState']=stopped
             logs=subprocess.run(['docker','logs',name],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT).stdout
             write_product_log(EVIDENCE/(name+'.log'),logs)

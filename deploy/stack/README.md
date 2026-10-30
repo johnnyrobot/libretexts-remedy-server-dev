@@ -166,6 +166,13 @@ fence 32 MiB on separate bounded filesystems, in addition to Server's 1 GiB.
 Mongo's cache is 0.25 GiB; its unused `/data/configdb` is a bounded 16 MiB tmpfs
 rather than an anonymous unbounded volume. Actual measurements remain required.
 
+Resource receipts retain actual live cgroup samples and require confirmation of
+each exact stopped container. A final post-stop counter read can be unavailable
+because the kernel has already removed its cgroup; `finalSampleAvailable:false`
+records that limitation without inventing a final peak. Prior positive samples,
+verified bounds and the independent graceful-stop/lifetime checks remain
+mandatory. A missing live counter or an unconfirmed stop still fails the proof.
+
 Server's `MAX_REQUEST_BYTES=5000000` bounds the complete raw `/v1/` envelope,
 including ignored JSON fields and multipart overhead, before normalization or
 job acceptance. Declared and streaming/chunked bodies use the same limit.

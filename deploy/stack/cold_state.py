@@ -199,8 +199,8 @@ def _cold(plan, observe, extra_roots=()):
                          "State": {key: state[key] for key in (
                              "Status", "Running", "Paused", "Restarting", "Dead", "OOMKilled", "Error",
                              "ExitCode", "StartedAt", "FinishedAt")},
-                         "Mounts": [{key: mount.get(key) for key in ("Type", "Source", "Destination", "RW")}
-                                    for mount in item["Mounts"]]})
+                         "Mounts": sorted([{key: mount.get(key) for key in ("Type", "Source", "Destination", "RW")}
+                                           for mount in item["Mounts"]], key=_json)})
     for role, store in plan["stores"].items():
         _require(store["container"] in {item["id"] for item in expected.values()}, "store owner absent from process pins")
         mounts = [mount for mount in by_id[store["container"]]["Mounts"]
@@ -307,14 +307,15 @@ def backup(plan, archive_path, receipt_path, *, docker):
                         bundle.addfile(header)
         output.flush()
         os.fsync(output.fileno())
-    _require(_cold(plan, docker) == stopped and _fence(fence) == fence_before and
-             {role: _inventory(root) for role, root in roots.items()} == inventory,
-             "state, fence or processes changed during backup; archive is not accepted")
+    def confirm(phase):
+        _require(_cold(plan, docker) == stopped, f"process/mount observations changed during {phase}; archive is not accepted")
+        _require(_fence(fence) == fence_before, f"current fence changed during {phase}; archive is not accepted")
+        _require({role: _inventory(root) for role, root in roots.items()} == inventory,
+                 f"store contents or identity changed during {phase}; archive is not accepted")
+    confirm("backup")
     with archive.open("rb") as stream:
         archive_hash = hashlib.file_digest(stream, "sha256").hexdigest()
-    _require(_cold(plan, docker) == stopped and _fence(fence) == fence_before and
-             {role: _inventory(root) for role, root in roots.items()} == inventory,
-             "state, fence or processes changed during backup digest; archive is not accepted")
+    confirm("backup digest")
     result = {"version": 1, "archive_sha256": archive_hash, "manifest_sha256": _digest(manifest_raw),
               "admissionAuthorized": False, "processCleanupCertified": False,
               "rawExitCodes": {role: next(item["State"]["ExitCode"] for item in stopped

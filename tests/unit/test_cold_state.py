@@ -79,6 +79,45 @@ def test_cold_clone_preserves_full_private_files_and_markers(cold):
     assert Path(plan["fence"]).read_bytes() == b"independent-current-epoch-7"
 
 
+def test_docker_mount_array_order_does_not_change_the_stopped_inventory(cold):
+    import copy
+    helper = load_helper()
+    plan, docker, root = cold
+    original = copy.deepcopy(docker())
+    for row in original:
+        row['Mounts'].append({'Type': 'bind', 'Source': str(root / 'credentials'),
+                              'Destination': '/run/secrets', 'RW': False})
+    calls = 0
+    def reordered():
+        nonlocal calls
+        calls += 1
+        rows = copy.deepcopy(original)
+        if calls % 2 == 0:
+            for row in rows: row['Mounts'].reverse()
+        return rows
+    helper.backup(plan, root / 'ordered.tar', root / 'ordered.json', docker=reordered)
+    assert (root / 'ordered.json').is_file()
+
+
+def test_real_mount_change_still_refuses_a_cold_archive(cold):
+    import copy
+    helper = load_helper()
+    plan, docker, root = cold
+    original = copy.deepcopy(docker())
+    original[0]['Mounts'].append({'Type': 'bind', 'Source': str(root / 'credentials'),
+                                 'Destination': '/run/secrets', 'RW': False})
+    calls = 0
+    def changed():
+        nonlocal calls
+        calls += 1
+        rows = copy.deepcopy(original)
+        if calls > 1: rows[0]['Mounts'][-1]['RW'] = True
+        return rows
+    with pytest.raises(helper.Refused, match='changed during backup'):
+        helper.backup(plan, root / 'changed.tar', root / 'changed.json', docker=changed)
+    assert not (root / 'changed.json').exists()
+
+
 def test_server_sigterm_capture_requires_exact_role_expectation_and_never_certifies_cleanup(cold):
     helper = load_helper()
     plan, docker, root = cold
