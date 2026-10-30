@@ -30,7 +30,7 @@ def verify(root, work, evidence, prefix, images, state, fixture, keys):
         text=(package/'env'/f'{role}.env.example').read_text()
         text=text.replace('https://ollama.com/v1','https://provider.invalid/v1')
         text=text.replace('https://REPLACE_WITH_REVIEWED_CONDUCTOR_ORIGIN','https://conductor.fixture.invalid')
-        text=text.replace('https://REPLACE_WITH_AUTHORIZED_ADAPT_HOST','http://external-adapt:8081')
+        text=text.replace('https://REPLACE_WITH_AUTHORIZED_ADAPT_HOST','http://127.0.0.1:8081')
         if role=='remedy-bridge': text+='\nNODE_EXTRA_CA_CERTS=/fixtures/cert.pem\n'
         (package/'env'/f'{role}.env').write_text(text)
     env=os.environ.copy()
@@ -43,13 +43,22 @@ def verify(root, work, evidence, prefix, images, state, fixture, keys):
     common={'image':images['server']['id'],'init':True,'read_only':True,'cap_drop':['ALL'],
         'security_opt':['no-new-privileges:true'],'cpus':1,'mem_limit':'128m','pids_limit':32,
         'tmpfs':['/tmp:rw,nosuid,nodev,size=16m'],'dns':['127.0.0.1']}
+    def fixture_health(port):
+        return {'test':['CMD','python','-c',
+            'from urllib.request import Request,urlopen;assert urlopen(Request("http://127.0.0.1:'+str(port)+'/control/status",headers={"X-Fixture-Control":"synthetic-control-only"}),timeout=1).status==200'],
+            'interval':'2s','timeout':'2s','retries':20,'start_period':'5s'}
     override={'services':{
         'external-adapt':{**common,'entrypoint':['python','/proof/external.py','--kind','adapt'],
-            'volumes':[str(root/'.github/stack-proof/external.py')+':/proof/external.py:ro'],'networks':['remedy']},
+            'volumes':[str(root/'.github/stack-proof/external.py')+':/proof/external.py:ro'],
+            'network_mode':'service:adapt-scanner','depends_on':{'adapt-scanner':{'condition':'service_started'}},
+            'healthcheck':fixture_health(8081)},
         'external-cxone':{**common,'entrypoint':['python','/proof/external.py','--kind','cxone'],
             'volumes':[str(root/'.github/stack-proof/external.py')+':/proof/external.py:ro',str(fixture)+':/fixtures:ro'],
-            'networks':{'remedy':{'aliases':['dev.libretexts.org']}}},
+            'networks':{'remedy':{'aliases':['dev.libretexts.org']}},'healthcheck':fixture_health(8082)},
         'remedy-bridge':{'volumes':[str(fixture/'cert.pem')+':/fixtures/cert.pem:ro']}}}
+    # The real Scanner permits plaintext ADAPT only on loopback. Keep that
+    # guard intact; the synthetic external adapter shares its namespace.
+    del override['services']['external-adapt']['dns']
 
     def run(*args,check=True,combined=False):
         value=subprocess.run(list(map(str,args)),env=env,text=True,stdout=subprocess.PIPE,
@@ -98,7 +107,7 @@ def verify(root, work, evidence, prefix, images, state, fixture, keys):
         deadline=time.monotonic()+30
         while True:
             try:
-                if request('external-adapt',8081,'/control/status',key='synthetic-control-only',control=True)[0]==200: break
+                if request('adapt-scanner',8081,'/control/status',key='synthetic-control-only',control=True)[0]==200: break
             except OSError: pass
             assert time.monotonic()<deadline
             time.sleep(.1)
@@ -115,9 +124,12 @@ def verify(root, work, evidence, prefix, images, state, fixture, keys):
         assert health['profile']['name']=='review-only' and health['capabilities']['mutate'] is False,health
         bridge=inspect('remedy-bridge');server=inspect('remedy-server')
         assert bridge['HostConfig']['NetworkMode']=='container:'+server['Id'] and not bridge['HostConfig'].get('PortBindings')
-        code,preview=request('remedy-server',8000,'/v1/cxone/page/preview-fix',{'page_id':'42'},'synthetic-server-key')
+        code,preview=request('remedy-server',8000,'/v1/cxone/page/preview-fix',{'page_id':'42','review_images':True},'synthetic-server-key')
         assert code==200 and preview['review_binding']['action']=='cxone.apply',preview
-        code,denied=request('remedy-server',8000,'/v1/cxone/page/apply-fix',{'page_id':'42'},'synthetic-server-key')
+        vectors=json.loads((root/'tests/unit/contracts_v1/lt-1-reviewer-wire-v1-vectors.json').read_text())
+        code,denied=request('remedy-server',8000,'/v1/cxone/page/apply-fix',{'page_id':'42',
+            'preview_hash':preview['preview_hash'],'preview_token':preview['preview_token'],
+            'reviewer_assertion':vectors['positive'][0]['compact']},'synthetic-server-key')
         assert code==503 and denied['error']=='review_only_profile' and denied['outcome']=='not_attempted',denied
         code,status=request('external-cxone',8082,'/control/status',key='synthetic-control-only',control=True)
         assert code==200 and status['mutations']==0
