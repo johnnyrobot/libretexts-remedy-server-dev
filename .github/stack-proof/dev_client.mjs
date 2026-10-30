@@ -155,8 +155,33 @@ async function run() {
       previewHash: preview.data.preview_hash, previewToken: preview.data.preview_token}};
   }
   async function knownWrite(result, action, before, afterHash) {
-    requireFact(result.status === 200 && result.data.outcome === 'known_success' && result.data.writeOutcome === 'written'
-      && result.data[action === 'apply' ? 'applied' : 'restored'] === true && typeof result.data.audit_recorded === 'boolean', 'real_known_success_required');
+    const success = result.status === 200 && result.data?.outcome === 'known_success' && result.data?.writeOutcome === 'written'
+      && result.data?.[action === 'apply' ? 'applied' : 'restored'] === true && typeof result.data?.audit_recorded === 'boolean';
+    if (!success) {
+      // Bounded public categories only. Never print product bodies, messages,
+      // headers, signatures, cookies, bindings or private database events.
+      const category = (value, allowed) => allowed.includes(value) ? value : value === undefined ? 'absent' : 'other';
+      const reasons = new Map([
+        ['Generate and explicitly confirm the current stored preview in this session before writing.', 'stored_preview_refused'],
+        ['The preview or project changed. Refresh before continuing.', 'claim_refused'],
+        ['Reviewed writes are unavailable. The deployment operator must configure a valid signing key and validity window.', 'signer_unavailable'],
+        ['Write outcome is unknown. Keep the page blocked and read operation evidence; do not retry automatically.', 'unknown_outcome'],
+      ]);
+      let local = {diagnosticReadFailed: true};
+      try {
+        const current = section(await project()), events = await records();
+        local = {intentCount: events.filter(event => event.kind === 'intent').length,
+          responseCount: events.filter(event => event.kind === 'response').length,
+          pending: current?.remedyWritePending === true, storedPreviewPresent: Boolean(current?.remedyReviewedPreview),
+          storedPreviewUsed: current?.remedyReviewedPreview?.used === true};
+      } catch { /* Preserve the original failing assertion even if reads fail. */ }
+      console.error(JSON.stringify({phase, passed: false, code: 'known_write_response_diagnostic', status: result.status,
+        outcome: category(result.data?.outcome, ['not_attempted', 'pending', 'known_success', 'unknown_write']),
+        writeOutcome: category(result.data?.writeOutcome, ['not_started', 'written', 'not_written', 'uncertain']),
+        reason: reasons.get(result.data?.errMsg) || 'other',
+        responseSHA256: digest(JSON.stringify(result.data)), ...local}));
+    }
+    requireFact(success, 'real_known_success_required');
     requireFact(result.data.scan && !result.data.scanError && !result.data.evidenceError, 'genuine_postwrite_rescan_required');
     const current = await control();
     requireFact(current.writes === before.writes + 1 && current.source_sha256 === afterHash, 'exactly_one_reviewed_external_write_required');
