@@ -322,11 +322,46 @@ try:
     wait('cxone',8082,'/control/status','synthetic-control-only',True)
     server_env={'APP_ENV':'production','PYTHON_DOTENV_DISABLED':'1','APP_API_KEY_FILE':'/run/secrets/app','OLLAMA_API_KEY_FILE':'/run/secrets/ollama','OLLAMA_BASE_URL':'https://provider.invalid/v1','CORS_ALLOW_ORIGINS':'https://conductor.invalid','JOB_DIR':'/app/state/jobs','JOB_STORE_PATH':'/app/state/jobs.sqlite3','JOB_BACKUP_DIR':'/app/state/backups','OUTPUT_DIR':'/app/state/output','LOG_DIR':'/app/state/logs','HOME':'/tmp','TMPDIR':'/tmp','CXONE_INTEGRATION_ENABLED':'true','CXONE_BRIDGE_BASE_URL':'http://127.0.0.1:5175','REMEDY_BRIDGE_SERVICE_KEY_FILE':'/run/secrets/service','WORKER_CONCURRENCY':'1','WORKER_MAX_PENDING':'8','JOB_TOTAL_TIMEOUT_SECONDS':'900','MAX_UPLOAD_MB':'4','MAX_REQUEST_BYTES':'5000000','RATE_LIMIT_DEFAULT':'10000/minute','RATE_LIMIT_UPLOADS':'10000/minute'}
     def start_server():
-        start('server','remedy-server:stack-candidate',['node','/proof/secret-env.mjs','server','uvicorn','backend.app.main:app','--host','0.0.0.0','--port','8000','--workers','1','--timeout-graceful-shutdown','15','--ssl-certfile','/fixtures/cert.pem','--ssl-keyfile','/fixtures/key.pem'],envfile('server',server_env),[(loader,'/proof/secret-env.mjs',True),(server_keys,'/run/secrets',True),(state,'/app/state',False),(fixture,'/fixtures',True)],extra=[*net,'--network-alias','remedy-server','--security-opt','seccomp='+str(ROOT/'deploy/chromium-seccomp-amd64.json')],limits=(4,'4g',512,'256m',120))
+        start('server','remedy-server:stack-candidate',['node','/proof/secret-env.mjs','server','uvicorn','backend.app.main:app','--host','0.0.0.0','--port','8000','--workers','1','--timeout-graceful-shutdown','15','--ssl-certfile','/fixtures/cert.pem','--ssl-keyfile','/fixtures/key.pem'],envfile('server',server_env),[(loader,'/proof/secret-env.mjs',True),(server_keys,'/run/secrets',True),(state,'/app/state',False),(fixture,'/fixtures',True),
+              (fixture/'ca.pem','/run/tls/ca.pem',True),(source/'job_state_probe.py','/proof/job_state_probe.py',True)],extra=[*net,'--network-alias','remedy-server','--security-opt','seccomp='+str(ROOT/'deploy/chromium-seccomp-amd64.json')],limits=(4,'4g',512,'256m',120))
         deadline=time.monotonic()+60
         while run('docker','exec',PREFIX+'-server','curl','--cacert','/fixtures/ca.pem','-fsS','https://remedy-server:8000/readyz',check=False).strip()=='':
             assert time.monotonic()<deadline,'actual TLS Server readiness';time.sleep(.2)
     start_server()
+    def office_job(mode,witness=None):
+        value=inspect(PREFIX+'-server')
+        assert value['Config']['Labels']['org.libretexts.stack-proof-owner']==OWNER
+        assert value['Image']==imports['images']['server']['loadedDockerImageID'] and re.fullmatch(r'[a-f0-9]{64}',value['Id'])
+        arguments=['docker','exec',*(['-i'] if witness is not None else []),value['Id'],
+                   'node','/proof/secret-env.mjs','server','python','/proof/job_state_probe.py',mode]
+        observed=subprocess.run(arguments,input=json.dumps(witness) if witness is not None else None,
+                                capture_output=True,text=True,timeout=180)
+        # Full terminal metadata remains private; only bounded identity/hash facts
+        # from the existing real-Office witness enter the uploaded receipt.
+        if observed.returncode:
+            failure={'actualOfficeWitnessFailed':True,'returncode':observed.returncode,
+                     'stderrSHA256':hashlib.sha256(observed.stderr.encode()).hexdigest()}
+            for line in observed.stderr.splitlines():
+                try:detail=json.loads(line)
+                except ValueError:continue
+                if not isinstance(detail,dict) or detail.get('actualOfficeWitnessFailed') is not True:continue
+                if detail.get('phase') in {'configuration','single-submission','terminal-status','original-download','retained-options','genuine-artifact'}:
+                    failure['phase']=detail['phase']
+                if detail.get('errorType') in {'ValueError','KeyError','OSError','TimeoutError','SSLError','BadZipFile','FileNotFoundError'}:
+                    failure['errorType']=detail['errorType']
+            write_product_log(OUT/('signed-office-failure-'+mode+'.json'),json.dumps(failure)+'\n',sensitive_values)
+        assert observed.returncode==0,'actual Office cold-state witness failed without submission retry'
+        result=json.loads(observed.stdout.strip().splitlines()[-1])
+        public={key:result[key] for key in ('jobID','inputSHA256','outputSHA256','options','postCount',
+                'genuineDOCXParsed','persistedOptionsUnchanged','postRepeated') if key in result}
+        write_product_log(OUT/('signed-office-'+mode+'-'+str(len(report.get('officeJobVerifications',[])))+'.log'),
+                          json.dumps({**public,'stderrSHA256':hashlib.sha256(observed.stderr.encode()).hexdigest()})+'\n',sensitive_values)
+        if witness is not None:report.setdefault('officeJobVerifications',[]).append(public)
+        return result
+    office_witness=office_job('create')
+    private_office=WORK/'original-office-witness.json'
+    private_office.write_text(json.dumps(office_witness));private_office.chmod(0o600)
+    report['officeJob']={key:office_witness[key] for key in ('jobID','inputSHA256','outputSHA256','options','postCount','genuineDOCXParsed')}
     # Exact Scanner calls the actual TLS Server, keeping certificate checks on.
     scanner_env={'ADAPT_BASE_URL':'http://127.0.0.1:8081','ADAPT_TOKEN_FILE':'/run/secrets/adapt','SCANNER_API_KEY_FILE':'/run/secrets/api','REMEDY_API_KEY_FILE':'/run/secrets/remedy','SCAN_MODE':'http','RENDER_MODE':'iframe','REMEDY_ENDPOINT':'https://remedy-server:8000/v1/validate/html','NODE_EXTRA_CA_CERTS':'/fixtures/ca.pem','HOME':'/tmp','TMPDIR':'/tmp','SCANNER_MAX_ACTIVE_JOBS':'1','SCANNER_MAX_QUEUED_JOBS':'8','SCANNER_JOB_TIMEOUT_MS':'900000','SCANNER_MAX_REQUEST_BYTES':'5000000','REMEDY_TIMEOUT_MS':'920000'}
     def start_scanner():
@@ -546,6 +581,7 @@ try:
                                          for name,value in cold._inventory(path)['entries'].items() if value['kind']=='file'}
                     else:jobs[directory]={}
                 digest=lambda value:hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+                assert office_witness['outputSHA256'] in {entry['sha256'] for files in jobs.values() for entry in files.values()},'genuine Office output must be inside the cold job tree'
                 return {'snapshotFiles':len(snapshot_files),'snapshotBytes':sum(item['size'] for item in snapshot_files.values()),
                         'snapshotsSHA256':digest(snapshot_files),'auditBytes':audit['size'],'auditSHA256':audit['sha256'],
                         'jobFiles':sum(len(files) for files in jobs.values()),'jobTreeSHA256':digest(jobs)}
@@ -594,6 +630,7 @@ try:
             cold_receipt.update({'archiveSHA256':captured['archive_sha256'],'manifestSHA256':captured['manifest_sha256'],
                 'publicColdCLI':True,'processes':process_pins,'rawExitCodes':captured['rawExitCodes'],
                 'operationRecords':history_before['operationRecords'],'captureHistory':history_before,'captureContents':contents_before,
+                'officeJob':dict(report['officeJob']),
                 'currentFenceSHA256':fence_before['sha256'],'opaqueEpochSHA256':epoch_sha,
                 'unresolvedUnknownCaptured':True,'originalStoresRetained':True,'currentFenceNeverRestored':True})
             # Retain even the original stopped containers, under unique names.
@@ -615,6 +652,8 @@ try:
             for stage_name,image in stages:
                 start_conductor(epoch=signing['trust_epoch'],image=image)
                 observed=history_observation();contents=content_observation()
+                office_verified=office_job('verify-existing',office_witness)
+                assert office_verified['postRepeated'] is False and office_verified['persistedOptionsUnchanged'] is True and office_verified['genuineDOCXParsed'] is True
                 assert observed==history_before,'current cloned immutable actor/outcome/history changed'
                 assert contents==contents_before,'snapshot/audit/job bytes changed on current clone'
                 assert cold._fence(fence_path)==fence_before,'current independent fence changed during read-only transition'
@@ -631,7 +670,8 @@ try:
                     'historySHA256':observed['historySHA256'],'issuerNonceBindingsSHA256':observed['issuerNonceBindingsSHA256'],
                     'actorOutcomeSHA256':observed['actorOutcomeSHA256'],'snapshotsSHA256':contents['snapshotsSHA256'],
                     'auditSHA256':contents['auditSHA256'],'jobTreeSHA256':contents['jobTreeSHA256'],
-                    'currentFenceSHA256':fence_before['sha256'],'opaqueEpochSHA256':epoch_sha,'verifiedCriteria':0})
+                    'currentFenceSHA256':fence_before['sha256'],'opaqueEpochSHA256':epoch_sha,'verifiedCriteria':0,
+                    'officeJobVerification':office_verified})
                 stop('conductor')
             stop('bridge')
             cold_receipt.update({'complete':True,'unresolvedUnknownPreserved':True,'originalsRemainDisabled':True,

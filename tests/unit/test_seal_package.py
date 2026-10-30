@@ -187,7 +187,9 @@ def candidate(tmp_path, monkeypatch):
             'refusedRecoveryStatus': 409, 'authenticatedHistoryVerified': True, 'signerPresent': False,
             'missingAuditPreserved': True, 'verifiedCriteria': 0,
             **{field: 'a' * 64 for field in ('journalSHA256', 'historySHA256', 'actorOutcomeSHA256', 'issuerNonceBindingsSHA256')}}
-        contents = {'snapshotFiles': 3, 'snapshotBytes': 60, 'auditBytes': 80,
+        office = {'jobID': 'e' * 32, 'inputSHA256': '1' * 64, 'outputSHA256': '2' * 64,
+                  'options': {'allow_semantic_rebuild': False}, 'postCount': 1, 'genuineDOCXParsed': True}
+        contents = {'snapshotFiles': 3, 'snapshotBytes': 60, 'auditBytes': 80, 'jobFiles': 2,
             **{field: 'b' * 64 for field in ('snapshotsSHA256', 'auditSHA256', 'jobTreeSHA256')}}
         cold = {**{field: True for field in ('complete', 'publicColdCLI', 'unresolvedUnknownCaptured',
             'originalStoresRetained', 'currentFenceNeverRestored', 'unresolvedUnknownPreserved',
@@ -195,7 +197,7 @@ def candidate(tmp_path, monkeypatch):
             'fenceScope': 'capture-restore-and-read-only-binary-transitions',
             'remoteMutationRetries': 0, 'deploymentReady': False, 'productionWritesEnabled': False,
             'admissionAuthorized': False, 'processCleanupCertified': False, 'operationRecords': 10,
-            'captureHistory': history, 'captureContents': contents,
+            'captureHistory': history, 'captureContents': contents, 'officeJob': office,
             **{field: 'c' * 64 for field in ('archiveSHA256', 'manifestSHA256', 'currentFenceSHA256', 'opaqueEpochSHA256')},
             'processes': {role: {'id': 'd' * 64, 'image': images[role]['loadedDockerImageID'] if role in images else
                 pin['loadedDockerImageID'] if role == 'conductor' else 'sha256:' + 'e' * 64}
@@ -211,7 +213,9 @@ def candidate(tmp_path, monkeypatch):
                 'signerPresent': False, 'remoteMutationRetries': 0, 'verifiedCriteria': 0, 'operationRecords': 10,
                 **{field: history[field] for field in ('journalSHA256', 'historySHA256', 'actorOutcomeSHA256')},
                 **{field: contents[field] for field in ('snapshotsSHA256', 'auditSHA256', 'jobTreeSHA256')},
-                'currentFenceSHA256': cold['currentFenceSHA256']})
+                'currentFenceSHA256': cold['currentFenceSHA256'],
+                'officeJobVerification': {**{key: office[key] for key in ('jobID', 'inputSHA256', 'outputSHA256')},
+                    'genuineDOCXParsed': True, 'persistedOptionsUnchanged': True, 'postRepeated': False}})
         synthetic['targets'][target]['coldOperations'] = cold
         for mode in ('review-only', 'full-write'):
             preflight['cases'].append({'target': target, 'mode': mode, 'checks': {'ok': True, 'startupCompatibility': True, 'writeReady': False, 'admission': False}})
@@ -269,6 +273,21 @@ def test_signed_cold_acceptance_requires_real_uncertainty_and_preserved_current_
         elif damage == 'changed-actor-history': cold['stages'][2]['actorOutcomeSHA256'] = '0' * 64
     change_receipt(candidate, 'synthetic-signed-result.json', change)
     with pytest.raises(ValueError, match='cold'):
+        sealer.seal(candidate)
+    assert not (candidate / '.stack-package').exists()
+
+
+@pytest.mark.parametrize('damage', ['empty-job-tree', 'missing-office-job', 'post-repeated', 'changed-output', 'changed-options'])
+def test_signed_cold_requires_genuine_retained_office_bytes_with_the_signed_history(candidate, damage):
+    def change(value):
+        cold = next(iter(value['targets'].values()))['coldOperations']
+        if damage == 'empty-job-tree': cold['captureContents']['jobFiles'] = 0
+        elif damage == 'missing-office-job': cold.pop('officeJob')
+        elif damage == 'post-repeated': cold['stages'][0]['officeJobVerification']['postRepeated'] = True
+        elif damage == 'changed-output': cold['stages'][1]['officeJobVerification']['outputSHA256'] = '0' * 64
+        elif damage == 'changed-options': cold['officeJob']['options']['allow_semantic_rebuild'] = True
+    change_receipt(candidate, 'synthetic-signed-result.json', change)
+    with pytest.raises(ValueError, match='Office|job'):
         sealer.seal(candidate)
     assert not (candidate / '.stack-package').exists()
 

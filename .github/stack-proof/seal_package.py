@@ -128,6 +128,15 @@ def verify_signed_cold(cold, target, consumers, imports):
         'remoteMutationRetries': 0, 'deploymentReady': False, 'productionWritesEnabled': False,
         'admissionAuthorized': False, 'processCleanupCertified': False}, 'actual signed cold/' + target)
     history, contents = cold['captureHistory'], cold['captureContents']
+    office = cold.get('officeJob')
+    require(isinstance(office, dict), 'actual Office job witness required/' + target)
+    matches(office, {'postCount': 1, 'genuineDOCXParsed': True}, 'actual Office job/' + target)
+    require(isinstance(office.get('jobID'), str) and re.fullmatch(r'[a-f0-9]{32}', office['jobID']) is not None and
+        all(isinstance(office.get(key), str) and HEX.fullmatch(office[key]) for key in ('inputSHA256', 'outputSHA256')),
+        'actual Office job identity and hashes required/' + target)
+    require(isinstance(office.get('options'), dict) and set(office['options']) == {'allow_semantic_rebuild'} and
+        office['options']['allow_semantic_rebuild'] is False, 'actual Office job original options required/' + target)
+    require(type(contents.get('jobFiles')) is int and contents['jobFiles'] > 0, 'nonempty actual job bytes required/' + target)
     for field in ('operationRecords', 'intentRecords', 'knownOperations', 'unknownOperations', 'auditFalseOperations'):
         require(type(history.get(field)) is int and history[field] > 0, 'nonempty signed cold history/' + target + '/' + field)
     require(cold['operationRecords'] == history['operationRecords'], 'signed cold operation count/' + target)
@@ -155,6 +164,11 @@ def verify_signed_cold(cold, target, consumers, imports):
         ('cold-reopen', consumers[target]['loadedDockerImageID']), ('compatible-alternate-binary', alternate),
         ('rollback-on-current-data', consumers[target]['loadedDockerImageID'])], 'signed cold original binary transitions/' + target)
     for stage in stages:
+        require(isinstance(stage.get('officeJobVerification'), dict), 'actual Office job restoration verification required/' + target)
+        matches(stage['officeJobVerification'], {
+            **{key: office[key] for key in ('jobID', 'inputSHA256', 'outputSHA256')},
+            'genuineDOCXParsed': True, 'persistedOptionsUnchanged': True, 'postRepeated': False},
+            'actual Office job restoration/' + target)
         matches(stage, {**{key: True for key in ('passed', 'reviewOnly', 'pendingUnknownHeld', 'authenticatedHistoryVerified',
             'actorOutcomeHashesUnchanged', 'issuerNonceBindingsUnchanged', 'originalsUnchanged', 'snapshotsUnchanged',
             'auditUnchanged', 'missingAuditPreserved', 'jobTreeUnchanged', 'currentFenceUnchanged', 'opaqueEpochUnchanged')},
