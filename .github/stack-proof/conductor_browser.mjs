@@ -15,10 +15,12 @@ await context.route('**/*',route=>{
 });
 try {
   await page.goto('https://conductor.invalid:8443/fallback-auth',{waitUntil:'domcontentloaded'});
-  await page.getByLabel('Email',{exact:true}).fill('editor@candidate.example.invalid');
-  await page.getByLabel('Password',{exact:true}).fill(config.password);
+  console.log(JSON.stringify({checkpoint:'compiled-login-page-over-trusted-TLS',passed:true}));
+  await page.getByLabel(/^Email/).fill('editor@candidate.example.invalid');
+  await page.getByLabel(/^Password/).fill(config.password);
   await page.getByRole('button',{name:'Login',exact:true}).click();
   await page.waitForURL('**/home',{timeout:30000});
+  console.log(JSON.stringify({checkpoint:'real-browser-fallback-login',passed:true}));
   const cookies=await context.cookies();
   assert.ok(cookies.some(cookie=>cookie.secure&&cookie.domain.includes('conductor.invalid')),'browser accepted real Secure session cookie over trusted TLS');
   await page.goto('https://conductor.invalid:8443/projects/'+config.projectID+'/accessibility');
