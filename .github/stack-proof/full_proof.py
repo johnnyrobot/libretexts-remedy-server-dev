@@ -142,6 +142,7 @@ try:
     (fixture/'key.pem').chmod(0o400);os.chown(fixture/'key.pem',999,999);(fixture/'cert.pem').chmod(0o444)
     # Chromium's NSS trust store uses the local fixture CA. Certificate and
     # hostname verification stay enabled; no browser or Node TLS bypass.
+    report['NSSSetup']={'toolSHA256':hashlib.sha256(Path('/usr/bin/certutil').read_bytes()).hexdigest(),'hostToolPackage':run('dpkg-query','-W','-f=${Version}','libnss3-tools').strip(),'hostOS':Path('/etc/os-release').read_text(),'temporaryHome':'/tmp/renderer-home','temporaryBytes':512*1024*1024}
     nss=WORK/'nssdb';nss.mkdir();run('certutil','-N','--empty-password','-d','sql:'+str(nss))
     run('certutil','-A','-d','sql:'+str(nss),'-n','isolated-cxone-fixture','-t','C,,','-i',fixture/'ca.pem')
     renderer_uid=int(run('docker','run','--rm','--network','none','--entrypoint','node',imports['images']['renderer']['loadedDockerImageID'],'-e','console.log(process.getuid())').strip());assert renderer_uid!=0
@@ -172,8 +173,9 @@ try:
     wait('scanner',8081,'/control/status','synthetic-control-only',True)
     code,scan=request('scanner',5176,'/v1/adapt/scan',{'mode':'question','id':101},'synthetic-scanner-key');assert code==200 and scan['results'][0]['findings'] and scan['results'][0]['capturedBytes']>0,scan
     report['actualScannerAgainstTLSserver']=True
-    start('renderer','remedy-renderer:stack-candidate',['node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/home/pwuser'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(nss,'/home/pwuser/.pki/nssdb',True),(source/'nss_home.sh','/proof/nss_home.sh',True),(nss,'/fixture-nss',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
+    start('renderer','remedy-renderer:stack-candidate',['sh','/proof/nss_home.sh','node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/tmp/renderer-home'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(source/'nss_home.sh','/proof/nss_home.sh',True),(nss,'/fixture-nss',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
     wait('renderer',5180)
+    report['NSSSetup']['runtimePackage']=run('docker','exec',PREFIX+'-renderer','dpkg-query','-W','-f=${Version}','libnss3').strip()
     denied_chroot=subprocess.run(['docker','exec',PREFIX+'-renderer','chroot','/','/bin/true'],capture_output=True,text=True,timeout=10)
     assert denied_chroot.returncode!=0 and 'Operation not permitted' in denied_chroot.stderr,'initial namespace chroot must remain kernel-denied'
     report['rendererInitialNamespaceChrootDenied']=True
@@ -227,7 +229,7 @@ try:
                 tls_deadline=time.monotonic()+20
                 while run('docker','exec',PREFIX+'-server','curl','--cacert','/fixtures/ca.pem','-sS','-o','/dev/null','-w','%{http_code}','https://conductor.invalid:8443/health',check=False).strip()!='200':
                     assert time.monotonic()<tls_deadline,'verified private TLS frontend readiness';time.sleep(.2)
-                start('ui',imports['images']['renderer']['loadedDockerImageID'],['node','/proof/conductor_browser.mjs'],envfile('ui',{'HOME':'/home/pwuser'}),[(source/'conductor_browser.mjs','/proof/conductor_browser.mjs',True),(browser_fixture,'/fixture',True),(nss,'/home/pwuser/.pki/nssdb',True),(source/'nss_home.sh','/proof/nss_home.sh',True),(nss,'/fixture-nss',True),(browser_evidence,'/browser-evidence',False)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],uid=renderer_uid,limits=(1.5,'2g',256,'1g',30))
+                start('ui',imports['images']['renderer']['loadedDockerImageID'],['sh','/proof/nss_home.sh','node','/proof/conductor_browser.mjs'],envfile('ui',{'HOME':'/tmp/renderer-home'}),[(source/'conductor_browser.mjs','/proof/conductor_browser.mjs',True),(browser_fixture,'/fixture',True),(source/'nss_home.sh','/proof/nss_home.sh',True),(nss,'/fixture-nss',True),(browser_evidence,'/browser-evidence',False)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],uid=renderer_uid,limits=(1.5,'2g',256,'1g',30))
                 assert run('docker','wait',PREFIX+'-ui').strip()=='0','actual UI browser failed; see sanitized ui log'
                 browser_result=json.loads(run('docker','logs',PREFIX+'-ui').strip().splitlines()[-1]);assert browser_result['passed']
                 phases.append(browser_result)
@@ -248,27 +250,6 @@ except Exception as error:
             write_product_log(OUT/'renderer-browser-process.log',process.stderr,sensitive_values)
             process.check_returncode();diagnostic=process.stdout
             write_product_log(OUT/'renderer-diagnostic.json',diagnostic,sensitive_values)
-            if json.loads(diagnostic).get('error','').find('ERR_CERT_AUTHORITY_INVALID')>=0:
-                process=subprocess.run(['docker','exec','--env','DEBUG=pw:browser','--env','HOME=/tmp/renderer-home',PREFIX+'-renderer','sh','/proof/nss_home.sh','node','/proof/renderer_diagnose.mjs'],capture_output=True,text=True,timeout=180)
-                write_product_log(OUT/'renderer-initialized-nss-process.log',process.stderr,sensitive_values)
-                process.check_returncode();alternate=process.stdout
-                write_product_log(OUT/'renderer-initialized-nss-diagnostic.json',alternate,sensitive_values)
-                if json.loads(alternate).get('error','').find('ERR_CERT_AUTHORITY_INVALID')>=0:
-                    process=subprocess.run(['docker','exec','--env','DEBUG=pw:browser','--env','HOME=/tmp/renderer-rebased-home',PREFIX+'-renderer','sh','/proof/nss_home.sh','--rebase-config','node','/proof/renderer_diagnose.mjs'],capture_output=True,text=True,timeout=180)
-                    write_product_log(OUT/'renderer-rebased-nss-process.log',process.stderr,sensitive_values)
-                    process.check_returncode();write_product_log(OUT/'renderer-rebased-nss-diagnostic.json',process.stdout,sensitive_values)
-                    if json.loads(process.stdout).get('error','').find('ERR_CERT_AUTHORITY_INVALID')>=0:
-                        # Same verified image/CA/filter, now initialize at the
-                        # actual passwd HOME on bounded private temporary state.
-                        start('nss-fixed-home',imports['images']['renderer']['loadedDockerImageID'],['sh','/proof/nss_home.sh','--rebase-config','node','/proof/renderer_diagnose.mjs'],envfile('nss-fixed-home',{'HOME':'/home/pwuser','RENDER_ALLOWED_HOSTS':'dev.libretexts.org'}),[(source/'nss_home.sh','/proof/nss_home.sh',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True),(nss,'/fixture-nss',True)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json'),'--tmpfs',f'/home/pwuser:rw,nosuid,nodev,noexec,size=64m,uid={renderer_uid},gid={renderer_uid},mode=0700'],uid=renderer_uid,limits=(1.5,'2g',256,'1g',30))
-                        assert run('docker','wait',PREFIX+'-nss-fixed-home').strip()=='0','fixed real HOME diagnostic failed'
-                        write_product_log(OUT/'renderer-fixed-home-nss-diagnostic.json',product_log(PREFIX+'-nss-fixed-home'),sensitive_values)
-                        stop('nss-fixed-home')
-                        report['nativeNSSDiagnosticToolSHA256']=hashlib.sha256(Path('/usr/bin/certutil').read_bytes()).hexdigest()
-                        start('tls-channel',imports['images']['renderer']['loadedDockerImageID'],['sh','/proof/nss_home.sh','--rebase-config','node','/proof/tls_channel_diagnose.mjs'],envfile('tls-channel',{'HOME':'/home/pwuser'}),[(source/'nss_home.sh','/proof/nss_home.sh',True),(source/'tls_channel_diagnose.mjs','/proof/tls_channel_diagnose.mjs',True),(nss,'/fixture-nss',True),(Path('/usr/bin/certutil'),'/proof/certutil',True),(fixture/'ca.pem','/fixture-ca/ca.pem',True)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json'),'--tmpfs',f'/home/pwuser:rw,nosuid,nodev,noexec,size=64m,uid={renderer_uid},gid={renderer_uid},mode=0700'],uid=renderer_uid,limits=(1.5,'2g',256,'1g',30))
-                        assert run('docker','wait',PREFIX+'-tls-channel').strip()=='0','TLS channel diagnostic failed'
-                        write_product_log(OUT/'renderer-tls-channel-diagnostic.json',product_log(PREFIX+'-tls-channel'),sensitive_values)
-                        stop('tls-channel')
         except Exception as diagnostic_error:report['rendererDiagnosticError']=safe_error(diagnostic_error)
     raise RuntimeError(report['error']) from None
 finally:

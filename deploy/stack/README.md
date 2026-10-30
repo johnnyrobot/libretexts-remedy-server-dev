@@ -240,7 +240,15 @@ roles; this does not establish production SSO acceptance. Server uses Uvicorn's
 existing TLS arguments, and Node trusts only the generated fixture CA. Chromium
 uses a separate synthetic root CA and server certificate with certificate/hostname
 validation enabled; the CA private key is never mounted into a workload. The NSS
-setup follows [Chromium's Linux certificate guidance](https://chromium.googlesource.com/chromium/src/+/main/docs/linux/cert_management.md). Trust-store diagnostics are test-fixture evidence, not production PKI or SSO acceptance. Its reviewed
+setup follows [Chromium's Linux certificate guidance](https://chromium.googlesource.com/chromium/src/+/main/docs/linux/cert_management.md). Trust-store diagnostics are test-fixture evidence, not production PKI or SSO acceptance.
+The commissioning workflow pins Ubuntu 24.04: newer runner NSS tools failed to
+load against the immutable Noble renderer libraries. It records the host tool
+hash/package and runtime NSS package. The public fixture database is seeded into
+a private writable `/tmp/renderer-home` under the existing 512 MiB temporary
+filesystem budget, with the renderer's actual UID 1001. The seed mount stays
+read-only; location-dependent host module configuration is not copied. Both
+current and legacy NSS paths are initialized as the Chromium guidance describes.
+No CA private key or ignored-certificate-error setting is supplied to Chromium. Its reviewed
 hostname/IP policy is retained, using Docker's **internal** TEST-NET
 `198.51.100.0/24`, an isolated `dev.libretexts.org` alias, no host ports and an
 additional deny-host rule. This topology cannot contact the real domain/provider.
