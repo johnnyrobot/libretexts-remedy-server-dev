@@ -41,6 +41,16 @@ try:
         value=json.loads(result.stdout)
         receipt['profiles'][name]={'returncode':result.returncode,'result':value}
         assert result.returncode==1 and value['error']==reason,(name,value)
+    mismatched=json.loads(json.dumps(proof))
+    mismatched['importedArtifacts']['images']['server']['OCIArchiveSHA256']='0'*64
+    mismatch_path=work/'same-source-mismatched-proof.json'
+    mismatch_path.write_text(json.dumps(mismatched))
+    args=list(common)
+    args[args.index('--proof')+1]=str(mismatch_path)
+    result=subprocess.run(args+['--profile','engine'],capture_output=True,text=True,timeout=240)
+    value=json.loads(result.stdout)
+    receipt['profiles']['same-source-mismatched-archive']={'returncode':result.returncode,'result':value}
+    assert result.returncode==1 and value['error']=='candidate_archive_not_in_proof',value
     receipt['verificationComplete']=True
 finally:
     if mounted:
