@@ -7,6 +7,10 @@ class Metrics:
     def __init__(self):
         self.items={};self.lock=threading.Lock();self.stop=threading.Event();self.errors=[]
         self.thread=threading.Thread(target=self.collect,daemon=True);self.thread.start()
+    def _failure(self,stage,error):
+        message=stage+':'+type(error).__name__
+        if isinstance(error,OSError): message+=':errno='+str(error.errno)
+        if message not in self.errors: self.errors.append(message)
     def register(self,name,info,limits):
         pid=info['State']['Pid']
         if not pid: return
@@ -37,6 +41,26 @@ class Metrics:
             # error can be reclassified merely because stop is about to begin.
             self._sample(item)
             item['stopping']=True
+
+    def observe_stop(self,identity,stop,inspect):
+        """Measurement errors never bypass the caller's owned shutdown."""
+        try: self.begin_stop(identity)
+        except Exception as error: self._failure('pre_stop_metrics_failed',error)
+        try:
+            stop()
+        except Exception as error:
+            self._failure('owned_stop_command_failed',error)
+            raise
+        finally:
+            final=inspect()
+            state=final['State']
+            if (final.get('Id')!=identity or state.get('Status')!='exited' or
+                    state.get('Running') is not False or state.get('Pid')!=0 or
+                    any(state.get(key) for key in ('Paused','Restarting','Dead'))):
+                raise ValueError('owned container shutdown unconfirmed')
+            try: self.finish_stop(final)
+            except Exception as error: self._failure('post_stop_metrics_failed',error)
+        return final
 
     def finish_stop(self,info):
         with self.lock:
@@ -69,8 +93,7 @@ class Metrics:
                     try:
                         self._sample(item)
                     except Exception as error:
-                        message=type(error).__name__+': '+str(error)
-                        if message not in self.errors: self.errors.append(message)
+                        self._failure('live_cgroup_sample_failed',error)
             self.stop.wait(.02)
     def close(self):
         self.stop.set();self.thread.join(5)

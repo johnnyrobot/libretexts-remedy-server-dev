@@ -112,3 +112,37 @@ def test_failed_collector_join_does_not_wait_on_its_lock(measured):
     metrics.lock = UnavailableLock()
     assert metrics.close() == {}
     assert metrics.errors == ['metrics_collector_did_not_stop']
+
+
+def test_measurement_failure_cannot_bypass_actual_stop_and_inspection(measured, monkeypatch):
+    metrics, info, stopped, base = measured
+    original = Path.read_text
+    def fail(path, *args, **kwargs):
+        if path == base / 'memory.max': raise OSError(errno.EIO, 'synthetic live measurement failure')
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, 'read_text', fail)
+    calls = []
+    def stop(): calls.append('stop')
+    def inspect(): calls.append('inspect');return stopped
+    assert metrics.observe_stop(info['Id'], stop, inspect) == stopped
+    assert calls == ['stop', 'inspect']
+    metrics.close()
+    assert metrics.errors  # cleanup is performed; failed measurement is never accepted
+
+
+def test_observed_stop_requires_the_same_exited_container(measured):
+    metrics, info, _, _ = measured
+    with pytest.raises(ValueError):
+        metrics.observe_stop(info['Id'], lambda: None, lambda: info)
+
+
+def test_stop_command_error_still_inspects_and_remains_a_failure(measured):
+    metrics, info, stopped, _ = measured
+    calls = []
+    def failed_stop():
+        calls.append('stop')
+        raise RuntimeError('synthetic stop command failure')
+    def inspect(): calls.append('inspect');return stopped
+    with pytest.raises(RuntimeError): metrics.observe_stop(info['Id'], failed_stop, inspect)
+    assert calls == ['stop', 'inspect']
+    assert 'owned_stop_command_failed:RuntimeError' in metrics.errors
