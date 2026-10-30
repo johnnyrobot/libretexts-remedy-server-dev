@@ -57,3 +57,12 @@ def test_unrelated_proc_errors_are_never_reclassified_as_exit_churn(tmp_path, mo
         observer.processes('owned-container')
     assert error.value.errno == error_number
     assert observer.vanished_rows['ENODEVAfterTaskExit'] == 0
+
+
+@pytest.mark.parametrize('after_state,after_ticks', [('Z', ''), ('R', 'not-a-number')])
+def test_malformed_stat_cannot_certify_an_exited_or_reused_identity(tmp_path, monkeypatch, after_state, after_ticks):
+    observer = observer_with_row(tmp_path, monkeypatch, after_state, after_ticks)
+    with pytest.raises((ValueError, IndexError)):
+        observer.processes('owned-container')
+    assert observer.vanished_rows['ENODEVAfterTaskExit'] == 0
+    assert observer.records == []

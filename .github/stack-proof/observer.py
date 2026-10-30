@@ -58,7 +58,10 @@ class Observer:
                 # ENODEV as census churn; the same LIVE identity stays fatal.
                 try:
                     current=(proc/'stat').read_text().rsplit(')',1)[1].split()
-                    ended=current[0] in {'Z','X','x'} or (captured_start is not None and current[19] != captured_start)
+                    current_start=current[19]
+                    if re.fullmatch(r'[0-9]+',current_start) is None:
+                        raise ValueError('invalid proc start time')
+                    ended=current[0] in {'Z','X','x'} or (captured_start is not None and current_start != captured_start)
                 except (FileNotFoundError,ProcessLookupError):
                     ended=True
                 if not ended:
