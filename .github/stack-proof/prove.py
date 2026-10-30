@@ -409,14 +409,20 @@ finally:
             info=json.loads(cmd('docker','inspect',name))[0]
             assert info['Config'].get('Labels',{}).get('org.libretexts.stack-proof-owner')==owner_token,'refusing unowned container cleanup'
             report.setdefault('containers',{})[name]={'state':info['State'],'runtimeUser':info['Config'].get('User',''),'hostConfig':{k:info['HostConfig'].get(k) for k in ['Memory','NanoCpus','PidsLimit','ShmSize','Init','ReadonlyRootfs','NetworkMode']}}
-            logs=subprocess.run(['docker','logs',name],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT).stdout
-            for secret in ['synthetic-server-key','synthetic-provider-key','synthetic-scanner-key','synthetic-adapt-token','synthetic-control-only','synthetic-secret','a1'*32]: logs=logs.replace(secret,'[synthetic credential redacted]')
-            (EVIDENCE/(name+'.log')).write_text(logs[-50000:])
             started=time.monotonic();cmd('docker','stop',name,check=False)
             report['containers'][name]['stopSeconds']=time.monotonic()-started
             stopped=json.loads(cmd('docker','inspect',name))[0]['State']
             report['containers'][name]['stoppedState']=stopped
-            if name in {PREFIX+'-server',PREFIX+'-scanner',PREFIX+'-bridge'} and stopped['ExitCode']!=0: report['errors'].append('product_shutdown_failed:'+name)
+            logs=subprocess.run(['docker','logs',name],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT).stdout
+            for secret in ['synthetic-server-key','synthetic-provider-key','synthetic-scanner-key','synthetic-adapt-token','synthetic-control-only','synthetic-secret','a1'*32]: logs=logs.replace(secret,'[synthetic credential redacted]')
+            (EVIDENCE/(name+'.log')).write_text(logs[-80000:])
+            # Uvicorn re-raises SIGTERM after lifespan shutdown. Signal exit143
+            # is distinct from a forced137; unresolved durable markers still fail.
+            accepted={0,143} if name==PREFIX+'-server' else {0}
+            if name in {PREFIX+'-server',PREFIX+'-scanner',PREFIX+'-bridge'} and stopped['ExitCode'] not in accepted: report['errors'].append('product_shutdown_failed:'+name)
+            if name==PREFIX+'-server' and state_mounted:
+                markers=list((WORK/'state').glob('*.execution.lock.unresolved/*'))
+                if markers: report['errors'].append('unresolved_engine_ownership_after_stop')
             cmd('docker','rm',name,check=False)
         except Exception as error: report['errors'].append('diagnostic_or_cleanup_failed:'+type(error).__name__)
     if host_canary is not None: host_canary.shutdown();host_canary.server_close()

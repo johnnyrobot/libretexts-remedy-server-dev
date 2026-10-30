@@ -38,10 +38,14 @@ class Observer:
         if not re.fullmatch(r'\d+-\d+',key) or path.name!=key+'.ready.json': raise ValueError('invalid observation identity')
         if request['tool'] not in {'server-render','server-axe','server-pa11y','server-lighthouse','scanner-browser'}: raise ValueError('unknown actual tool')
         deadline=time.monotonic()+12
+        diagnostic={'request':request,'lastCensus':[],'matchingOwners':[],'browserCandidates':[]}
         while time.monotonic()<deadline and not self.stop.is_set():
             census=self.processes(container)
+            diagnostic['lastCensus']=list(census.values())
             owners=[p for p in census.values() if p['containerPid']==request['ownerPid'] and p['startTicks']==request['startTicks']]
-            if not owners: time.sleep(.02);continue
+            diagnostic['matchingOwners']=owners
+            if not owners:
+                path.with_name(key+'.census.json').write_text(json.dumps(diagnostic,indent=2)+'\n');time.sleep(.02);continue
             if len(owners)!=1: raise ValueError('ambiguous owner')
             owner=owners[0]
             def descends(process,ancestor):
@@ -53,10 +57,14 @@ class Observer:
             browsers=[p for p in census.values() if descends(p,owner['hostPid']) and
                 any(a=='--remote-debugging-pipe' or a.startswith('--remote-debugging-port=') for a in p['commandLine']) and
                 not any(a.startswith('--type=') for a in p['commandLine'])]
-            if len(browsers)!=1: time.sleep(.02);continue
+            diagnostic['browserCandidates']=browsers
+            if len(browsers)!=1:
+                path.with_name(key+'.census.json').write_text(json.dumps(diagnostic,indent=2)+'\n');time.sleep(.02);continue
             browser=browsers[0]
             renderers=[p for p in census.values() if '--type=renderer' in p['commandLine'] and descends(p,browser['hostPid'])]
-            if not renderers: time.sleep(.02);continue
+            diagnostic['rendererCandidates']=renderers
+            if not renderers:
+                path.with_name(key+'.census.json').write_text(json.dumps(diagnostic,indent=2)+'\n');time.sleep(.02);continue
             renderer=renderers[0]
             for record in (owner,browser,renderer):
                 status=record['status'];assert int(status['Uid'].split()[0])!=0 and status['NoNewPrivs']=='1' and int(status['CapEff'],16)==0 and status['Seccomp']=='2'

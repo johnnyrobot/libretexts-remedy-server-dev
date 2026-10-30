@@ -64,7 +64,11 @@ class Handler(BaseHTTPRequestHandler):
                 with lock: state['denied']+=1
                 return self.reply(401,{'error':'external_auth_required'})
             if path.endswith('/info'): return self.reply(200,{'@id':'42','path':{'#text':'Sandboxes/johnnyphung/Stack/Synthetic'},'title':'Synthetic page'})
-            if '/contents' in path: return self.reply(200,{'body':HTML})
+            if '/contents' in path:
+                # mode=edit is authored page SOURCE, not a complete rendered
+                # document/editor wrapper. Keep ADAPT's full HTML separate.
+                fragment=HTML.split('<main>',1)[1].split('</main>',1)[0]
+                return self.reply(200,{'body':fragment})
         return self.reply(404,{'error':'synthetic_route_not_found'})
 if args.kind=='adapt':
     ThreadingHTTPServer(('0.0.0.0',8081),Handler).serve_forever()
