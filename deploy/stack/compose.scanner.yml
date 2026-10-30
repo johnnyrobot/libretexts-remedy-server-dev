@@ -26,6 +26,7 @@ services:
         target: /run/secrets
         read_only: true
         bind: {create_host_path: false}
+    dns: [127.0.0.1]
     networks: [remedy]
     depends_on:
       remedy-server: {condition: service_healthy}

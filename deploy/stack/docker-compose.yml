@@ -35,6 +35,7 @@ services:
         target: /run/secrets
         read_only: true
         bind: {create_host_path: false}
+    dns: [127.0.0.1]
     networks: [remedy]
     healthcheck:
       test: [CMD, curl, -fsS, http://127.0.0.1:8000/readyz]

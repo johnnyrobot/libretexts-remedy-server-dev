@@ -86,7 +86,7 @@ jobs:
       - name: Install archive reader
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends skopeo
+          sudo apt-get install -y --no-install-recommends skopeo tcpdump
       - name: Verify and import the exact downloaded OCI archives
         run: |
           python3 - <<'PY'

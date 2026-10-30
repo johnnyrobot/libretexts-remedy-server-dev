@@ -67,9 +67,9 @@ def probe(image, role, policy, profile, secret_root=None, bridge=False, expressi
 
 try:
     policy=json.loads((ROOT/'deploy/stack/bundle.json').read_text())
-    if args.profile=='bridge-full' and not policy['productionWritesEnabled']:
+    if args.profile=='bridge-full' and policy['productionWritesEnabled'] is not True:
         raise ValueError('production_write_profile_remains_held')
-    if args.production and not policy['deploymentReady']:
+    if args.production and policy['deploymentReady'] is not True:
         raise ValueError('deployment_not_accepted_by_release_owner')
     if platform.system()!='Linux' or platform.machine()!='x86_64':
         raise ValueError('unsupported_host_linux_amd64_required')

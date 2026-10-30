@@ -11,7 +11,7 @@ parser=argparse.ArgumentParser()
 parser.add_argument('--kind',choices=['adapt','cxone'],required=True)
 args=parser.parse_args()
 lock=threading.Lock()
-state={'reads':0,'mutations':0,'denied':0,'fail':False,'empty':False,'malformed':False,'requests':[]}
+state={'reads':0,'mutations':0,'denied':0,'fail':False,'empty':False,'malformed':False,'clean':False,'hold':False,'held':0,'requests':[]}
 HTML='<!doctype html><html lang="en"><head><title>Synthetic question</title></head><body><main><h1>Retained stack sentinel</h1><h3>Skipped heading fixture</h3><p>Controlled external data.</p><img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="></main></body></html>'
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*unused): pass
@@ -32,7 +32,7 @@ class Handler(BaseHTTPRequestHandler):
                 if n>1000: return self.reply(413,{'error':'control_limit'})
                 value=json.loads(self.rfile.read(n))
                 with lock:
-                    for key in ('fail','empty','malformed'):
+                    for key in ('fail','empty','malformed','clean','hold'):
                         if key in value: state[key]=value[key] is True
             with lock: snapshot=json.loads(json.dumps(state))
             return self.reply(200,snapshot)
@@ -40,7 +40,7 @@ class Handler(BaseHTTPRequestHandler):
             state['requests'].append({'method':self.command,'path':path})
             if self.command!='GET': state['mutations']+=1
             else: state['reads']+=1
-            failed,empty,malformed=state['fail'],state['empty'],state['malformed']
+            failed,empty,malformed,clean,hold=state['fail'],state['empty'],state['malformed'],state['clean'],state['hold']
         if self.command!='GET': return self.reply(503,{'error':'synthetic_remote_mutation_forbidden'})
         if failed: return self.reply(401,{'error':'synthetic_external_auth_failure'})
         if args.kind=='adapt':
@@ -51,7 +51,14 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith('/api/assignments/') and path.endswith('/questions/ids'):
                 return self.reply(200,{'type':'success'} if malformed else {'type':'success','question_ids_array':[] if empty else [101],'question_ids':'[]' if empty else '[101]'})
             if path.startswith('/api/get-header-html/'):
-                return self.reply(200,'<html><body><form><input type="password"></form></body></html>' if malformed else HTML,True)
+                if hold:
+                    with lock: state['held']+=1
+                    while True:
+                        with lock: active=state['hold']
+                        if not active: break
+                        import time;time.sleep(.02)
+                content='<!doctype html><html lang="en"><head><title>Synthetic clean question</title><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><main><h1>Actual clean fixture</h1><p>Controlled data.</p></main></body></html>' if clean else HTML
+                return self.reply(200,'<html><body><form><input type="password"></form></body></html>' if malformed else content,True)
         else:
             if not self.headers.get('X-Deki-Token'):
                 with lock: state['denied']+=1
