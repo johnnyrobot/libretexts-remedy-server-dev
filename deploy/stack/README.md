@@ -10,6 +10,8 @@ the LibreTexts-owned vendor, adapter and target-policy validation.
 
 ## Immutable artifacts and prerequisites
 
+Use host Python3.11+ for the standard-library preflight CLI (including
+`hashlib.file_digest`); the service interpreter is inside the exact image.
 Use Linux amd64 with Docker Engine/Compose v2, cgroup v2, pidfds/subreaper and
 unprivileged user/PID namespaces/Chromium seccomp support. No arm64, Podman,
 rootless/userns-remap or target-host guarantee is inferred. Preflight must refuse
@@ -51,8 +53,10 @@ policy provenance/license are in `scanner-profile-source.json`. Its unchanged
 Apache-2.0-derived policy comes from the pinned Scanner source and Playwright
 profile referenced in that repo's shipping guide.
 
-`REMEDY_STATE_ROOT` is a pre-provisioned private UID999 local POSIX filesystem
-(or independently verified quota) within the recorded1GiB candidate budget;
+`REMEDY_STATE_ROOT` is a pre-provisioned private UID999 dedicated local POSIX
+filesystem within the recorded1GiB candidate budget. Directory/project quota
+verification is not implemented in this candidate; a larger underlying filesystem
+is refused even when it has a separately configured quota. Local ext4/XFS are accepted;
 network filesystems and active independently copied SQLite stores are unsupported.
 `REMEDY_SECRET_ROOT` contains separate private per-role directories. Do not let
 Compose create unknown host paths: bind mounts use `create_host_path:false`.

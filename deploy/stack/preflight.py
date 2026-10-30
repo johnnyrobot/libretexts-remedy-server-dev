@@ -9,6 +9,30 @@ import subprocess
 import sys
 import uuid
 
+SERVER_RUNTIME_PROBE = '''
+import asyncio, os, tempfile
+from pathlib import Path
+import fitz
+from backend.app.supervisor import probe_adoption
+from project_remedy.html_to_pdf import HTMLToPDFConverter
+
+assert os.geteuid() != 0 and probe_adoption()
+async def verify():
+    converter = HTMLToPDFConverter(max_concurrent=1)
+    try:
+        await converter.start()
+        with tempfile.TemporaryDirectory(prefix="remedy-preflight-") as directory:
+            output = Path(directory) / "probe.pdf"
+            result = await converter.convert("<!doctype html><html lang='en'><title>Preflight</title><body><main><h1>Preflight renderer sentinel</h1></main></body></html>", output)
+            assert result.success and output.is_file()
+            with fitz.open(output) as document:
+                assert document.page_count == 1 and "Preflight renderer sentinel" in document[0].get_text()
+    finally:
+        await converter.close()
+asyncio.run(verify())
+print("pidfd-subreaper-and-sandboxed-renderer-available")
+'''
+
 ROOT=Path(__file__).resolve().parents[2]
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--profile',choices=['engine','engine-scanner','bridge-review','bridge-full'],required=True)
@@ -52,7 +76,7 @@ def probe(image, role, policy, profile, secret_root=None, bridge=False, expressi
         for field,file in fields.items(): arguments+=['--env',field+'=/run/secrets/'+file]
         command=['node','/proof/secret-env.mjs',role,'node','-e',expression] if expression else ['node','/proof/secret-env.mjs',role,'--check']
     elif role=='server':
-        command=['python','-c','import os; from backend.app.supervisor import probe_adoption; assert os.geteuid()!=0 and probe_adoption(); print("pidfd-subreeper-profile-available")']
+        command=['python','-c',SERVER_RUNTIME_PROBE]
     else:
         command=['node','--input-type=module','-e','import {chromium} from "playwright"; if(process.getuid()===0)process.exit(1); const b=await chromium.launch({headless:true,chromiumSandbox:true});const p=await b.newPage();await p.setContent("<html><body>Preflight</body></html>");await b.close();console.log("sandbox-launch-closed")']
     try:
@@ -92,7 +116,7 @@ try:
     if filesystem not in {'ext4','xfs'}: raise ValueError('unsupported_persistent_filesystem')
     capacity=os.statvfs(store)
     if capacity.f_frsize*capacity.f_blocks>policy['limits']['server']['stateBytes']:
-        raise ValueError('bounded_state_filesystem_or_verified_quota_required')
+        raise ValueError('bounded_state_filesystem_required')
     if capacity.f_frsize*capacity.f_bavail<16*1024*1024: raise ValueError('insufficient_state_capacity')
     docker=json.loads(run('docker','info','--format','{{json .}}'))
     if docker.get('OSType')!='linux' or docker.get('Architecture') not in {'x86_64','amd64'} or docker.get('CgroupVersion')!='2':
@@ -103,12 +127,13 @@ try:
     if args.profile.startswith('bridge-'): roles.append('bridge')
     if not args.secret_root.is_absolute() or args.secret_root.is_symlink(): raise ValueError('absolute_private_secret_root_required')
     profiles={'server':ROOT/'deploy/chromium-seccomp-amd64.json','scanner':ROOT/'deploy/stack/scanner-seccomp-amd64.json','bridge':None}
+    runtime_checks={}
     for role in roles:
         image=proof['images'][role]['id']
         inspection=json.loads(run('docker','image','inspect',image))[0]
         if inspection['Id']!=image or inspection['Architecture']!='amd64': raise ValueError('loaded_image_identity_mismatch')
         probe(image,role,policy,profiles[role],args.secret_root,args.profile.startswith('bridge-'))
-        if role!='bridge': probe(image,role,policy,profiles[role])
+        if role!='bridge': runtime_checks[role]=probe(image,role,policy,profiles[role])
     if 'scanner' in roles:
         fingerprint='const{createHash}=require("node:crypto");process.stdout.write(createHash("sha256").update(process.env.'
         a=probe(proof['images']['server']['id'],'server',policy,profiles['server'],args.secret_root,args.profile.startswith('bridge-'),fingerprint+'APP_API_KEY).digest("hex"))')
@@ -121,6 +146,7 @@ try:
         if a!=b: raise ValueError('bridge_server_service_key_mismatch')
     print(json.dumps({'ok':True,'profile':args.profile,'deploymentReady':False,
         'productionWritesEnabled':False,'liveProvidersVerified':False,
+        'runtimeChecks':runtime_checks,
         'checks':'Immutable inputs, private file ownership/bytes, exact loaded images, bounded local persistent capacity, Docker platform and actual per-image pidfd/sandbox launch. Functional provider, private network and operational acceptance remain separate.'}))
 except (OSError,ValueError,KeyError,TypeError,subprocess.TimeoutExpired) as error:
     print(json.dumps({'ok':False,'deploymentReady':False,'productionWritesEnabled':False,

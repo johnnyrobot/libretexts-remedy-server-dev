@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import time
 from urllib.parse import urlsplit
+from evidence import write_product_log
 
 
 def verify(root, work, evidence, prefix, images, state, fixture, keys):
@@ -161,10 +162,7 @@ def verify(root, work, evidence, prefix, images, state, fixture, keys):
                 value=json.loads(run('docker','inspect',identifier))[0]
                 service=value['Config']['Labels']['com.docker.compose.service']
                 logs=run('docker','logs',identifier,check=False,combined=True)
-                for secret in ('synthetic-server-key','synthetic-provider-key','synthetic-scanner-key',
-                    'synthetic-adapt-token','synthetic-control-only','synthetic-secret','a1'*32):
-                    logs=logs.replace(secret,'[synthetic credential redacted]')
-                (evidence/('compose-'+service+'.log')).write_text(logs[-80000:])
+                write_product_log(evidence/('compose-'+service+'.log'),logs)
                 receipt.setdefault('shutdown',{})[service]=value['State']['ExitCode']
                 assert value['State']['ExitCode'] in {0,143},value['State']
             compose(True,'down')

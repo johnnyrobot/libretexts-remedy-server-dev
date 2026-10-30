@@ -33,6 +33,8 @@ try:
         receipt['profiles'][profile]={'returncode':result.returncode,'result':value}
         assert result.returncode==0 and value['ok'] is True,(profile,value)
         assert value['deploymentReady'] is False and value['productionWritesEnabled'] is False
+        assert value['runtimeChecks']['server']=='pidfd-subreaper-and-sandboxed-renderer-available'
+        if profile!='engine': assert value['runtimeChecks']['scanner']=='sandbox-launch-closed'
     for name,args,reason in [('production',common+['--profile','engine','--production'],'deployment_not_accepted_by_release_owner'),
                              ('bridge-full',common+['--profile','bridge-full'],'production_write_profile_remains_held')]:
         result=subprocess.run(args,capture_output=True,text=True,timeout=15)

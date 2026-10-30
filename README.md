@@ -45,7 +45,7 @@ transport, modes, mounts, limits and operator checks. Current fixed inputs are:
 | Server baseline | `065c86ebb0d856d5b9ada8bd7b41bd8c4d90ce10` or the reviewed descendant recorded in the candidate manifest |
 | Bridge | `998fa1ecee9eaa69aee350c05ca5ad34e5ccb20f` (`cxone-review-v1`, `cxone-terminal-v1`) |
 | Scanner | Registry manifest `sha256:00ab363669ccc7ae50fe7fc79286508af5923d3326d397f87cff91ee76e379a6`, source `1541bb8f3962553b65dab7bfd5aeb429354a8a4f` |
-| Platform | Linux amd64, Docker Engine/Compose v2, compatible pidfd/subreaper/user/PID namespace and Chromium seccomp support |
+| Platform | Linux amd64, Docker Engine/Compose v2, host Python3.11+ for preflight, compatible pidfd/subreaper/user/PID namespace and Chromium seccomp support |
 
 Server uses the full runtime, never runtime-slim for HTML/Scanner. The candidate
 workflow archives Server/Bridge OCI images, downloads/imports those same archives

@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from observer import Observer
 from metrics import Metrics
 from compose_proof import verify as verify_compose
+from evidence import write_product_log
 
 ROOT=Path.cwd();EVIDENCE=ROOT/'.stack-proof-evidence'
 EVIDENCE.mkdir(exist_ok=True)
@@ -459,8 +460,7 @@ finally:
             stopped=json.loads(cmd('docker','inspect',name))[0]['State']
             report['containers'][name]['stoppedState']=stopped
             logs=subprocess.run(['docker','logs',name],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT).stdout
-            for secret in ['synthetic-server-key','synthetic-provider-key','synthetic-scanner-key','synthetic-adapt-token','synthetic-control-only','synthetic-secret','a1'*32]: logs=logs.replace(secret,'[synthetic credential redacted]')
-            (EVIDENCE/(name+'.log')).write_text(logs[-80000:])
+            write_product_log(EVIDENCE/(name+'.log'),logs)
             # Uvicorn re-raises SIGTERM after lifespan shutdown. Signal exit143
             # is distinct from a forced137; unresolved durable markers still fail.
             accepted={0,143} if name==PREFIX+'-server' else {0}
