@@ -1,4 +1,4 @@
-"""Exact-artifact Linux rehearsal. No daemon, host policy or live credentials are changed."""
+"""Exact-artifact Linux rehearsal using only owned isolated CI resources."""
 import hashlib
 import sys
 import http.client
@@ -16,6 +16,7 @@ import time
 from urllib.parse import urlsplit
 from observer import Observer
 from metrics import Metrics
+from compose_proof import verify as verify_compose
 
 ROOT=Path.cwd();EVIDENCE=ROOT/'.stack-proof-evidence'
 EVIDENCE.mkdir(exist_ok=True)
@@ -164,7 +165,7 @@ try:
         directory=EVIDENCE/('observations-'+role);directory.mkdir();directory.chmod(0o777);audit[role]=directory
     observer=Observer({PREFIX+'-'+role:directory for role,directory in audit.items()});observer.start()
     base_mounts=[(wrapper,'/proof/secret-env.mjs',True)]
-    server_env=write_env('server',{'APP_ENV':'production','PYTHON_DOTENV_DISABLED':'1','APP_API_KEY_FILE':'/run/secrets/app','OLLAMA_API_KEY_FILE':'/run/secrets/ollama','OLLAMA_BASE_URL':'https://provider.invalid/v1','CORS_ALLOW_ORIGINS':'https://conductor.fixture.invalid','JOB_DIR':'/app/state/jobs','JOB_STORE_PATH':'/app/state/jobs.sqlite3','JOB_BACKUP_DIR':'/app/state/backups','OUTPUT_DIR':'/app/state/output','LOG_DIR':'/app/state/logs','LOG_FORMAT':'json','HOME':'/tmp','TMPDIR':'/tmp','CXONE_INTEGRATION_ENABLED':'false','WORKER_CONCURRENCY':'1','WORKER_MAX_PENDING':'8','JOB_TOTAL_TIMEOUT_SECONDS':'900','RATE_LIMIT_DEFAULT':'10000/minute','RATE_LIMIT_UPLOADS':'10000/minute','MAX_UPLOAD_MB':'4','PYTHONPATH':'/proof-hooks:/app:/app/src'})
+    server_env=write_env('server',{'APP_ENV':'production','PYTHON_DOTENV_DISABLED':'1','APP_API_KEY_FILE':'/run/secrets/app','OLLAMA_API_KEY_FILE':'/run/secrets/ollama','OLLAMA_BASE_URL':'https://provider.invalid/v1','CORS_ALLOW_ORIGINS':'https://conductor.fixture.invalid','JOB_DIR':'/app/state/jobs','JOB_STORE_PATH':'/app/state/jobs.sqlite3','JOB_BACKUP_DIR':'/app/state/backups','OUTPUT_DIR':'/app/state/output','LOG_DIR':'/app/state/logs','LOG_FORMAT':'json','HOME':'/tmp','TMPDIR':'/tmp','CXONE_INTEGRATION_ENABLED':'false','WORKER_CONCURRENCY':'1','WORKER_MAX_PENDING':'8','JOB_TOTAL_TIMEOUT_SECONDS':'900','RATE_LIMIT_DEFAULT':'10000/minute','RATE_LIMIT_UPLOADS':'10000/minute','MAX_UPLOAD_MB':'4','MAX_REQUEST_BYTES':'5000000','PYTHONPATH':'/proof-hooks:/app:/app/src'})
     server_options=['--network',network,'--dns','127.0.0.1','--dns','127.0.0.1','--cpus','4','--memory','4g','--pids-limit','512','--shm-size','256m','--stop-timeout','120','--tmpfs','/tmp:rw,nosuid,nodev,size=512m','--security-opt','seccomp='+str(ROOT/'deploy/chromium-seccomp-amd64.json')]
     server_command=['node','/proof/secret-env.mjs','server','uvicorn','backend.app.main:app','--host','0.0.0.0','--port','8000','--workers','1','--timeout-graceful-shutdown','15']
     start(PREFIX+'-server',SERVER,server_env,[*base_mounts,(server_keys,'/run/secrets',True),(state,'/app/state',False),(public/'hooks','/proof-hooks',True),(audit['server'],'/proof-audit',False)],server_options,server_command)
@@ -327,11 +328,23 @@ try:
         base_size=len(json.dumps({**body,'padding':''}).encode())
         exact={**body,'padding':'x'*(5000000-base_size)}
         assert len(json.dumps(exact).encode())==5000000
-        assert request(base,path,exact,key)[0]==200
+        accepted_code,accepted_body=request(base,path,exact,key)
+        assert accepted_code==200,{'path':path,'status':accepted_code,'body':accepted_body}
         previous=request(external,'/control/status',key='synthetic-control-only',control=True)[1]['reads']
         exact['padding']+='x'
-        assert request(base,path,exact,key)[0]==413
+        refused_code,refused_body=request(base,path,exact,key)
+        assert refused_code==413,{'path':path,'status':refused_code,'body':refused_body,'requestBytes':5000001}
         assert request(external,'/control/status',key='synthetic-control-only',control=True)[1]['reads']==previous
+        url=urlsplit(base);conn=http.client.HTTPConnection(url.hostname,url.port,timeout=180)
+        raw=json.dumps(exact).encode()
+        try:
+            conn.request('POST',path,(raw[i:i+65536] for i in range(0,len(raw),65536)),
+                {'X-API-Key':key,'Content-Type':'application/json'},encode_chunked=True)
+            response=conn.getresponse();body=response.read()
+            assert response.status==413,{'path':path,'chunkedStatus':response.status,'responseBytes':len(body)}
+        finally: conn.close()
+        assert request(external,'/control/status',key='synthetic-control-only',control=True)[1]['reads']==previous
+        report.setdefault('requestEnvelopes',{})[path]={'exact5000000Accepted':True,'oneByteOver413':True,'chunkedOver413':True,'rejectedSourceReads':0}
     # Valid multipart with ignored fields must also respect the total envelope,
     # rather than merely limiting the selected file after full parser spooling.
     code,oversized,total=multipart(server_url,'/v1/convert/html-to-pdf',html,extra=[('ignored'+str(i),b'x'*850000) for i in range(6)])
@@ -395,11 +408,19 @@ try:
         assert elapsed<15 and stopped['ExitCode']==0,(elapsed,stopped)
         assert all(code==503 and body.get('ok') is False for code,body in result),result
     report['activeShutdown']={'heldExternalResponseReached':True,'admissionOverflow503':True,'all10Callers503':True,'stopSeconds':elapsed,'exitCode':stopped['ExitCode']}
-
+    # Drain the manual instrumentation run before opening the same retained
+    # state with the unchanged public Compose package. Never concurrent owners.
+    for role in ('bridge','server'):
+        cmd('docker','stop','--time',str(INPUT['limits'][role]['stopSeconds']),PREFIX+'-'+role)
+        stopped=json.loads(cmd('docker','inspect',PREFIX+'-'+role))[0]['State']
+        assert stopped['ExitCode'] in ({0,143} if role=='server' else {0}),stopped
+    report['publicCompose']=verify_compose(ROOT,WORK,EVIDENCE,PREFIX,report['images'],state,fixture,
+        {'server':server_keys,'scanner':scanner_keys,'bridge':bridge_keys})
+    report['sections'].append('public-compose')
 
     # Additional causal sandbox/storage/envelope cases must pass before this
     # rehearsal may be described as complete; initial branch runs are tracers.
-    required={'actual-service-bootstrap','private-isolation','sandbox-identities','limits-and-failures','bounded-storage','safe-shutdown'}
+    required={'actual-service-bootstrap','private-isolation','sandbox-identities','limits-and-failures','bounded-storage','safe-shutdown','public-compose'}
     report['requiredSections']=sorted(required)
 except Exception as error:
     report['errors'].append(type(error).__name__+': '+str(error)[:2000])
@@ -437,7 +458,7 @@ finally:
         try: cmd('umount',WORK/'state')
         except Exception as error: report['errors'].append('owned_disposable_state_unmount_failed:'+type(error).__name__)
     if not report['errors'] and 'activeShutdown' in report: report['sections'].append('safe-shutdown')
-    required={'actual-service-bootstrap','private-isolation','sandbox-identities','limits-and-failures','bounded-storage','safe-shutdown'}
+    required={'actual-service-bootstrap','private-isolation','sandbox-identities','limits-and-failures','bounded-storage','safe-shutdown','public-compose'}
     report['verificationComplete']=required<=set(report['sections']) and not report['errors']
     report['resourceMeasurements']=metrics.close();report['errors'].extend(metrics.errors)
     report['verificationComplete']=report['verificationComplete'] and not report['errors']

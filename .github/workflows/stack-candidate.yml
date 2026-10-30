@@ -87,6 +87,20 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends skopeo tcpdump
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a
+      - name: Exercise total-byte refusal and actual spool cleanup on Linux
+        env:
+          PYTHON_DOTENV_DISABLED: '1'
+          REMEDY_FULL_RUNTIME_TESTS: '1'
+          OLLAMA_API_KEY: synthetic-provider-key
+          OLLAMA_BASE_URL: https://provider.invalid/v1
+        run: |
+          uv sync --frozen --extra dev
+          mkdir -p .stack-proof-evidence
+          uv run --frozen pytest tests/unit/test_request_envelope.py -v --junitxml=.stack-proof-evidence/request-envelope.xml
       - name: Verify and import the exact downloaded OCI archives
         run: |
           python3 - <<'PY'

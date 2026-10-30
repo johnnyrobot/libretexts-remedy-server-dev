@@ -28,6 +28,7 @@ from backend.app.jobs import JobStore, JobWorker, prune_expired_jobs
 from backend.app.logging_setup import configure_logging, request_id_var
 from backend.app.routes import build_router
 from backend.app.scheduler import PeriodicTask
+from backend.app.request_envelope import RequestEnvelopeMiddleware
 
 
 def create_app(settings: Settings | None = None, *, job_entrypoint=execute_job,
@@ -161,6 +162,8 @@ def create_app(settings: Settings | None = None, *, job_entrypoint=execute_job,
     app.add_middleware(SlowAPIMiddleware)
     app.add_middleware(EngineAdmissionMiddleware, execution=execution, settings=settings,
                        direct_entrypoint=direct_entrypoint)
+    app.add_middleware(RequestEnvelopeMiddleware,
+        maximum=settings.max_request_bytes or (settings.max_upload_mb+1)*1024*1024)
 
 
     # ----- Request-ID + structured access log middleware -----------------

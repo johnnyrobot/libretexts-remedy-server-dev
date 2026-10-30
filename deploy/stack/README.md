@@ -137,6 +137,14 @@ seccomp policy. Server retains the minimal pidfd exceptions and real HTML sandbo
 requirements. Read-only image roots and bounded tmpfs are not replacements for
 persistent-state capacity, safe full-disk failure or cold recovery proof.
 
+Server's `MAX_REQUEST_BYTES=5000000` bounds the complete raw `/v1/` envelope,
+including ignored JSON fields and multipart overhead, before normalization or
+job acceptance. Declared and streaming/chunked bodies use the same limit.
+`MAX_UPLOAD_MB=4` is a separate selected-file limit. Outside this package, an
+unset total limit derives from the file budget plus1MiB overhead; zero or
+negative explicit limits refuse startup. Authentication still precedes body
+parsing/refusal, and rejected bodies do not reach Bridge or accept jobs.
+
 ## Operations and remaining acceptance
 
 [Engine execution/recovery](../engine-execution.md) and
