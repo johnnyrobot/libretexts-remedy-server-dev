@@ -69,7 +69,9 @@ be frozen with the completed operational proof, not invented from `compose up`.
 
 ## Private transport and authentication
 
-Server publishes only a loopback API port by default. Scanner is private and
+Server and Scanner use the dedicated private Docker network with no host port
+publication. Authorized callers on that network use `remedy-server:8000` and `adapt-scanner:5176`;
+off-host/private TLS ingress belongs to the reviewed operational package. Scanner
 requires `SCANNER_API_KEY`; its `REMEDY_API_KEY` must equal Server's application
 key. Bridge uses `network_mode:service:remedy-server`, still listens127.0.0.1 and
 has **no published Bridge port, direct panel or alternate bind address**. Server

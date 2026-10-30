@@ -15,6 +15,7 @@ import subprocess
 import time
 from urllib.parse import urlsplit
 from observer import Observer
+from metrics import Metrics
 
 ROOT=Path.cwd();EVIDENCE=ROOT/'.stack-proof-evidence'
 EVIDENCE.mkdir(exist_ok=True)
@@ -25,7 +26,7 @@ if os.environ.get('GITHUB_ACTIONS')!='true' or platform.system()!='Linux' or pla
 PREFIX='lt196-'+os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT']
 WORK=Path(os.environ['RUNNER_TEMP'])/PREFIX
 WORK.mkdir(mode=0o700)  # never reuse/delete somebody else's prior evidence
-network=PREFIX+'-private';containers=[];observer=None;state_mounted=False;host_canary=None;deny_rule=None;network_created=False;owner_token=uuid.uuid4().hex;report={'serverSource':os.environ['GITHUB_SHA'],'deploymentReady':False,'productionWritesEnabled':False,'sections':[],'images':{},'profiles':{},'errors':[]}
+network=PREFIX+'-private';containers=[];observer=None;state_mounted=False;host_canary=None;deny_rule=None;network_created=False;owner_token=uuid.uuid4().hex;metrics=Metrics();report={'serverSource':os.environ['GITHUB_SHA'],'deploymentReady':False,'productionWritesEnabled':False,'sections':[],'images':{},'profiles':{},'errors':[]}
 def cmd(*args,check=True):
     result=subprocess.run(list(map(str,args)),text=True,capture_output=True)
     if check and result.returncode: raise RuntimeError(str(args[:3])+': '+result.stderr[-1600:])
@@ -78,9 +79,11 @@ def wait(base,path='/healthz',key=None):
     raise RuntimeError('Actual service did not become ready: '+path)
 
 def port(name,number):
-    value=cmd('docker','port',name,f'{number}/tcp').strip().splitlines()[0]
-    assert value.startswith('127.0.0.1:'),value
-    return 'http://'+value
+    info=json.loads(cmd('docker','inspect',name))[0]
+    address=info['NetworkSettings']['Networks'][network]['IPAddress']
+    assert address and info['HostConfig']['NetworkMode']==network
+    report.setdefault('privateClientEndpoints',{})[name+':'+str(number)]={'privateAddress':address,'hostPortPublished':False}
+    return 'http://'+address+':'+str(number)
 
 def write_env(name,values):
     file=WORK/(name+'.env');file.write_text(''.join(f'{k}={v}\n' for k,v in values.items()));file.chmod(0o600)
@@ -103,6 +106,8 @@ def start(name,image,env=None,mounts=(),extra=(),command=(),uid=None):
     inspect=subprocess.run(['docker','inspect',name],text=True,capture_output=True)
     if inspect.returncode==0 and json.loads(inspect.stdout)[0]['Config'].get('Labels',{}).get('org.libretexts.stack-proof-owner')==owner_token:
         containers.append(name)
+        role=name.removeprefix(PREFIX+'-')
+        if role in {'server','scanner','bridge'}: metrics.register(name,json.loads(inspect.stdout)[0],INPUT['limits'][role])
     if result.returncode: raise RuntimeError('Owned container start failed: '+name+': '+result.stderr[-1000:])
     return name
 
@@ -160,7 +165,7 @@ try:
     observer=Observer({PREFIX+'-'+role:directory for role,directory in audit.items()});observer.start()
     base_mounts=[(wrapper,'/proof/secret-env.mjs',True)]
     server_env=write_env('server',{'APP_ENV':'production','PYTHON_DOTENV_DISABLED':'1','APP_API_KEY_FILE':'/run/secrets/app','OLLAMA_API_KEY_FILE':'/run/secrets/ollama','OLLAMA_BASE_URL':'https://provider.invalid/v1','CORS_ALLOW_ORIGINS':'https://conductor.fixture.invalid','JOB_DIR':'/app/state/jobs','JOB_STORE_PATH':'/app/state/jobs.sqlite3','JOB_BACKUP_DIR':'/app/state/backups','OUTPUT_DIR':'/app/state/output','LOG_DIR':'/app/state/logs','LOG_FORMAT':'json','HOME':'/tmp','TMPDIR':'/tmp','CXONE_INTEGRATION_ENABLED':'false','WORKER_CONCURRENCY':'1','WORKER_MAX_PENDING':'8','JOB_TOTAL_TIMEOUT_SECONDS':'900','RATE_LIMIT_DEFAULT':'10000/minute','RATE_LIMIT_UPLOADS':'10000/minute','MAX_UPLOAD_MB':'4','PYTHONPATH':'/proof-hooks:/app:/app/src'})
-    server_options=['--network',network,'--dns','127.0.0.1','--dns','127.0.0.1','--publish','127.0.0.1::8000','--cpus','4','--memory','4g','--pids-limit','512','--shm-size','256m','--stop-timeout','120','--tmpfs','/tmp:rw,nosuid,nodev,size=512m','--security-opt','seccomp='+str(ROOT/'deploy/chromium-seccomp-amd64.json')]
+    server_options=['--network',network,'--dns','127.0.0.1','--dns','127.0.0.1','--cpus','4','--memory','4g','--pids-limit','512','--shm-size','256m','--stop-timeout','120','--tmpfs','/tmp:rw,nosuid,nodev,size=512m','--security-opt','seccomp='+str(ROOT/'deploy/chromium-seccomp-amd64.json')]
     server_command=['node','/proof/secret-env.mjs','server','uvicorn','backend.app.main:app','--host','0.0.0.0','--port','8000','--workers','1','--timeout-graceful-shutdown','15']
     start(PREFIX+'-server',SERVER,server_env,[*base_mounts,(server_keys,'/run/secrets',True),(state,'/app/state',False),(public/'hooks','/proof-hooks',True),(audit['server'],'/proof-audit',False)],server_options,server_command)
     server_url=port(PREFIX+'-server',8000);wait(server_url,'/readyz')
@@ -168,7 +173,7 @@ try:
     assert status==200 and health['enabled'] is False and health['capabilities']['mutate'] is False
     assert not any(name.endswith('-bridge') for name in containers)
     scanner_env=write_env('scanner',{'ADAPT_BASE_URL':'http://127.0.0.1:8081','ADAPT_TOKEN_FILE':'/run/secrets/adapt','SCANNER_API_KEY_FILE':'/run/secrets/api','REMEDY_API_KEY_FILE':'/run/secrets/remedy','SCAN_MODE':'http','RENDER_MODE':'iframe','REMEDY_ENDPOINT':f'http://{PREFIX}-server:8000/v1/validate/html','HOME':'/tmp','TMPDIR':'/tmp','SCANNER_MAX_ACTIVE_JOBS':'1','SCANNER_MAX_QUEUED_JOBS':'8','SCANNER_JOB_TIMEOUT_MS':'900000','SCANNER_MAX_REQUEST_BYTES':'5000000','REMEDY_TIMEOUT_MS':'920000','NODE_OPTIONS':'--import=file:///proof-hooks/scanner.mjs'})
-    start(PREFIX+'-scanner',SCANNER,scanner_env,[*base_mounts,(scanner_keys,'/run/secrets',True),(public/'hooks','/proof-hooks',True),(audit['scanner'],'/proof-audit',False)],['--network',network,'--dns','127.0.0.1','--publish','127.0.0.1::5176','--publish','127.0.0.1::8081','--cpus','2','--memory','2g','--pids-limit','512','--shm-size','1g','--stop-timeout','20','--tmpfs','/tmp:rw,nosuid,nodev,size=512m','--security-opt','seccomp='+str(ROOT/'deploy/stack/scanner-seccomp-amd64.json')],['node','/proof/secret-env.mjs','scanner','node','dist/server.js'])
+    start(PREFIX+'-scanner',SCANNER,scanner_env,[*base_mounts,(scanner_keys,'/run/secrets',True),(public/'hooks','/proof-hooks',True),(audit['scanner'],'/proof-audit',False)],['--network',network,'--dns','127.0.0.1','--cpus','2','--memory','2g','--pids-limit','512','--shm-size','1g','--stop-timeout','20','--tmpfs','/tmp:rw,nosuid,nodev,size=512m','--security-opt','seccomp='+str(ROOT/'deploy/stack/scanner-seccomp-amd64.json')],['node','/proof/secret-env.mjs','scanner','node','dist/server.js'])
     scanner_url=port(PREFIX+'-scanner',5176);wait(scanner_url)
     start(PREFIX+'-adapt',SERVER,mounts=[(public/'external.py','/proof/external.py',True)],extra=['--network','container:'+PREFIX+'-scanner','--tmpfs','/tmp:rw,nosuid,nodev,size=16m','--cpus','1','--memory','128m','--pids-limit','32'],command=['python','/proof/external.py','--kind','adapt'])
     adapt_url=port(PREFIX+'-scanner',8081)
@@ -184,7 +189,7 @@ try:
     assert scan['results'][0]['capturedBytes']>0 and scan['results'][0]['findings'],scan
     report['profiles']['engine-scanner']={'bridgeAbsent':True,'serverHealth':health,'scanner':scan}
     # The review-only case uses actual Bridge plus real SDK, fake CXone only.
-    start(PREFIX+'-cxone',SERVER,mounts=[(public/'external.py','/proof/external.py',True),(fixture,'/fixtures',True)],extra=['--network',network,'--network-alias','dev.libretexts.org','--publish','127.0.0.1::8082','--cpus','1','--memory','128m','--pids-limit','32','--tmpfs','/tmp:rw,nosuid,nodev,size=16m'],command=['python','/proof/external.py','--kind','cxone'])
+    start(PREFIX+'-cxone',SERVER,mounts=[(public/'external.py','/proof/external.py',True),(fixture,'/fixtures',True)],extra=['--network',network,'--network-alias','dev.libretexts.org','--cpus','1','--memory','128m','--pids-limit','32','--tmpfs','/tmp:rw,nosuid,nodev,size=16m'],command=['python','/proof/external.py','--kind','cxone'])
     cxone_url=port(PREFIX+'-cxone',8082)
     deadline=time.monotonic()+30
     while True:
@@ -205,6 +210,27 @@ try:
     status,page=request(server_url,'/v1/cxone/page/scan',{'page_id':'42'},'synthetic-server-key')
     assert status==200 and page['findings'],page
     report['profiles']['bridge-review']={'health':bridge_health,'scan':page}
+    assert bridge_health['profile']['contract']=='cxone-review-v1' and bridge_health['capabilities']['operation_status'] is False
+    status,preview=request(server_url,'/v1/cxone/page/preview-fix',{'page_id':'42','review_images':True},'synthetic-server-key')
+    assert status==200 and preview['review_images'] and preview['review_binding']['action']=='cxone.apply',preview
+    assert type(preview['review_expires_at']) is int
+    vectors=json.loads((ROOT/'tests/unit/contracts_v1/lt-1-reviewer-wire-v1-vectors.json').read_text())
+    assertion=vectors['positive'][0]['compact']
+    denied_body={'page_id':'42','preview_hash':preview['preview_hash'],'preview_token':preview['preview_token'],'reviewer_assertion':assertion}
+    expected_denial={'error':'review_only_profile','outcome':'not_attempted','evidence_effect':'preserve','retryable':False,'operation_id':None}
+    for path in ('/v1/cxone/page/apply-fix','/v1/cxone/page/restore'):
+        status,denial=request(server_url,path,denied_body,'synthetic-server-key')
+        assert (status,denial)==(503,expected_denial),(status,denial)
+    image_source=preview['review_images'][0]['data']['src']
+    status,revised=request(server_url,'/v1/cxone/page/revise-preview',{'page_id':'42','preview_token':preview['preview_token'],
+        'alt_edits':[{'src':image_source,'text':'Controlled synthetic image description'}]},'synthetic-server-key')
+    assert status==200 and 'Controlled synthetic image description' in revised['after_html'],revised
+    assert revised['preview_token']!=preview['preview_token']
+    assert request(cxone_url,'/control/status',key='synthetic-control-only',control=True)[1]['mutations']==0
+    status,missing_history=request(server_url,'/v1/cxone/page/operation-status',{'issuer':'urn:conductor:synthetic','jti':'A'*43},'synthetic-server-key')
+    assert status==503 and missing_history['error']=='operation_status_unavailable',missing_history
+    report['reviewProof']={'actualPreview':True,'signedMutationDenied':True,'originalPreviewRetainedForValidRevision':True,'missingHistoryUnavailable':True,'externalMutations':0}
+
     for role in ('server','scanner','bridge'):
         actual_uid=int(cmd('docker','exec',PREFIX+'-'+role,'node','-e','console.log(process.getuid())').strip())
         assert actual_uid!=0
@@ -307,12 +333,69 @@ try:
     assert total>5000000
     assert code==413,{'unexpectedStatus':code,'body':oversized,'requestBytes':total}
     report['sections'].append('limits-and-failures')
+    filler=state/('.owned-proof-filler-'+owner_token)
+    filled=0
+    try:
+        with filler.open('xb',buffering=0) as stream:
+            while filled<=INPUT['limits']['server']['stateBytes']:
+                try: filled+=stream.write(b'0'*(1024*1024))
+                except OSError as error:
+                    if error.errno!=errno.ENOSPC: raise
+                    break
+            try: os.fsync(stream.fileno())
+            except OSError as error:
+                if error.errno!=errno.ENOSPC: raise
+        assert filled<=INPUT['limits']['server']['stateBytes']
+        assert os.statvfs(state).f_bavail==0,'fixture did not exhaust bounded store'
+        full_code,full_state=request(server_url,'/readyz')
+        assert full_code==503,full_state
+        failed_code,failed_upload,_=multipart(server_url,'/v1/convert/html-to-pdf',html)
+        assert failed_code>=400 and 'id' not in failed_upload,failed_upload
+        assert request(server_url,'/healthz')[0]==200
+    finally:
+        # Only the exclusive filler created above, never a product file/marker.
+        if filler.exists(): filler.unlink()
+    wait(server_url,'/readyz')
+    generated=subprocess.run(['docker','exec',PREFIX+'-server','python','-c',
+        'from docx import Document;import io,sys;d=Document();d.add_paragraph("After full disk sentinel");b=io.BytesIO();d.save(b);sys.stdout.buffer.write(b.getvalue())'],capture_output=True)
+    assert generated.returncode==0
+    accepted,later,_=multipart(server_url,'/v1/remediate',generated.stdout,'recovery.docx')
+    assert accepted==202,later
+    later=terminal(server_url,later);assert later['status']=='done',later
+    connection=http.client.HTTPConnection(endpoint.hostname,endpoint.port,timeout=15)
+    connection.request('GET','/v1/jobs/'+later['id']+'/result',headers={'X-API-Key':'synthetic-server-key'})
+    response=connection.getresponse();office=response.read();assert response.status==200;connection.close()
+    parsed=subprocess.run(['docker','exec','-i',PREFIX+'-server','python','-c',
+        'from docx import Document;import io,sys;d=Document(io.BytesIO(sys.stdin.buffer.read()));assert "After full disk sentinel" in [p.text for p in d.paragraphs];print("genuine recovered Office")'],input=office,capture_output=True)
+    assert parsed.returncode==0
+    status,old=request(server_url,'/v1/jobs/'+job['id'],key='synthetic-server-key');assert status==200 and old['status']=='done'
+    report['storage'].update({'fullDiskReadiness503':True,'failedUploadNotAccepted':True,'laterGenuineOfficeDownload':True,'olderJobRetained':True,'filledBytes':filled})
+    report['sections'].append('bounded-storage')
+    # Causally hold an actual external ADAPT response, fill actual admission,
+    # then drain the real API through init/wrapper under its20second grace.
+    request(adapt_url,'/control/status',{'hold':True},'synthetic-control-only',True)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as callers:
+        active=callers.submit(request,scanner_url,'/v1/adapt/scan',{'mode':'question','id':101},'synthetic-scanner-key')
+        deadline=time.monotonic()+30
+        while request(adapt_url,'/control/status',key='synthetic-control-only',control=True)[1]['held']==0:
+            assert not active.done() and time.monotonic()<deadline;time.sleep(.02)
+        pending=[active]+[callers.submit(request,scanner_url,'/v1/adapt/scan',{'mode':'question','id':101},'synthetic-scanner-key') for _ in range(9)]
+        deadline=time.monotonic()+20
+        while not any(f.done() for f in pending): assert time.monotonic()<deadline;time.sleep(.02)
+        early=[f.result() for f in pending if f.done()]
+        assert early and all(code==503 and body.get('ok') is False for code,body in early),early
+        began=time.monotonic();cmd('docker','stop','--time','20',PREFIX+'-scanner');elapsed=time.monotonic()-began
+        result=[f.result(timeout=20) for f in pending]
+        stopped=json.loads(cmd('docker','inspect',PREFIX+'-scanner'))[0]['State']
+        assert elapsed<15 and stopped['ExitCode']==0,(elapsed,stopped)
+        assert all(code==503 and body.get('ok') is False for code,body in result),result
+    report['activeShutdown']={'heldExternalResponseReached':True,'admissionOverflow503':True,'all10Callers503':True,'stopSeconds':elapsed,'exitCode':stopped['ExitCode']}
+
 
     # Additional causal sandbox/storage/envelope cases must pass before this
     # rehearsal may be described as complete; initial branch runs are tracers.
     required={'actual-service-bootstrap','private-isolation','sandbox-identities','limits-and-failures','bounded-storage','safe-shutdown'}
-    report['verificationComplete']=required<=set(report['sections'])
-    if not report['verificationComplete']: raise RuntimeError('Remaining LT196 proof phases are not yet implemented')
+    report['requiredSections']=sorted(required)
 except Exception as error:
     report['errors'].append(type(error).__name__+': '+str(error)[:2000])
     raise
@@ -331,7 +414,9 @@ finally:
             (EVIDENCE/(name+'.log')).write_text(logs[-50000:])
             started=time.monotonic();cmd('docker','stop',name,check=False)
             report['containers'][name]['stopSeconds']=time.monotonic()-started
-            report['containers'][name]['stoppedState']=json.loads(cmd('docker','inspect',name))[0]['State']
+            stopped=json.loads(cmd('docker','inspect',name))[0]['State']
+            report['containers'][name]['stoppedState']=stopped
+            if name in {PREFIX+'-server',PREFIX+'-scanner',PREFIX+'-bridge'} and stopped['ExitCode']!=0: report['errors'].append('product_shutdown_failed:'+name)
             cmd('docker','rm',name,check=False)
         except Exception as error: report['errors'].append('diagnostic_or_cleanup_failed:'+type(error).__name__)
     if host_canary is not None: host_canary.shutdown();host_canary.server_close()
@@ -340,4 +425,11 @@ finally:
     if state_mounted:
         try: cmd('umount',WORK/'state')
         except Exception as error: report['errors'].append('owned_disposable_state_unmount_failed:'+type(error).__name__)
+    if not report['errors'] and 'activeShutdown' in report: report['sections'].append('safe-shutdown')
+    required={'actual-service-bootstrap','private-isolation','sandbox-identities','limits-and-failures','bounded-storage','safe-shutdown'}
+    report['verificationComplete']=required<=set(report['sections']) and not report['errors']
+    report['resourceMeasurements']=metrics.close();report['errors'].extend(metrics.errors)
+    report['verificationComplete']=report['verificationComplete'] and not report['errors']
     (EVIDENCE/'result.json').write_text(json.dumps(report,indent=2)+'\n')
+
+if not report['verificationComplete']: raise SystemExit('Incomplete/failed actual-service proof; release flags remain false')

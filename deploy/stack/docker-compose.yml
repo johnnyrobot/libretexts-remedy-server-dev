@@ -24,7 +24,6 @@ services:
     configs:
       - source: credential-loader
         target: /opt/remedy-bundle/secret-env.mjs
-    ports: ["127.0.0.1:${REMEDY_SERVER_PORT:-8090}:8000"]
     volumes:
       - type: bind
         source: ${REMEDY_STATE_ROOT:?pre-provisioned bounded local POSIX store required}
