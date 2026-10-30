@@ -33,12 +33,18 @@ try {
   },config.projectID);
   assert.equal(result.status,200);assert.equal(result.body.capabilities.mutate,false);
   // Save synthetic failure evidence, never invent a successful human review.
-  await verification.getByText('Evaluation scope',{exact:false}).first().click();
+  const scopeSummary=verification.locator('summary').filter({hasText:/^Evaluation scope/});
+  await scopeSummary.click();
+  assert.notEqual(await scopeSummary.locator('..').getAttribute('open'),null,'native evaluation scope disclosure opened');
   await verification.getByLabel('Full-page boundaries and included content').fill('Isolated synthetic full reader page and its authored source.');
   await verification.getByLabel('Complete processes and interaction states to evaluate').fill('Synthetic login, page reading and remediation preview only.');
   await verification.getByLabel('Platform release and relevant configuration').fill('Exact pinned Linux candidate with trusted private TLS.');
   await verification.getByLabel('This scope covers full pages',{exact:false}).check();
-  await verification.getByRole('button',{name:'Save evaluation scope',exact:true}).click();
+  const [scopeResponse]=await Promise.all([
+    page.waitForResponse(r=>r.url().endsWith('/conformance/scope')&&r.request().method()==='POST'),
+    verification.getByRole('button',{name:'Save evaluation scope',exact:true}).click(),
+  ]);
+  assert.equal(scopeResponse.status(),200);assert.equal((await scopeResponse.json()).err,false);
   await verification.getByText('Review record saved.',{exact:true}).waitFor();
   await verification.getByLabel('Page to evaluate',{exact:true}).selectOption(config.sectionID);
   await verification.getByLabel('Review outcome',{exact:true}).selectOption('fail');
@@ -46,8 +52,19 @@ try {
   await verification.getByLabel('Evidence and results, including',{exact:false}).fill('Synthetic regression records an observed incomplete review and failure; this is not human WCAG approval.');
   const form=verification.locator('form').filter({has:page.getByLabel('Review outcome',{exact:true})});
   for(const box of await form.getByRole('checkbox').all())await box.check();
-  await form.getByRole('button',{name:'Save reviewer evidence',exact:true}).click();
-  await verification.getByText('Review record saved.',{exact:true}).waitFor();
+  const [reviewResponse]=await Promise.all([
+    page.waitForResponse(r=>r.url().endsWith('/conformance/review')&&r.request().method()==='POST'),
+    form.getByRole('button',{name:'Save reviewer evidence',exact:true}).click(),
+  ]);
+  assert.equal(reviewResponse.status(),200);assert.equal((await reviewResponse.json()).err,false);
+  const history=await page.evaluate(async cfg=>{
+    const path='/api/v1/project/'+cfg.projectID+'/accessibility/workqueue/conformance/history?sectionID='+cfg.sectionID+'&criterionID=1.1.1';
+    const response=await fetch(path,{credentials:'same-origin',headers:{'X-Requested-With':'XMLHttpRequest'}});
+    return {status:response.status,body:await response.json()};
+  },config);
+  assert.equal(history.status,200);
+  assert.ok(history.body.records.some(record=>record.actor===config.editor&&record.data?.status==='fail'),'real UI submission persisted as synthetic failure evidence');
+  console.log(JSON.stringify({checkpoint:'actual-scope-and-review-records-persisted',passed:true}));
   assert.equal(errors.length,0,'compiled UI must not throw');
   await page.screenshot({path:'/browser-evidence/synthetic-review.png',fullPage:true});
   console.log(JSON.stringify({passed:true,realCompiledUI:true,trustedTLS:true,browserManagedSecureCookie:true,syntheticFallbackLogin:true,manualFailureEvidenceSaved:true,productionMutationFalse:true,productionSSOVerified:false}));
