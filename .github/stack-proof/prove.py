@@ -301,7 +301,12 @@ try:
     request(cxone_url,'/control/status',{'fail':True},'synthetic-control-only',True)
     status,failed=request(server_url,'/v1/cxone/page/scan',{'page_id':'42'},'synthetic-server-key')
     assert status>=400,failed
-    assert request(server_url,'/v1/cxone/health',key='synthetic-server-key')[0]==503
+    failed_health_code,failed_health=request(server_url,'/v1/cxone/health',key='synthetic-server-key')
+    report['requiredReadFailure']={'scanStatus':status,'healthStatus':failed_health_code,'health':failed_health}
+    if failed_health_code!=503:
+        # Keep this contract defect blocking while exercising independent
+        # owned admission/storage seams in the same exact-artifact run.
+        report['errors'].append('required_external_read_failure_did_not_make_review_profile_unready')
     request(cxone_url,'/control/status',{'fail':False},'synthetic-control-only',True)
     assert request(server_url,'/v1/cxone/page/scan',{'page_id':'42'},'synthetic-server-key')[0]==200
     assert request(server_url,'/v1/cxone/health',key='synthetic-server-key')[0]==200
@@ -314,7 +319,7 @@ try:
     code,clean=request(scanner_url,'/v1/adapt/scan',{'mode':'question','id':101},'synthetic-scanner-key')
     assert code==200 and clean['ok'] is True and clean['exitCode']==0 and clean['results'][0]['overallPassed'] is True,clean
     request(adapt_url,'/control/status',{'clean':False},'synthetic-control-only',True)
-    report['readRecovery']={'bridgeDependencyFailureThenRealRetry':True,'scannerEmptyMalformedAuthRefused':True,'actualCleanAfterErrors':True}
+    report['readRecovery']={'bridgeDependencyFailureThenRealRetry':failed_health_code==503,'scannerEmptyMalformedAuthRefused':True,'actualCleanAfterErrors':True}
     # A complete raw JSON request at the published limit; one byte over is
     # refused before any additional source read.
     for base,path,key,body,external in [(scanner_url,'/v1/adapt/scan','synthetic-scanner-key',{'mode':'question','id':101},adapt_url),
