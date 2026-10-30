@@ -30,9 +30,11 @@ Scanner digest pass the complete Linux service proof and operational acceptance.
 `productionWritesEnabled` false. Do not infer acceptance from image build,
 process liveness, partial test output or component-only tests.
 
-The selected Bridge pin includes the reviewed upstream-read readiness correction.
-The preserved failed assertion and complete selected-profile Linux proof must
-pass on the exact new archives before this candidate is accepted.
+The private engine/Scanner/optional-Bridge slice (LT196) is merged. Full-integration
+commissioning and operational acceptance (LT197) remain incomplete. The final
+Bridge source below is reviewed; its original compiled Conductor counterparts
+have passed exact-archive Linux import. Full reader rendering, browser sessions,
+recovery and cold operational rehearsals still need complete matching receipts.
 [Known limitations](deploy/stack/README.md#health-bounds-and-failures), final review
 and the full operational slice still apply.
 

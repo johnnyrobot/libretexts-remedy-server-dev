@@ -181,7 +181,7 @@ outcome/nonce/history and missing audit remain explicit.
 
 Actual full-stack authorization, scan/preview/manual-evidence freshness,
 production mutation denial, terminal/unknown status and explicit recovery/races
-remain operational acceptance. Retained signed apply/rescan/restore/replay is
+remain operational acceptance. Retained signed apply/rescan/restore/replay must be
 proved separately only in clearly labeled dev/test synthetic mode; it is not
 vendor atomicity proof or a production-hold bypass. Coherent backup/restore,
 compatible upgrade/rollback and unsupported-host refusal must pass on disposable
@@ -196,13 +196,40 @@ Other maintained entry points:
 
 ## Full integration commissioning tracer (LT-197)
 
-The current branch adds a **candidate tracer**, not completed operational
-acceptance. The GitHub Linux workflow imports the two original compiled Conductor
+The current branch is **incomplete commissioning work**, not completed
+operational acceptance. The GitHub Linux workflow imports the two original compiled Conductor
 saved images selected by `conductor-candidates.json` (metadata source
 `dd152c5eca8e48609bbf7df9a9c8c63cf7b48fd2`). It verifies the original artifact ZIP,
 compressed image archive, config ID and every uncompressed filesystem layer before
-import. The separately archived/imported Bridge-owned rendered-page scanner uses
-Bridge source `f39566e`, Playwright 1.63 and its unchanged reviewed seccomp profile;
+import. Docker's imported immutable identity is checked separately from the original
+config digest. The original saved archives also contain an OCI index/manifest:
+current Docker reports that **original OCI manifest digest** as its image ID.
+The verifier hashes the original index-referenced manifest, binds its config and
+every ordered uncompressed layer, rejects unknown execution settings and accepts
+only the original config or manifest identity. It then re-inspects by the verified
+immutable ID; no mutable tag or rebuilt consumer is a substitute. Actual Linux
+receipts retain both IDs and raw runtime configuration differences (currently none).
+
+| Conductor target | Original config digest | Original OCI manifest / observed runtime ID |
+|---|---|---|
+| Release 2.156.2, tree `a60544214de7d3613e1dad0da99a6c62722c49a8` | `sha256:ac4eb83f4a0e5add09bf3afde29b9b4227ef6b8fcdf2b0e5d278a423cb6214f9` | `sha256:48631c03318e81196bf714d31ec73749128ada4247559a2ea818df440d1a5890` |
+| Staging, tree `1edf0ba1516e39731f5c3289e31045bffda311f3` | `sha256:e2c5d63ad527afd4c577b4f820ef65fe16222356d1dec3761bbf12eb5dcf58d9` | `sha256:90aa4b203154b9a14b1938fb0ebb4b186640126fd692eb3d1107b05dfd80bafa` |
+
+The unchanged index SHA256 is
+`99d70fe71fdf956bc60e34ca55b262cc39747cd5fd30bd386ec7518d3ba58da8`.
+Those original source artifacts expire November 12, 2026; retain the exact verified
+saved images with the final package before expiry. Historical 24-patch candidates
+are not compatible substitutes for these 32-patch deliveries. The metadata-only
+index correction did not rebuild either product image.
+
+The separately archived/imported Bridge-owned rendered-page scanner uses
+Bridge source `f39566e` and Playwright 1.63. The deployment filter retains the
+producer profile with one recorded correction: its `chroot` rule matches the
+already reviewed engine/Scanner nested-user-namespace rule. It grants no
+container capability; actual Linux proof must show initial-namespace chroot
+remains kernel-denied and real Chromium rendering succeeds under zero
+capabilities/NNP. `renderer-profile-source.json` binds the upstream bytes, delta,
+unchanged remainder and deployed hash;
 its policy/license remain in the [producer README](https://github.com/johnnyrobot/libretexts-remedy-bridge-dev/tree/f39566e0fa6413ed17e7a5c2a11fefc540ed5233/browser-scanner).
 
 The tracer's complete owned topology is actual Server, exact ADAPT Scanner,

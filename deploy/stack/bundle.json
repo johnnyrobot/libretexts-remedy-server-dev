@@ -76,5 +76,5 @@
   "conductorMetadataSource": "dd152c5eca8e48609bbf7df9a9c8c63cf7b48fd2",
   "conductorCandidateIndexSHA256": "99d70fe71fdf956bc60e34ca55b262cc39747cd5fd30bd386ec7518d3ba58da8",
   "rendererSource": "f39566e0fa6413ed17e7a5c2a11fefc540ed5233",
-  "rendererSeccompSHA256": "cc3e61cabda6bbc1e53e54d27ba4d55a9d3be829b6dd1a596f4a7b31b1cc7849"
+  "rendererSeccompSHA256": "fcecf1a0ae6f84effa439b44d5f0e51bc25b4a975a7025c71e6f9ee0490ca7b0"
 }
