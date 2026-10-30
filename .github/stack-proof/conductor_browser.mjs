@@ -7,7 +7,8 @@ const config=JSON.parse(fs.readFileSync('/fixture/app.json'));
 const browser=await chromium.launch({headless:true,chromiumSandbox:true});
 const context=await browser.newContext();
 const errors=[],page=await context.newPage();
-page.on('pageerror',()=>errors.push('pageerror'));
+const safeMessage=error=>String(error?.message??error).replaceAll(config.password,'[synthetic credential redacted]').slice(0,1600);
+page.on('pageerror',error=>errors.push({name:error.name,message:safeMessage(error)}));
 await context.route('**/*',route=>{
   const url=new URL(route.request().url());
   return url.protocol==='https:'&&url.hostname==='conductor.invalid'&&url.port==='8443'?route.continue():route.abort();
@@ -48,4 +49,8 @@ try {
   assert.equal(errors.length,0,'compiled UI must not throw');
   await page.screenshot({path:'/browser-evidence/synthetic-review.png',fullPage:true});
   console.log(JSON.stringify({passed:true,realCompiledUI:true,trustedTLS:true,browserManagedSecureCookie:true,syntheticFallbackLogin:true,manualFailureEvidenceSaved:true,productionMutationFalse:true,productionSSOVerified:false}));
+} catch(error) {
+  fs.writeFileSync('/browser-evidence/browser-error.json',JSON.stringify({name:error.name,message:safeMessage(error),pageErrors:errors},null,2));
+  await page.screenshot({path:'/browser-evidence/synthetic-failure.png',fullPage:true}).catch(()=>{});
+  throw Error('Actual compiled browser acceptance failed; see sanitized browser-error.json and screenshot.');
 } finally {await browser.close();}

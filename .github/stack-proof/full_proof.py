@@ -21,7 +21,7 @@ PREFIX='lt197-'+os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT']
 WORK=Path(os.environ['RUNNER_TEMP'])/PREFIX;WORK.mkdir(mode=0o700)
 sensitive_values=set()
 OWNER=uuid.uuid4().hex;network=PREFIX+'-private';owned=[];rule=None;mounted=False;network_created=False
-report={'serverSource':os.environ['GITHUB_SHA'],'deploymentReady':False,'productionWritesEnabled':False,'targets':{},'verificationComplete':False}
+report={'serverSource':os.environ['GITHUB_SHA'],'deploymentReady':False,'productionWritesEnabled':False,'targets':{},'verificationScope':'compiled-auth-scan-rendered-preview-and-production-hold','operationalAcceptanceComplete':False,'verificationComplete':False}
 INPUT=json.loads((ROOT/'deploy/stack/bundle.json').read_text())
 MONGO='mongo:7.0.14@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6'
 
@@ -125,8 +125,15 @@ try:
     interface=info['Options'].get('com.docker.network.bridge.name','br-'+info['Id'][:12])
     rule=['INPUT','-i',interface,'-m','conntrack','!','--ctstate','ESTABLISHED,RELATED','-j','DROP'];run('iptables','-I',*rule)
     fixture=WORK/'fixture';fixture.mkdir();fixture.chmod(0o755)
-    run('openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=dev.libretexts.org',
-        '-addext','subjectAltName=DNS:dev.libretexts.org,DNS:remedy-server,DNS:conductor.invalid','-keyout',fixture/'key.pem','-out',fixture/'cert.pem')
+    authority=WORK/'private-fixture-authority';authority.mkdir(mode=0o700)
+    run('openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=LT197 isolated synthetic authority',
+        '-addext','basicConstraints=critical,CA:TRUE','-addext','keyUsage=critical,keyCertSign,cRLSign','-keyout',authority/'ca.key','-out',fixture/'ca.pem')
+    (authority/'ca.key').chmod(0o400)
+    run('openssl','req','-new','-newkey','rsa:2048','-nodes','-subj','/CN=dev.libretexts.org','-keyout',fixture/'key.pem','-out',authority/'server.csr')
+    extensions=authority/'server.ext';extensions.write_text('basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:dev.libretexts.org,DNS:remedy-server,DNS:conductor.invalid\n')
+    run('openssl','x509','-req','-in',authority/'server.csr','-CA',fixture/'ca.pem','-CAkey',authority/'ca.key','-CAcreateserial','-days','1','-sha256','-extfile',extensions,'-out',fixture/'cert.pem')
+    run('openssl','verify','-CAfile',fixture/'ca.pem',fixture/'cert.pem')
+    (fixture/'ca.pem').chmod(0o444)
     tls_fixture=WORK/'frontend-tls';tls_fixture.mkdir(mode=0o755)
     for name in ('key.pem','cert.pem'):
         (tls_fixture/name).write_bytes((fixture/name).read_bytes());os.chown(tls_fixture/name,1000,1000);(tls_fixture/name).chmod(0o400 if name=='key.pem' else 0o444)
@@ -134,7 +141,7 @@ try:
     # Chromium's NSS trust store uses the local fixture CA. Certificate and
     # hostname verification stay enabled; no browser or Node TLS bypass.
     nss=WORK/'nssdb';nss.mkdir();run('certutil','-N','--empty-password','-d','sql:'+str(nss))
-    run('certutil','-A','-d','sql:'+str(nss),'-n','isolated-cxone-fixture','-t','C,,','-i',fixture/'cert.pem')
+    run('certutil','-A','-d','sql:'+str(nss),'-n','isolated-cxone-fixture','-t','C,,','-i',fixture/'ca.pem')
     renderer_uid=int(run('docker','run','--rm','--network','none','--entrypoint','node',imports['images']['renderer']['loadedDockerImageID'],'-e','console.log(process.getuid())').strip());assert renderer_uid!=0
     report['rendererUID']=renderer_uid
     for p in [nss,*nss.iterdir()]:os.chown(p,renderer_uid,renderer_uid);p.chmod(0o700 if p.is_dir() else 0o600)
@@ -153,22 +160,22 @@ try:
     server_env={'APP_ENV':'production','PYTHON_DOTENV_DISABLED':'1','APP_API_KEY_FILE':'/run/secrets/app','OLLAMA_API_KEY_FILE':'/run/secrets/ollama','OLLAMA_BASE_URL':'https://provider.invalid/v1','CORS_ALLOW_ORIGINS':'https://conductor.invalid','JOB_DIR':'/app/state/jobs','JOB_STORE_PATH':'/app/state/jobs.sqlite3','JOB_BACKUP_DIR':'/app/state/backups','OUTPUT_DIR':'/app/state/output','LOG_DIR':'/app/state/logs','HOME':'/tmp','TMPDIR':'/tmp','CXONE_INTEGRATION_ENABLED':'true','CXONE_BRIDGE_BASE_URL':'http://127.0.0.1:5175','REMEDY_BRIDGE_SERVICE_KEY_FILE':'/run/secrets/service','WORKER_CONCURRENCY':'1','WORKER_MAX_PENDING':'8','JOB_TOTAL_TIMEOUT_SECONDS':'900','MAX_UPLOAD_MB':'4','MAX_REQUEST_BYTES':'5000000','RATE_LIMIT_DEFAULT':'10000/minute','RATE_LIMIT_UPLOADS':'10000/minute'}
     start('server','remedy-server:stack-candidate',['node','/proof/secret-env.mjs','server','uvicorn','backend.app.main:app','--host','0.0.0.0','--port','8000','--workers','1','--timeout-graceful-shutdown','15','--ssl-certfile','/fixtures/cert.pem','--ssl-keyfile','/fixtures/key.pem'],envfile('server',server_env),[(loader,'/proof/secret-env.mjs',True),(server_keys,'/run/secrets',True),(state,'/app/state',False),(fixture,'/fixtures',True)],extra=[*net,'--network-alias','remedy-server','--security-opt','seccomp='+str(ROOT/'deploy/chromium-seccomp-amd64.json')],limits=(4,'4g',512,'256m',120))
     deadline=time.monotonic()+60
-    while run('docker','exec',PREFIX+'-server','curl','--cacert','/fixtures/cert.pem','-fsS','https://remedy-server:8000/readyz',check=False).strip()=='':
+    while run('docker','exec',PREFIX+'-server','curl','--cacert','/fixtures/ca.pem','-fsS','https://remedy-server:8000/readyz',check=False).strip()=='':
         assert time.monotonic()<deadline,'actual TLS Server readiness';time.sleep(.2)
     # Exact Scanner calls the actual TLS Server, keeping certificate checks on.
-    scanner_env={'ADAPT_BASE_URL':'http://127.0.0.1:8081','ADAPT_TOKEN_FILE':'/run/secrets/adapt','SCANNER_API_KEY_FILE':'/run/secrets/api','REMEDY_API_KEY_FILE':'/run/secrets/remedy','SCAN_MODE':'http','RENDER_MODE':'iframe','REMEDY_ENDPOINT':'https://remedy-server:8000/v1/validate/html','NODE_EXTRA_CA_CERTS':'/fixtures/cert.pem','HOME':'/tmp','TMPDIR':'/tmp','SCANNER_MAX_ACTIVE_JOBS':'1','SCANNER_MAX_QUEUED_JOBS':'8','SCANNER_JOB_TIMEOUT_MS':'900000','SCANNER_MAX_REQUEST_BYTES':'5000000','REMEDY_TIMEOUT_MS':'920000'}
-    start('scanner',INPUT['scannerImage'],['node','/proof/secret-env.mjs','scanner','node','dist/server.js'],envfile('scanner',scanner_env),[(loader,'/proof/secret-env.mjs',True),(scanner_keys,'/run/secrets',True),(fixture/'cert.pem','/fixtures/cert.pem',True)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/scanner-seccomp-amd64.json')],limits=(2,'2g',512,'1g',20))
+    scanner_env={'ADAPT_BASE_URL':'http://127.0.0.1:8081','ADAPT_TOKEN_FILE':'/run/secrets/adapt','SCANNER_API_KEY_FILE':'/run/secrets/api','REMEDY_API_KEY_FILE':'/run/secrets/remedy','SCAN_MODE':'http','RENDER_MODE':'iframe','REMEDY_ENDPOINT':'https://remedy-server:8000/v1/validate/html','NODE_EXTRA_CA_CERTS':'/fixtures/ca.pem','HOME':'/tmp','TMPDIR':'/tmp','SCANNER_MAX_ACTIVE_JOBS':'1','SCANNER_MAX_QUEUED_JOBS':'8','SCANNER_JOB_TIMEOUT_MS':'900000','SCANNER_MAX_REQUEST_BYTES':'5000000','REMEDY_TIMEOUT_MS':'920000'}
+    start('scanner',INPUT['scannerImage'],['node','/proof/secret-env.mjs','scanner','node','dist/server.js'],envfile('scanner',scanner_env),[(loader,'/proof/secret-env.mjs',True),(scanner_keys,'/run/secrets',True),(fixture/'ca.pem','/fixtures/ca.pem',True)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/scanner-seccomp-amd64.json')],limits=(2,'2g',512,'1g',20))
     wait('scanner',5176)
     start('adapt','remedy-server:stack-candidate',['python','/proof/external.py','--kind','adapt'],mounts=[(source/'external.py','/proof/external.py',True)],extra=['--network','container:'+PREFIX+'-scanner'],uid=999)
     wait('scanner',8081,'/control/status','synthetic-control-only',True)
     code,scan=request('scanner',5176,'/v1/adapt/scan',{'mode':'question','id':101},'synthetic-scanner-key');assert code==200 and scan['results'][0]['findings'] and scan['results'][0]['capturedBytes']>0,scan
     report['actualScannerAgainstTLSserver']=True
-    start('renderer','remedy-renderer:stack-candidate',['node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/home/pwuser'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(nss,'/home/pwuser/.pki/nssdb',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
+    start('renderer','remedy-renderer:stack-candidate',['node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/home/pwuser'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(nss,'/home/pwuser/.pki/nssdb',True),(source/'nss_home.sh','/proof/nss_home.sh',True),(nss,'/fixture-nss',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
     wait('renderer',5180)
     denied_chroot=subprocess.run(['docker','exec',PREFIX+'-renderer','chroot','/','/bin/true'],capture_output=True,text=True,timeout=10)
     assert denied_chroot.returncode!=0 and 'Operation not permitted' in denied_chroot.stderr,'initial namespace chroot must remain kernel-denied'
     report['rendererInitialNamespaceChrootDenied']=True
-    bridge_base={'NODE_ENV':'production','CONDUCTOR_API_HOST':'127.0.0.1','REMEDY_REVIEWER_REQUIRED':'true','REMEDY_BRIDGE_SERVICE_KEY_FILE':'/run/secrets/service','CXONE_INTEGRATION_ENABLED':'true','SERVER_DOMAIN':'dev.libretexts.org','SERVER_KEY_FILE':'/run/secrets/key','SERVER_SECRET_FILE':'/run/secrets/secret','SERVER_USER_FILE':'/run/secrets/user','REMEDY_WRITE_ALLOWLIST':'^Sandboxes/johnnyphung(?:/|$)','REMEDY_MAX_REQUEST_BYTES':'5000000','REMEDY_WORK_ACTIVE':'1','REMEDY_WORK_QUEUED':'8','REMEDY_WORK_TIMEOUT_MS':'120000','HOME':'/tmp','NODE_EXTRA_CA_CERTS':'/fixtures/cert.pem','RENDER_SCANNER_URL':'http://remedy-renderer:5180','RENDER_SCANNER_TOKEN':'synthetic-renderer-token'}
+    bridge_base={'NODE_ENV':'production','CONDUCTOR_API_HOST':'127.0.0.1','REMEDY_REVIEWER_REQUIRED':'true','REMEDY_BRIDGE_SERVICE_KEY_FILE':'/run/secrets/service','CXONE_INTEGRATION_ENABLED':'true','SERVER_DOMAIN':'dev.libretexts.org','SERVER_KEY_FILE':'/run/secrets/key','SERVER_SECRET_FILE':'/run/secrets/secret','SERVER_USER_FILE':'/run/secrets/user','REMEDY_WRITE_ALLOWLIST':'^Sandboxes/johnnyphung(?:/|$)','REMEDY_MAX_REQUEST_BYTES':'5000000','REMEDY_WORK_ACTIVE':'1','REMEDY_WORK_QUEUED':'8','REMEDY_WORK_TIMEOUT_MS':'120000','HOME':'/tmp','NODE_EXTRA_CA_CERTS':'/fixtures/ca.pem','RENDER_SCANNER_URL':'http://remedy-renderer:5180','RENDER_SCANNER_TOKEN':'synthetic-renderer-token'}
     for target,pin in consumers['targets'].items():
         phases=[];mongo_data=WORK/('mongo-'+target);mongo_data.mkdir();os.chown(mongo_data,999,999)
         mongo_bootstrap=private('mongo-bootstrap-'+target,999,{'credentials.json':json.dumps({'admin':uuid.uuid4().hex,'application':uuid.uuid4().hex})})
@@ -191,12 +198,12 @@ try:
         ledger=WORK/('ledger-'+target);ledger.mkdir(mode=0o700);os.chown(ledger,1000,1000)
         fence=WORK/('independent-fence-'+target);fence.mkdir(mode=0o700);os.chown(fence,1000,1000)
         run('docker','run','--rm','--network','none','--user','1000:1000','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true','--mount',f'type=bind,src={ledger},dst=/ledger','--mount',f'type=bind,src={fence},dst=/fence',imports['images']['bridge']['loadedDockerImageID'],'python3','packages/conductor-panel/server/ledger-helper.py','--directory','/ledger','--fence','/fence/fence.json','--epoch',signing['trust_epoch'],'--initialize')
-        app_env={'NODE_ENV':'production','APP_ENV':'candidate_ci','ORG_ID':'libretexts','PORT':'5000','TRUST_PROXY_HOPS':'0','PRODUCTIONURLS':'conductor.invalid,https://conductor.invalid,https://conductor.invalid:8443','SECRETKEY_FILE':'/run/secrets/session','MONGOOSEURI_FILE':'/run/secrets/mongo','REMEDY_API_KEY_FILE':'/run/secrets/remedy','OPENAI_API_KEY_FILE':'/run/secrets/openai','STRIPE_SECRET_KEY_FILE':'/run/secrets/stripe','MAILGUN_API_KEY_FILE':'/run/secrets/mailgun','MAILGUN_DOMAIN':'fixture.example.invalid','NEW_RELIC_ENABLED':'false','NODE_EXTRA_CA_CERTS':'/fixtures/cert.pem','REMEDY_ENABLED':'true','REMEDY_ORG_ID':'libretexts','REMEDY_API_BASE_URL':'https://remedy-server:8000'}
+        app_env={'NODE_ENV':'production','APP_ENV':'candidate_ci','ORG_ID':'libretexts','PORT':'5000','TRUST_PROXY_HOPS':'0','PRODUCTIONURLS':'conductor.invalid,https://conductor.invalid,https://conductor.invalid:8443','SECRETKEY_FILE':'/run/secrets/session','MONGOOSEURI_FILE':'/run/secrets/mongo','REMEDY_API_KEY_FILE':'/run/secrets/remedy','OPENAI_API_KEY_FILE':'/run/secrets/openai','STRIPE_SECRET_KEY_FILE':'/run/secrets/stripe','MAILGUN_API_KEY_FILE':'/run/secrets/mailgun','MAILGUN_DOMAIN':'fixture.example.invalid','NEW_RELIC_ENABLED':'false','NODE_EXTRA_CA_CERTS':'/fixtures/ca.pem','REMEDY_ENABLED':'true','REMEDY_ORG_ID':'libretexts','REMEDY_API_BASE_URL':'https://remedy-server:8000'}
         for phase in ('review','production-held'):
             writer_env={} if phase=='review' else {'REMEDY_REVIEWER_KEYRING_FILE':'/run/reviewer-keyring.json','REMEDY_REVIEWER_TRUST_EPOCH':signing['trust_epoch'],'REMEDY_CLAIM_DB':'/ledger/claims.sqlite3','REMEDY_CLAIM_FENCE_DIR':'/fence','REMEDY_SNAPSHOT_DIR':'/ledger/snapshots','REMEDY_AUDIT_LOG':'/ledger/audit.log'}
             signer_env={} if phase=='review' else {'REMEDY_REVIEWER_SIGNING_KEY_FILE':'/run/signing/private.pem','REMEDY_REVIEWER_KEY_ID':signing['kid'],'REMEDY_REVIEWER_ISSUER':signing['issuer'],'REMEDY_REVIEWER_AUDIENCE':signing['audience'],'REMEDY_REVIEWER_KEY_ENABLED':'true','REMEDY_REVIEWER_KEY_NOT_BEFORE':'0','REMEDY_REVIEWER_KEY_NOT_AFTER':'4102444800'}
             writer_mounts=[] if phase=='review' else [(signer/'production.json','/run/reviewer-keyring.json',True),(ledger,'/ledger',False),(fence,'/fence',False)]
-            start('bridge','remedy-bridge:stack-candidate',['node','/proof/secret-env.mjs','bridge','node','--import','tsx','packages/conductor-panel/server/server.ts'],envfile('bridge',{**bridge_base,**writer_env,'REMEDY_BRIDGE_PROFILE':'review-only' if phase=='review' else 'full-write'}),[(loader,'/proof/secret-env.mjs',True),(bridge_keys,'/run/secrets',True),(fixture/'cert.pem','/fixtures/cert.pem',True),*writer_mounts],extra=['--network','container:'+PREFIX+'-server'],uid=1000,limits=(1,'768m',128,'64m',30))
+            start('bridge','remedy-bridge:stack-candidate',['node','/proof/secret-env.mjs','bridge','node','--import','tsx','packages/conductor-panel/server/server.ts'],envfile('bridge',{**bridge_base,**writer_env,'REMEDY_BRIDGE_PROFILE':'review-only' if phase=='review' else 'full-write'}),[(loader,'/proof/secret-env.mjs',True),(bridge_keys,'/run/secrets',True),(fixture/'ca.pem','/fixtures/ca.pem',True),*writer_mounts],extra=['--network','container:'+PREFIX+'-server'],uid=1000,limits=(1,'768m',128,'64m',30))
             deadline=time.monotonic()+60
             private_paths=run('docker','exec',PREFIX+'-bridge','node','-e',"const fs=require('fs');console.log(JSON.stringify(['/run/signing/private.pem','/signer/private.pem'].map(p=>fs.existsSync(p))))")
             assert json.loads(private_paths)==[False,False],'Bridge must never receive reviewer private signing material'
@@ -204,14 +211,14 @@ try:
             expected='200' if phase=='review' else '503'
             while run('docker','exec',PREFIX+'-server','curl','-sS','-o','/dev/null','-w','%{http_code}','-H','X-Remedy-Service-Key: '+'a1'*32,'http://127.0.0.1:5175/readyz',check=False).strip()!=expected:
                 assert time.monotonic()<deadline,'actual Bridge readiness';time.sleep(.2)
-            start('conductor',pin['loadedDockerImageID'],['node','/proof/secret-env.mjs','conductor','node','dist/server.js'],envfile('conductor',{**app_env,**signer_env}),[(loader,'/proof/secret-env.mjs',True),(conductor_keys,'/run/secrets',True),(app_fixture,'/fixture',True),(fixture/'cert.pem','/fixtures/cert.pem',True),(source/'conductor_probe.mjs','/proof/conductor_probe.mjs',True),*([(signer/'private.pem','/run/signing/private.pem',True)] if phase!='review' else [])],extra=[*net,'--network-alias','conductor'],uid=1000,limits=(2,'1536m',256,'64m',30))
+            start('conductor',pin['loadedDockerImageID'],['node','/proof/secret-env.mjs','conductor','node','dist/server.js'],envfile('conductor',{**app_env,**signer_env}),[(loader,'/proof/secret-env.mjs',True),(conductor_keys,'/run/secrets',True),(app_fixture,'/fixture',True),(fixture/'ca.pem','/fixtures/ca.pem',True),(source/'conductor_probe.mjs','/proof/conductor_probe.mjs',True),*([(signer/'private.pem','/run/signing/private.pem',True)] if phase!='review' else [])],extra=[*net,'--network-alias','conductor'],uid=1000,limits=(2,'1536m',256,'64m',30))
             wait('conductor',5000,'/health')
             raw=run('docker','exec',PREFIX+'-conductor','node','/proof/secret-env.mjs','conductor','node','/proof/conductor_probe.mjs',phase)
             observation=json.loads(raw.strip().splitlines()[-1]);assert observation['passed'];phases.append(observation)
             if phase=='review':
                 browser_evidence=WORK/('browser-'+target);browser_evidence.mkdir();os.chown(browser_evidence,renderer_uid,renderer_uid)
                 start('tls',pin['loadedDockerImageID'],['node','/proof/tls_proxy.mjs'],mounts=[(source/'tls_proxy.mjs','/proof/tls_proxy.mjs',True),(tls_fixture,'/fixtures',True)],extra=[*net,'--network-alias','conductor.invalid'],uid=1000)
-                start('ui',imports['images']['renderer']['loadedDockerImageID'],['node','/proof/conductor_browser.mjs'],envfile('ui',{'HOME':'/home/pwuser'}),[(source/'conductor_browser.mjs','/proof/conductor_browser.mjs',True),(browser_fixture,'/fixture',True),(nss,'/home/pwuser/.pki/nssdb',True),(browser_evidence,'/browser-evidence',False)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],uid=renderer_uid,limits=(1.5,'2g',256,'1g',30))
+                start('ui',imports['images']['renderer']['loadedDockerImageID'],['node','/proof/conductor_browser.mjs'],envfile('ui',{'HOME':'/home/pwuser'}),[(source/'conductor_browser.mjs','/proof/conductor_browser.mjs',True),(browser_fixture,'/fixture',True),(nss,'/home/pwuser/.pki/nssdb',True),(source/'nss_home.sh','/proof/nss_home.sh',True),(nss,'/fixture-nss',True),(browser_evidence,'/browser-evidence',False)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],uid=renderer_uid,limits=(1.5,'2g',256,'1g',30))
                 assert run('docker','wait',PREFIX+'-ui').strip()=='0','actual UI browser failed; see sanitized ui log'
                 browser_result=json.loads(run('docker','logs',PREFIX+'-ui').strip().splitlines()[-1]);assert browser_result['passed']
                 phases.append(browser_result)
@@ -225,16 +232,18 @@ try:
     report['externalMutations']=0;report['verificationComplete']=len(report['targets'])==2
 except Exception as error:
     report['error']=safe_error(error)
+    for browser_directory in WORK.glob('browser-*'):
+        if not browser_directory.is_dir():continue
+        for file in browser_directory.iterdir():
+            if file.is_file() and file.suffix in {'.png','.json'}:
+                (OUT/(browser_directory.name+'-'+file.name)).write_bytes(file.read_bytes())
     if PREFIX+'-renderer' in owned and inspect(PREFIX+'-renderer')['State']['Running']:
         try:
             diagnostic=run('docker','exec',PREFIX+'-renderer','node','/proof/renderer_diagnose.mjs')
             write_product_log(OUT/'renderer-diagnostic.json',diagnostic,sensitive_values)
-            if json.loads(diagnostic)['state']=='threw-before-response':
-                # One-variable launch probe: copy the SAME fixture NSS database
-                # into writable temporary HOME, never disable TLS/sandbox.
-                run('docker','exec',PREFIX+'-renderer','sh','-c','mkdir -p /tmp/renderer-home && cp -R /home/pwuser/.pki /tmp/renderer-home/.pki')
-                alternate=run('docker','exec','--env','HOME=/tmp/renderer-home',PREFIX+'-renderer','node','/proof/renderer_diagnose.mjs')
-                write_product_log(OUT/'renderer-writable-home-diagnostic.json',alternate,sensitive_values)
+            if json.loads(diagnostic).get('error','').find('ERR_CERT_AUTHORITY_INVALID')>=0:
+                alternate=run('docker','exec','--env','HOME=/tmp/renderer-home',PREFIX+'-renderer','sh','/proof/nss_home.sh','node','/proof/renderer_diagnose.mjs')
+                write_product_log(OUT/'renderer-initialized-nss-diagnostic.json',alternate,sensitive_values)
         except Exception as diagnostic_error:report['rendererDiagnosticError']=safe_error(diagnostic_error)
     raise RuntimeError(report['error']) from None
 finally:

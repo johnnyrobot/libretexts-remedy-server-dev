@@ -238,7 +238,9 @@ sequentially. Only ADAPT/CXone data and startup-only unused provider credentials
 are synthetic. Conductor uses its real fallback authentication and stored project
 roles; this does not establish production SSO acceptance. Server uses Uvicorn's
 existing TLS arguments, and Node trusts only the generated fixture CA. Chromium
-uses an NSS fixture CA with certificate/hostname validation enabled. Its reviewed
+uses a separate synthetic root CA and server certificate with certificate/hostname
+validation enabled; the CA private key is never mounted into a workload. The NSS
+setup follows [Chromium's Linux certificate guidance](https://chromium.googlesource.com/chromium/src/+/main/docs/linux/cert_management.md). Trust-store diagnostics are test-fixture evidence, not production PKI or SSO acceptance. Its reviewed
 hostname/IP policy is retained, using Docker's **internal** TEST-NET
 `198.51.100.0/24`, an isolated `dev.libretexts.org` alias, no host ports and an
 additional deny-host rule. This topology cannot contact the real domain/provider.
