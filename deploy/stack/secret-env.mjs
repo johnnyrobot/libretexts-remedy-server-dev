@@ -26,7 +26,9 @@ async function privateFile(name) {
 try {
   if (!Object.hasOwn(roles, role) || !command.length) throw new Error('role_or_command');
   const env = {...process.env};
-  for (const name of roles[role]) {
+  const credentialNames = [...roles[role]];
+  if (role === 'bridge' && (env.RENDER_SCANNER_URL || env.RENDER_SCANNER_TOKEN_FILE || env.RENDER_SCANNER_TOKEN)) credentialNames.push('RENDER_SCANNER_TOKEN');
+  for (const name of credentialNames) {
     if (env[name]) throw new Error(`${name}_ambiguous`);
     env[name] = await privateFile(`${name}_FILE`);
   }
@@ -35,7 +37,7 @@ try {
     if (!/^[a-f0-9]{64}$/.test(service)) throw new Error('service_key_format');
   }
   if (command.length === 1 && command[0] === '--check') {
-    console.log(JSON.stringify({ok: true, role, uid: process.getuid(), credentialNames: roles[role]}));
+    console.log(JSON.stringify({ok: true, role, uid: process.getuid(), credentialNames}));
   } else {
     const child = spawn(command[0], command.slice(1), {env, stdio: 'inherit'});
     let ended = false;

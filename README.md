@@ -38,7 +38,9 @@ recovery and cold operational rehearsals still need complete matching receipts.
 [Known limitations](deploy/stack/README.md#health-bounds-and-failures), final review
 and the full operational slice still apply.
 
-The [stack guide](deploy/stack/README.md) is the next entry point. It describes
+The [stack guide](deploy/stack/README.md) is the next entry point;
+[full integration configuration](deploy/stack/integration-profile.md) describes
+the original Conductor targets, private TLS and optional history/signing overlays. It describes
 artifact verification, exact configuration/credential **file names**, private
 transport, modes, mounts, limits and operator checks. Current fixed inputs are:
 
@@ -119,6 +121,8 @@ Linux ownership, finite deadlines, quarantined work and one process per store.
 [HTML policy](deploy/html-resource-policy.md) covers offline resources and real
 sandbox requirements. The [stack operations guide](deploy/stack/README.md#operations-and-remaining-acceptance)
 is the entry for storage, backup/upgrade/rollback and target-host acceptance.
+The [cold-state guide](deploy/stack/cold-state.md) documents conservative stopped
+clones, independent fence preservation and refusal of newer-state rollback.
 Never erase unresolved markers, restore an old independent fence to force trust,
 blindly retry uncertain writes/jobs, or turn a preview into conformance evidence.
 

@@ -44,7 +44,8 @@
       "pids": 128,
       "tmpBytes": 268435456,
       "totalSeconds": 120,
-      "stopSeconds": 30
+      "stopSeconds": 30,
+      "stateBytes": 536870912
     },
     "renderer": {
       "cpus": 1.5,
@@ -68,7 +69,14 @@
       "memoryBytes": 1073741824,
       "pids": 128,
       "shmBytes": 67108864,
-      "stopSeconds": 60
+      "stopSeconds": 60,
+      "stateBytes": 1073741824,
+      "tmpBytes": 536870912,
+      "configdbTmpBytes": 16777216,
+      "wiredTigerCacheGiB": 0.25
+    },
+    "fence": {
+      "stateBytes": 33554432
     }
   },
   "artifactPolicy": "Exact OCI archive SHA256 and registry digest are verified after download/pull. Candidate retention and resolved base/lock/profile/image hashes are recorded in the producing CI run. No rebuild substitution.",

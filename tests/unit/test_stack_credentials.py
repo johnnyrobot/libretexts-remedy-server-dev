@@ -64,3 +64,36 @@ def test_conductor_private_files_reach_unchanged_compiled_entrypoint(tmp_path):
         'process.exit('+json.dumps(names)+'.every(n=>process.env[n]===`synthetic-${n}`)?0:1)'],env=env,text=True,capture_output=True,timeout=10)
     assert result.returncode==0,result.stderr
     assert result.stdout=='' and result.stderr==''
+
+
+def bridge_env(tmp_path):
+    env={'PATH':os.environ['PATH'],'RENDER_SCANNER_URL':'http://renderer.invalid:5180'}
+    for name in ('SERVER_KEY','SERVER_SECRET','SERVER_USER'):
+        path=tmp_path/name;path.write_text('synthetic-'+name);path.chmod(0o600);env[name+'_FILE']=str(path)
+    return env
+
+
+def test_configured_bridge_renderer_receives_protected_token_file(tmp_path):
+    env=bridge_env(tmp_path)
+    token=tmp_path/'renderer';token.write_text('synthetic-renderer-token');token.chmod(0o600)
+    env['RENDER_SCANNER_TOKEN_FILE']=str(token)
+    result=subprocess.run(['node',str(SCRIPT),'bridge','node','-e',
+        "process.exit(process.env.RENDER_SCANNER_TOKEN==='synthetic-renderer-token'?0:1)"],env=env,capture_output=True,text=True,timeout=10)
+    assert result.returncode==0,result.stderr
+    assert 'synthetic-renderer-token' not in result.stdout+result.stderr
+
+
+@pytest.mark.parametrize('damage',['missing','public','ambiguous'])
+def test_bridge_renderer_credential_refusal_precedes_product_start(tmp_path,damage):
+    env=bridge_env(tmp_path)
+    token=tmp_path/'renderer';token.write_text('synthetic-renderer-token');token.chmod(0o600)
+    if damage!='missing': env['RENDER_SCANNER_TOKEN_FILE']=str(token)
+    if damage=='public': token.chmod(0o644)
+    if damage=='ambiguous': env['RENDER_SCANNER_TOKEN']='synthetic-direct-token'
+    marker=tmp_path/'started'
+    result=subprocess.run(['node',str(SCRIPT),'bridge','node','-e',
+        f"require('fs').writeFileSync({json.dumps(str(marker))},'started')"],env=env,capture_output=True,text=True,timeout=10)
+    assert result.returncode!=0
+    assert not marker.exists()
+    assert result.stderr.strip()=='credential_configuration_invalid'
+    assert 'synthetic-renderer-token' not in result.stdout+result.stderr

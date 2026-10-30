@@ -1,0 +1,21 @@
+# Optional after compose.integration.yml. No signer/keyring is required.
+# The deployment team provisions ledger/fence; startup never initializes them.
+services:
+  remedy-bridge:
+    environment:
+      REMEDY_CLAIM_DB: /ledger/claims.sqlite3
+      REMEDY_CLAIM_FENCE_DIR: /fence
+      REMEDY_OPERATION_STATUS_ISSUER: ${REMEDY_OPERATION_STATUS_ISSUER:?exact existing historical issuer required}
+      REMEDY_REVIEWER_TRUST_EPOCH: ${REMEDY_REVIEWER_TRUST_EPOCH:?exact independent current nonsecret trust epoch required}
+    volumes:
+      - type: bind
+        source: ${REMEDY_BRIDGE_STATE_ROOT:?pre-provisioned bounded Bridge ledger and history store required}
+        target: /ledger
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${REMEDY_FENCE_ROOT:?independent current bounded fence directory required}
+        target: /fence
+        bind: {create_host_path: false}
+  conductor:
+    environment:
+      REMEDY_REVIEWER_TRUST_EPOCH: ${REMEDY_REVIEWER_TRUST_EPOCH:?exact independent current nonsecret trust epoch required}

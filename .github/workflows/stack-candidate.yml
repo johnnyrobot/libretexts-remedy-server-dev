@@ -72,7 +72,7 @@ jobs:
           value={'serverSource':os.environ['GITHUB_SHA'],'bridgeSource':'f39566e0fa6413ed17e7a5c2a11fefc540ed5233','deploymentReady':False,'productionWritesEnabled':False,'retentionDays':30,'sha256':{}}
           for name in names:
               with (root/name).open('rb') as stream: value['sha256'][name]=hashlib.file_digest(stream,'sha256').hexdigest()
-          value['configurationSha256']={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in Path('deploy/stack').rglob('*') if p.is_file() and p.suffix in {'.py','.mjs','.json','.yml','.example','.md'}}
+          value['configurationSha256']={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in Path('deploy/stack').rglob('*') if p.is_file() and p.suffix in {'.py','.mjs','.json','.yml','.example','.md','.sh'}}
           (root/'candidate.json').write_text(json.dumps(value,indent=2)+'\n')
           PY
       - uses: actions/upload-artifact@v4

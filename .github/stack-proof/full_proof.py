@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 import time
 import uuid
@@ -20,10 +21,11 @@ if os.environ.get('GITHUB_ACTIONS')!='true' or platform.system()!='Linux' or pla
 PREFIX='lt197-'+os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT']
 WORK=Path(os.environ['RUNNER_TEMP'])/PREFIX;WORK.mkdir(mode=0o700)
 sensitive_values=set()
-OWNER=uuid.uuid4().hex;network=PREFIX+'-private';owned=[];rule=None;mounted=False;network_created=False
+OWNER=uuid.uuid4().hex;network=PREFIX+'-private';owned=[];rule=None;mounted=[];network_created=False
 report={'serverSource':os.environ['GITHUB_SHA'],'deploymentReady':False,'productionWritesEnabled':False,'targets':{},'verificationScope':'compiled-auth-scan-rendered-preview-and-production-hold','operationalAcceptanceComplete':False,'verificationComplete':False}
 INPUT=json.loads((ROOT/'deploy/stack/bundle.json').read_text())
 consumers={'targets':{}}
+image_aliases={}
 MONGO='mongo:7.0.14@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6'
 
 def run(*args,check=True):
@@ -49,13 +51,34 @@ def private(name,uid,values):
         f=p/field;f.write_text(value+'\n');f.chmod(0o400);os.chown(f,uid,uid)
     return p
 
+def bounded_state(label,uid,capacity):
+    assert re.fullmatch(r'[a-z][a-z0-9_.-]{1,90}',label) and '..' not in label
+    assert type(capacity) is int and 32*1024**2<=capacity<=4*1024**3
+    directory=WORK/('volume-'+label);directory.mkdir(mode=0o700)
+    image=WORK/(label+'.ext4')
+    with image.open('xb') as stream:stream.truncate(capacity)
+    run('mkfs.ext4','-q','-F','-m','0',image)
+    run('mount','-t','ext4','-o','loop,nodev,nosuid,noexec',image,directory)
+    mounted.append(directory)
+    data=directory/'data';data.mkdir(mode=0o700);os.chown(data,uid,uid)
+    fs=os.statvfs(data);actual=fs.f_frsize*fs.f_blocks
+    assert actual<=capacity and actual>=capacity*0.75,'bounded state capacity mismatch'
+    report.setdefault('storage',[]).append({'label':label,'filesystem':'ext4','imageBytes':capacity,'capacityBytes':actual,'initialFreeBytes':fs.f_frsize*fs.f_bavail,'uid':uid,'mode':'0700'})
+    return data
+
 def start(role,image,command,env=None,mounts=(),extra=(),uid=None,limits=(1,'256m',64,'64m',30)):
     name=PREFIX+'-'+role
+    image=image_aliases.get(image,image)
     cpu,memory,pids,shm,stop=limits
+    explicit_profiles=[str(option).split('=',1)[1] for option in extra if str(option).startswith('seccomp=')]
+    assert len(explicit_profiles)<=1
+    profile_hash=hashlib.sha256(Path(explicit_profiles[0]).read_bytes()).hexdigest() if explicit_profiles else None
+    temporary=INPUT['limits'].get(role,{}).get('tmpBytes',512*1024**2)
+    assert type(temporary) is int and temporary>0
     args=['docker','run','--detach','--name',name,'--label','org.libretexts.stack-proof-owner='+OWNER,
         '--init','--cap-drop','ALL','--security-opt','no-new-privileges:true','--read-only',
         '--cpus',str(cpu),'--memory',memory,'--pids-limit',str(pids),'--shm-size',shm,'--stop-timeout',str(stop),
-        '--tmpfs','/tmp:rw,nosuid,nodev,size=512m']
+        '--tmpfs',f'/tmp:rw,nosuid,nodev,size={temporary}']
     if uid is not None:args+=['--user',str(uid)+':'+str(uid)]
     if env:args+=['--env-file',str(env)]
     for source,target,ro in mounts:args+=['--mount',f'type=bind,src={source},dst={target}'+(',readonly' if ro else '')]
@@ -77,17 +100,25 @@ def start(role,image,command,env=None,mounts=(),extra=(),uid=None,limits=(1,'256
         status=dict(line.split(':',1) for line in run('docker','exec',name,'cat','/proc/1/status').splitlines() if ':' in line)
         actual_uid=int(status['Uid'].split()[1]);assert actual_uid>0
         assert int(status['CapEff'].strip(),16)==0 and status['NoNewPrivs'].strip()=='1' and status['Seccomp'].strip()=='2'
-        report.setdefault('started',[]).append({'role':role,'imageID':value['Image'],'uid':actual_uid,'capEff':0,'noNewPrivileges':True,'seccomp':2,'cpus':cpu,'memoryBytes':host['Memory'],'pidLimit':pids,'shmBytes':host['ShmSize'],'stopSeconds':stop,'readOnlyRoot':True})
+        report.setdefault('started',[]).append({'role':role,'imageID':value['Image'],'uid':actual_uid,'capEff':0,'noNewPrivileges':True,'seccomp':2,'cpus':cpu,'memoryBytes':host['Memory'],'pidLimit':pids,'shmBytes':host['ShmSize'],'stopSeconds':stop,'readOnlyRoot':True,'tmpfs':host['Tmpfs'],'init':host['Init'],'seccompProfileSHA256':profile_hash})
     return name
 
 def stop(role):
     name=PREFIX+'-'+role;value=inspect(name)
     assert value['Config']['Labels']['org.libretexts.stack-proof-owner']==OWNER
-    run('docker','stop',name)
+    usage={}
+    if value['State']['Running']:
+        for field,path in [('memoryPeakBytes','memory.peak'),('pidPeak','pids.peak')]:
+            raw=run('docker','exec',name,'cat','/sys/fs/cgroup/'+path,check=False).strip()
+            usage[field]=int(raw) if raw.isdigit() else None
+        usage['cpuStat']=run('docker','exec',name,'cat','/sys/fs/cgroup/cpu.stat',check=False).strip()
+    started=time.monotonic();run('docker','stop',name)
+    elapsed=time.monotonic()-started
     final=inspect(name)
     write_product_log(OUT/(role+'-'+str(len(report.get('stopped',[])))+'.log'),product_log(name),sensitive_values)
-    report.setdefault('stopped',[]).append({'role':role,'image':value['Image'],'exitCode':final['State']['ExitCode']})
+    report.setdefault('stopped',[]).append({'role':role,'image':value['Image'],'exitCode':final['State']['ExitCode'],'stopSeconds':round(elapsed,3),'usageIncludingDiagnosticExec':usage})
     expected = {143} if role in {'cxone','adapt','server'} else {0}
+    if role=='ui' and report.get('uiFailures'):expected={0,1} # failed test driver, never a product success
     assert final['State']['ExitCode'] in expected,(role,final['State'])
     run('docker','rm',name);owned.remove(name)
 
@@ -120,6 +151,7 @@ try:
     for role in ('server','bridge','renderer'):
         value=json.loads(run('docker','image','inspect','remedy-'+role+':stack-candidate'))[0]
         assert value['Id']==imports['images'][role]['loadedDockerImageID']
+        image_aliases['remedy-'+role+':stack-candidate']=imports['images'][role]['loadedDockerImageID']
     run('docker','pull',MONGO)
     run('docker','network','create','--internal','--subnet','198.51.100.0/24','--label','org.libretexts.stack-proof-owner='+OWNER,network);network_created=True
     info=json.loads(run('docker','network','inspect',network))[0];assert info['Internal']
@@ -148,12 +180,9 @@ try:
     renderer_uid=int(run('docker','run','--rm','--network','none','--entrypoint','node',imports['images']['renderer']['loadedDockerImageID'],'-e','console.log(process.getuid())').strip());assert renderer_uid!=0
     report['rendererUID']=renderer_uid
     for p in [nss,*nss.iterdir()]:os.chown(p,renderer_uid,renderer_uid);p.chmod(0o700 if p.is_dir() else 0o600)
-    state=WORK/'state';state.mkdir();state_image=WORK/'state.ext4'
-    with state_image.open('xb') as f:f.truncate(INPUT['limits']['server']['stateBytes'])
-    run('mkfs.ext4','-q','-F','-m','0',state_image);run('mount','-t','ext4','-o','loop,nodev,nosuid,noexec',state_image,state);mounted=True
-    os.chown(state,999,999);state.chmod(0o700)
+    state=bounded_state('server',999,INPUT['limits']['server']['stateBytes'])
     server_keys=private('server-keys',999,{'app':'synthetic-server-key','ollama':'synthetic-provider-key','service':'a1'*32})
-    bridge_keys=private('bridge-keys',1000,{'key':'synthetic-key','secret':'synthetic-secret','user':'synthetic-user','service':'a1'*32})
+    bridge_keys=private('bridge-keys',1000,{'key':'synthetic-key','secret':'synthetic-secret','user':'synthetic-user','service':'a1'*32,'renderer':'synthetic-renderer-token'})
     renderer_keys=private('renderer-keys',renderer_uid,{'token':'synthetic-renderer-token'})
     scanner_uid=int(run('docker','run','--rm','--network','none','--entrypoint','node',INPUT['scannerImage'],'-e','console.log(process.getuid())').strip());assert scanner_uid!=0
     scanner_keys=private('scanner-keys',scanner_uid,{'api':'synthetic-scanner-key','adapt':'synthetic-adapt-token','remedy':'synthetic-server-key'})
@@ -173,18 +202,18 @@ try:
     wait('scanner',8081,'/control/status','synthetic-control-only',True)
     code,scan=request('scanner',5176,'/v1/adapt/scan',{'mode':'question','id':101},'synthetic-scanner-key');assert code==200 and scan['results'][0]['findings'] and scan['results'][0]['capturedBytes']>0,scan
     report['actualScannerAgainstTLSserver']=True
-    start('renderer','remedy-renderer:stack-candidate',['sh','/proof/nss_home.sh','node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/tmp/renderer-home'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(source/'nss_home.sh','/proof/nss_home.sh',True),(nss,'/fixture-nss',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
+    start('renderer','remedy-renderer:stack-candidate',['sh','/proof/nss_home.sh','node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/tmp/renderer-home'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(ROOT/'deploy/stack/browser-home.sh','/proof/nss_home.sh',True),(nss,'/run/certificates/nss-seed',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
     wait('renderer',5180)
     report['NSSSetup']['runtimePackage']=run('docker','exec',PREFIX+'-renderer','dpkg-query','-W','-f=${Version}','libnss3').strip()
     denied_chroot=subprocess.run(['docker','exec',PREFIX+'-renderer','chroot','/','/bin/true'],capture_output=True,text=True,timeout=10)
     assert denied_chroot.returncode!=0 and 'Operation not permitted' in denied_chroot.stderr,'initial namespace chroot must remain kernel-denied'
     report['rendererInitialNamespaceChrootDenied']=True
-    bridge_base={'NODE_ENV':'production','CONDUCTOR_API_HOST':'127.0.0.1','REMEDY_REVIEWER_REQUIRED':'true','REMEDY_BRIDGE_SERVICE_KEY_FILE':'/run/secrets/service','CXONE_INTEGRATION_ENABLED':'true','SERVER_DOMAIN':'dev.libretexts.org','SERVER_KEY_FILE':'/run/secrets/key','SERVER_SECRET_FILE':'/run/secrets/secret','SERVER_USER_FILE':'/run/secrets/user','REMEDY_WRITE_ALLOWLIST':'^Sandboxes/johnnyphung(?:/|$)','REMEDY_MAX_REQUEST_BYTES':'5000000','REMEDY_WORK_ACTIVE':'1','REMEDY_WORK_QUEUED':'8','REMEDY_WORK_TIMEOUT_MS':'120000','HOME':'/tmp','NODE_EXTRA_CA_CERTS':'/fixtures/ca.pem','RENDER_SCANNER_URL':'http://remedy-renderer:5180','RENDER_SCANNER_TOKEN':'synthetic-renderer-token'}
+    bridge_base={'NODE_ENV':'production','CONDUCTOR_API_HOST':'127.0.0.1','REMEDY_REVIEWER_REQUIRED':'true','REMEDY_BRIDGE_SERVICE_KEY_FILE':'/run/secrets/service','CXONE_INTEGRATION_ENABLED':'true','SERVER_DOMAIN':'dev.libretexts.org','SERVER_KEY_FILE':'/run/secrets/key','SERVER_SECRET_FILE':'/run/secrets/secret','SERVER_USER_FILE':'/run/secrets/user','REMEDY_WRITE_ALLOWLIST':'^Sandboxes/johnnyphung(?:/|$)','REMEDY_MAX_REQUEST_BYTES':'5000000','REMEDY_WORK_ACTIVE':'1','REMEDY_WORK_QUEUED':'8','REMEDY_WORK_TIMEOUT_MS':'120000','HOME':'/tmp','NODE_EXTRA_CA_CERTS':'/fixtures/ca.pem','RENDER_SCANNER_URL':'http://remedy-renderer:5180','RENDER_SCANNER_TOKEN_FILE':'/run/secrets/renderer'}
     for target,pin in consumers['targets'].items():
         phases=[];report['targets'][target]={'artifact':pin,'phases':phases,'complete':False}
-        mongo_data=WORK/('mongo-'+target);mongo_data.mkdir();os.chown(mongo_data,999,999)
+        mongo_data=bounded_state('mongo-'+target,999,INPUT['limits']['mongo']['stateBytes'])
         mongo_bootstrap=private('mongo-bootstrap-'+target,999,{'credentials.json':json.dumps({'admin':uuid.uuid4().hex,'application':uuid.uuid4().hex})})
-        start('mongo',MONGO,['mongod','--auth','--bind_ip_all'],mounts=[(mongo_data,'/data/db',False),(mongo_bootstrap,'/run/bootstrap',True),(source/'mongo_bootstrap.js','/proof/mongo_bootstrap.js',True)],extra=[*net,'--network-alias','mongo'],uid=999,limits=(1,'1g',128,'64m',60))
+        start('mongo',MONGO,['mongod','--auth','--bind_ip_all','--wiredTigerCacheSizeGB','0.25'],mounts=[(mongo_data,'/data/db',False),(mongo_bootstrap,'/run/bootstrap',True),(source/'mongo_bootstrap.js','/proof/mongo_bootstrap.js',True)],extra=[*net,'--network-alias','mongo','--tmpfs','/data/configdb:rw,nosuid,nodev,noexec,size=16m'],uid=999,limits=(1,'1g',128,'64m',60))
         deadline=time.monotonic()+60
         while run('docker','exec',PREFIX+'-mongo','mongosh','--quiet','--eval','db.adminCommand({ping:1}).ok',check=False).strip()!='1':
             assert time.monotonic()<deadline;time.sleep(.2)
@@ -200,8 +229,8 @@ try:
         run('node',source/'signing_fixture.mjs',signer)
         signing=json.loads((signer/'metadata.json').read_text())
         for item in [signer,*signer.iterdir()]:os.chown(item,1000,1000)
-        ledger=WORK/('ledger-'+target);ledger.mkdir(mode=0o700);os.chown(ledger,1000,1000)
-        fence=WORK/('independent-fence-'+target);fence.mkdir(mode=0o700);os.chown(fence,1000,1000)
+        ledger=bounded_state('ledger-'+target,1000,INPUT['limits']['bridge']['stateBytes'])
+        fence=bounded_state('fence-'+target,1000,INPUT['limits']['fence']['stateBytes'])
         run('docker','run','--rm','--network','none','--user','1000:1000','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true','--mount',f'type=bind,src={ledger},dst=/ledger','--mount',f'type=bind,src={fence},dst=/fence',imports['images']['bridge']['loadedDockerImageID'],'python3','packages/conductor-panel/server/ledger-helper.py','--directory','/ledger','--fence','/fence/fence.json','--epoch',signing['trust_epoch'],'--initialize')
         app_env={'NODE_ENV':'production','APP_ENV':'candidate_ci','ORG_ID':'libretexts','PORT':'5000','TRUST_PROXY_HOPS':'0','PRODUCTIONURLS':'conductor.invalid,https://conductor.invalid,https://conductor.invalid:8443','SECRETKEY_FILE':'/run/secrets/session','MONGOOSEURI_FILE':'/run/secrets/mongo','REMEDY_API_KEY_FILE':'/run/secrets/remedy','OPENAI_API_KEY_FILE':'/run/secrets/openai','STRIPE_SECRET_KEY_FILE':'/run/secrets/stripe','MAILGUN_API_KEY_FILE':'/run/secrets/mailgun','MAILGUN_DOMAIN':'fixture.example.invalid','NEW_RELIC_ENABLED':'false','NODE_EXTRA_CA_CERTS':'/fixtures/ca.pem','REMEDY_ENABLED':'true','REMEDY_ORG_ID':'libretexts','REMEDY_API_BASE_URL':'https://remedy-server:8000'}
         for phase in ('review','production-held'):
@@ -224,23 +253,29 @@ try:
             raw=probe.stdout
             observation=json.loads(raw.strip().splitlines()[-1]);assert observation['passed'];phases.append(observation)
             if phase=='review':
-                browser_evidence=WORK/('browser-'+target);browser_evidence.mkdir();os.chown(browser_evidence,renderer_uid,renderer_uid)
-                start('tls',pin['loadedDockerImageID'],['node','/proof/tls_proxy.mjs'],mounts=[(source/'tls_proxy.mjs','/proof/tls_proxy.mjs',True),(tls_fixture,'/fixtures',True)],extra=[*net,'--network-alias','conductor.invalid'],uid=1000)
-                tls_deadline=time.monotonic()+20
-                while run('docker','exec',PREFIX+'-server','curl','--cacert','/fixtures/ca.pem','-sS','-o','/dev/null','-w','%{http_code}','https://conductor.invalid:8443/health',check=False).strip()!='200':
-                    assert time.monotonic()<tls_deadline,'verified private TLS frontend readiness';time.sleep(.2)
-                start('ui',imports['images']['renderer']['loadedDockerImageID'],['sh','/proof/nss_home.sh','node','/proof/conductor_browser.mjs'],envfile('ui',{'HOME':'/tmp/renderer-home'}),[(source/'conductor_browser.mjs','/proof/conductor_browser.mjs',True),(browser_fixture,'/fixture',True),(source/'nss_home.sh','/proof/nss_home.sh',True),(nss,'/fixture-nss',True),(browser_evidence,'/browser-evidence',False)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],uid=renderer_uid,limits=(1.5,'2g',256,'1g',30))
-                assert run('docker','wait',PREFIX+'-ui').strip()=='0','actual UI browser failed; see sanitized ui log'
-                browser_result=json.loads(run('docker','logs',PREFIX+'-ui').strip().splitlines()[-1]);assert browser_result['passed']
-                phases.append(browser_result)
-                (OUT/('browser-'+target+'.png')).write_bytes((browser_evidence/'synthetic-review.png').read_bytes())
-                stop('ui');stop('tls')
+                try:
+                    browser_evidence=WORK/('browser-'+target);browser_evidence.mkdir();os.chown(browser_evidence,renderer_uid,renderer_uid)
+                    start('tls',pin['loadedDockerImageID'],['node','/proof/tls_proxy.mjs'],mounts=[(source/'tls_proxy.mjs','/proof/tls_proxy.mjs',True),(tls_fixture,'/fixtures',True)],extra=[*net,'--network-alias','conductor.invalid'],uid=1000)
+                    tls_deadline=time.monotonic()+20
+                    while run('docker','exec',PREFIX+'-server','curl','--cacert','/fixtures/ca.pem','-sS','-o','/dev/null','-w','%{http_code}','https://conductor.invalid:8443/health',check=False).strip()!='200':
+                        assert time.monotonic()<tls_deadline,'verified private TLS frontend readiness';time.sleep(.2)
+                    start('ui',imports['images']['renderer']['loadedDockerImageID'],['sh','/proof/nss_home.sh','node','/proof/conductor_browser.mjs'],envfile('ui',{'HOME':'/tmp/renderer-home'}),[(source/'conductor_browser.mjs','/proof/conductor_browser.mjs',True),(browser_fixture,'/fixture',True),(ROOT/'deploy/stack/browser-home.sh','/proof/nss_home.sh',True),(nss,'/run/certificates/nss-seed',True),(browser_evidence,'/browser-evidence',False)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],uid=renderer_uid,limits=(1.5,'2g',256,'1g',30))
+                    assert run('docker','wait',PREFIX+'-ui').strip()=='0','actual UI browser failed; see sanitized ui log'
+                    browser_result=json.loads(run('docker','logs',PREFIX+'-ui').strip().splitlines()[-1]);assert browser_result['passed']
+                    phases.append(browser_result)
+                    (OUT/('browser-'+target+'.png')).write_bytes((browser_evidence/'synthetic-review.png').read_bytes())
+                except Exception as ui_error:
+                    report.setdefault('uiFailures',[]).append({'target':target,'error':safe_error(ui_error)})
+                    collect_browser_evidence(WORK,OUT,consumers['targets'],sensitive_values)
+                finally:
+                    if PREFIX+'-ui' in owned:stop('ui')
+                    if PREFIX+'-tls' in owned:stop('tls')
             stop('conductor');stop('bridge')
         stop('mongo')
-        report['targets'][target]['complete']=True
+        report['targets'][target]['complete']=not any(failure['target']==target for failure in report.get('uiFailures',[]))
     code,status=request('cxone',8082,'/control/status',key='synthetic-control-only',control=True)
     assert code==200 and status['mutations']==0,status
-    report['externalMutations']=0;report['verificationComplete']=len(report['targets'])==2
+    report['externalMutations']=0;report['verificationComplete']=len(report['targets'])==2 and not report.get('uiFailures')
 except Exception as error:
     report['error']=safe_error(error)
     collect_browser_evidence(WORK,OUT,consumers['targets'],sensitive_values)
@@ -253,12 +288,23 @@ except Exception as error:
         except Exception as diagnostic_error:report['rendererDiagnosticError']=safe_error(diagnostic_error)
     raise RuntimeError(report['error']) from None
 finally:
+    if PREFIX+'-cxone' in owned and inspect(PREFIX+'-cxone')['State']['Running']:
+        try:
+            code,observed=request('cxone',8082,'/control/status',key='synthetic-control-only',control=True)
+            assert code==200
+            report['externalMutations']=observed['mutations']
+            if observed['mutations']!=0:report['verificationComplete']=False
+        except Exception as counter_error:
+            report['externalMutationMeasurementError']=safe_error(counter_error);report['verificationComplete']=False
     for name in list(reversed(owned)):
+
         try:stop(name.removeprefix(PREFIX+'-'))
         except Exception as error:report.setdefault('shutdownErrors',[]).append(safe_error(error)[:600])
     if rule:run('iptables','-D',*rule,check=False)
     if network_created:run('docker','network','rm',network,check=False)
-    if mounted:run('umount',WORK/'state')
+    for directory in reversed(mounted):
+        try:run('umount',directory)
+        except Exception as error:report.setdefault('shutdownErrors',[]).append(safe_error(error)[:600])
     if report.get('shutdownErrors'):report['verificationComplete']=False
     (OUT/'full-result.json').write_text(json.dumps(report,indent=2)+'\n')
 if not report['verificationComplete']:raise SystemExit('Full stack proof incomplete; release flags remain false')

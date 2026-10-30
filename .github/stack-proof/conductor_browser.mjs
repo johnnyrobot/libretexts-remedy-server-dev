@@ -44,19 +44,19 @@ try {
     page.waitForResponse(r=>r.url().endsWith('/conformance/scope')&&r.request().method()==='POST'),
     verification.getByRole('button',{name:'Save evaluation scope',exact:true}).click(),
   ]);
-  assert.equal(scopeResponse.status(),200);assert.equal((await scopeResponse.json()).err,false);
+  const scopeBody=await scopeResponse.json();assert.equal(scopeResponse.status(),200,JSON.stringify(scopeBody));assert.equal(scopeBody.err,false);
   await verification.getByText('Review record saved.',{exact:true}).waitFor();
-  await verification.getByLabel('Page to evaluate',{exact:true}).selectOption(config.sectionID);
-  await verification.getByLabel('Review outcome',{exact:true}).selectOption('fail');
+  await verification.getByRole('combobox',{name:/^Page to evaluate/}).selectOption(config.sectionID);
+  await verification.getByRole('combobox',{name:/^Review outcome/}).selectOption('fail');
   await verification.getByLabel('Test environment:',{exact:false}).fill('Synthetic Chromium Linux candidate; no human conformance verification.');
   await verification.getByLabel('Evidence and results, including',{exact:false}).fill('Synthetic regression records an observed incomplete review and failure; this is not human WCAG approval.');
-  const form=verification.locator('form').filter({has:page.getByLabel('Review outcome',{exact:true})});
+  const form=verification.locator('form').filter({has:page.getByRole('combobox',{name:/^Review outcome/})});
   for(const box of await form.getByRole('checkbox').all())await box.check();
   const [reviewResponse]=await Promise.all([
     page.waitForResponse(r=>r.url().endsWith('/conformance/review')&&r.request().method()==='POST'),
     form.getByRole('button',{name:'Save reviewer evidence',exact:true}).click(),
   ]);
-  assert.equal(reviewResponse.status(),200);assert.equal((await reviewResponse.json()).err,false);
+  const reviewBody=await reviewResponse.json();assert.equal(reviewResponse.status(),200,JSON.stringify(reviewBody));assert.equal(reviewBody.err,false);
   const history=await page.evaluate(async cfg=>{
     const path='/api/v1/project/'+cfg.projectID+'/accessibility/workqueue/conformance/history?sectionID='+cfg.sectionID+'&criterionID=1.1.1';
     const response=await fetch(path,{credentials:'same-origin',headers:{'X-Requested-With':'XMLHttpRequest'}});

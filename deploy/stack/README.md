@@ -158,7 +158,11 @@ The chosen finite CPU/memory/PID/tmp/state/request/deadline/shutdown inputs are 
 passes. Scanner uses 1 GiB shm, 20-second stop grace, cap0/NNP/init and its exact
 seccomp policy. Server retains the minimal pidfd exceptions and real HTML sandbox
 requirements. Read-only image roots and bounded tmpfs are not replacements for
-persistent-state capacity, safe full-disk failure or cold recovery proof.
+persistent-state capacity, safe full-disk failure or cold recovery proof. The
+full commissioning candidate gives Bridge 512 MiB, Mongo 1 GiB and the independent
+fence 32 MiB on separate bounded filesystems, in addition to Server's 1 GiB.
+Mongo's cache is 0.25 GiB; its unused `/data/configdb` is a bounded 16 MiB tmpfs
+rather than an anonymous unbounded volume. Actual measurements remain required.
 
 Server's `MAX_REQUEST_BYTES=5000000` bounds the complete raw `/v1/` envelope,
 including ignored JSON fields and multipart overhead, before normalization or
@@ -178,6 +182,13 @@ unresolved markers or replay uncertain jobs/writes. Bridge ledger/snapshots/audi
 and Conductor Mongo immutable journals need their compatible cold procedure;
 never restore an old independent fence/epoch to force trust. Original actor,
 outcome/nonce/history and missing audit remain explicit.
+
+The [full integration overlays and exact configuration guide](integration-profile.md)
+add Conductor, authenticated Mongo and the real rendered-page scanner to this
+same package. Actual public-Compose and operational acceptance remains required.
+The [cold-state helper and ordered guide](cold-state.md) preserve all three
+stopped data trees and the current independent fence boundary. Its storage tests
+do not establish actual service restore or upgrade/rollback acceptance.
 
 Actual full-stack authorization, scan/preview/manual-evidence freshness,
 production mutation denial, terminal/unknown status and explicit recovery/races
