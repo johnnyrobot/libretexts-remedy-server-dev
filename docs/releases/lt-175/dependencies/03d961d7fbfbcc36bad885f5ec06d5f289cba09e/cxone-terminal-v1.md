@@ -101,7 +101,7 @@ separate recovery path. Do not reinterpret it as known success or no-op.
    observation requires revalidation/preparation, never a mutation retry.
    Missing/malformed proof, mismatch, pending, absent/404, untrusted or changing
    state remains held. No source-equality or elapsed-time shortcut is permitted.
-4. For `unknown_write`, retain the existing [drained offline operator procedure](../release/lt-159-offline-resolution.md)
+4. For `unknown_write`, retain the existing [drained offline operator procedure](https://github.com/johnnyrobot/libretexts-remedy-bridge-dev/blob/03d961d7fbfbcc36bad885f5ec06d5f289cba09e/docs/release/lt-159-offline-resolution.md)
    and its preserved resolution evidence. Neither this lookup nor a fresh scan
    settles an uncertain remote operation. Original actor/outcome/nonce/history,
    snapshots and audit remain preserved.
@@ -110,7 +110,7 @@ separate recovery path. Do not reinterpret it as known success or no-op.
 `stale_preview` and `target_mismatch` invalidate old evidence. Actual mutation
 and unknown write invalidate evidence. A terminal receipt does not establish
 WCAG conformance or vendor atomicity, enable production apply/restore, or bypass
-[the LibreTexts-owned production write gate](../release/cxone-conditional-edit-gate.md).
+[the LibreTexts-owned production write gate](https://github.com/johnnyrobot/libretexts-remedy-bridge-dev/blob/03d961d7fbfbcc36bad885f5ec06d5f289cba09e/docs/release/cxone-conditional-edit-gate.md).
 
 Conductor consumption is separately tracked by LT-180. This producer contract is
 not a claim that Conductor's recovery action or the assembled production package

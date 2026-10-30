@@ -85,13 +85,13 @@ RUN case "${TARGETARCH}" in \
 
 FROM base AS verapdf
 
-# verapdf-installer.zip must be present in the build context. Fetch with:
-#   curl -fsSLO https://software.verapdf.org/releases/1.30/verapdf-greenfield-1.30.1-installer.zip \
-#     && mv verapdf-greenfield-*-installer.zip verapdf-installer.zip
-# (skipping curl during build avoids transient outbound network failures.)
+# Fetch the checksum-pinned input before building:
+#   python3 tools/fetch_verapdf_installer.py verapdf-installer.zip
 COPY verapdf-installer.zip /tmp/verapdf/installer.zip
+COPY tools/build-inputs/verapdf-installer.json /tmp/verapdf/pin.json
 
-RUN mkdir -p /opt/verapdf \
+RUN python -c 'import hashlib,json,pathlib,sys; p=pathlib.Path("/tmp/verapdf/installer.zip"); v=json.loads(pathlib.Path("/tmp/verapdf/pin.json").read_text()); h=hashlib.file_digest(p.open("rb"),"sha256").hexdigest(); sys.exit(0 if p.stat().st_size==v["sizeBytes"] and h==v["sha256"] else "veraPDF installer integrity mismatch")' \
+    && mkdir -p /opt/verapdf \
     && unzip -q /tmp/verapdf/installer.zip -d /tmp/verapdf \
     && JAR="$(find /tmp/verapdf -maxdepth 3 -type f -name 'verapdf-izpack-installer-*.jar' | head -n1)" \
     && [ -n "$JAR" ] || (echo "verapdf installer jar not found" >&2; exit 1) \

@@ -164,7 +164,8 @@ def verify(root, work, evidence, prefix, images, state, fixture, keys):
                 logs=run('docker','logs',identifier,check=False,combined=True)
                 write_product_log(evidence/('compose-'+service+'.log'),logs)
                 receipt.setdefault('shutdown',{})[service]=value['State']['ExitCode']
-                assert value['State']['ExitCode'] in {0,143},value['State']
+                allowed={0,143} if service in {'remedy-server','external-adapt','external-cxone'} else {0}
+                assert value['State']['ExitCode'] in allowed,(service,value['State'])
             compose(True,'down')
         finally:
             if rule is not None: run('iptables','-D',*rule,check=False)

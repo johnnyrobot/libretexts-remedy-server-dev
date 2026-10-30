@@ -10,7 +10,7 @@ the LibreTexts-owned vendor, adapter and target-policy validation.
 
 ## Immutable artifacts and prerequisites
 
-Use host Python3.11+ for the standard-library preflight CLI (including
+Use host Python 3.11+ for the standard-library preflight CLI (including
 `hashlib.file_digest`); the service interpreter is inside the exact image.
 Use Linux amd64 with Docker Engine/Compose v2, cgroup v2, pidfds/subreaper and
 unprivileged user/PID namespaces/Chromium seccomp support. No arm64, Podman,
@@ -22,12 +22,19 @@ The `Private stack candidate` workflow builds clean canonical Server full-runtim
 and Bridge sources with resolved base digests, exports OCI archives and hashes,
 then downloads/imports those exact archives in a different Linux job. It pulls
 Scanner at the literal registry digest in `compose.scanner.yml`; it does not
-rebuild Scanner. Candidate artifacts have30-day retention: a reviewed handoff
+rebuild Scanner. Candidate artifacts have 30-day retention: a reviewed handoff
 must retain the exact accepted artifacts beyond that window. Builds, partial
 commissioning runs and unsigned local JSON are not proof of trusted provenance.
 Use the exact reviewed main run/commit, its candidate manifest and complete proof,
 never a floating branch/tag or a substituted rebuild. The build includes no
 runtime credentials; synthetic credentials are created only after image import.
+
+The veraPDF 1.30.1 installer is pinned in
+`tools/build-inputs/verapdf-installer.json`. Its detached signature was checked
+against the full fingerprint in the publisher's installation documentation.
+`tools/fetch_verapdf_installer.py` verifies size/SHA-256 before use; Docker checks
+the same pin before extraction or Java execution. The installer and pin hashes
+are recorded with build inputs. An upstream change fails the build until reviewed.
 
 The bundle input file lists source/contracts/resource choices. Runtime output
 records actual source/base/lock/profile/archive/image IDs, registry manifest
@@ -59,8 +66,8 @@ policy provenance/license are in `scanner-profile-source.json`. Its unchanged
 Apache-2.0-derived policy comes from the pinned Scanner source and Playwright
 profile referenced in that repo's shipping guide.
 
-`REMEDY_STATE_ROOT` is a pre-provisioned private UID999 dedicated local POSIX
-filesystem within the recorded1GiB candidate budget. Directory/project quota
+`REMEDY_STATE_ROOT` is a pre-provisioned private UID 999 dedicated local POSIX
+filesystem within the recorded 1 GiB candidate budget. Directory/project quota
 verification is not implemented in this candidate; a larger underlying filesystem
 is refused even when it has a separately configured quota. Local ext4/XFS are accepted;
 network filesystems and active independently copied SQLite stores are unsupported.
@@ -83,9 +90,9 @@ Server and Scanner use the dedicated private Docker network with no host port
 publication. Authorized callers on that network use `remedy-server:8000` and `adapt-scanner:5176`;
 off-host/private TLS ingress belongs to the reviewed operational package. Scanner
 requires `SCANNER_API_KEY`; its `REMEDY_API_KEY` must equal Server's application
-key. Bridge uses `network_mode:service:remedy-server`, still listens127.0.0.1 and
+key. Bridge uses `network_mode:service:remedy-server`, still listens on 127.0.0.1 and
 has **no published Bridge port, direct panel or alternate bind address**. Server
-reaches it via127.0.0.1:5175; another container cannot use Server's external address
+reaches it via 127.0.0.1:5175; another container cannot use Server's external address
 to reach that loopback listener. Both hops remain authenticated. Off-host callers
 need reviewed private TLS; no public/tunnel workaround is authorized.
 
@@ -97,7 +104,7 @@ isolation as an undocumented workaround.
 
 `secret-env.mjs` is a bundle entrypoint mounted read-only, not a new producer
 signing protocol. It reads private regular nonsymlink files owned by the actual
-application UID (mode0400/0600), rejects ambiguous direct values, then starts the
+application UID (mode 0400/0600), rejects ambiguous direct values, then starts the
 unchanged product command. Values are printable ASCII, optionally one final LF;
 no embedded newline/NUL or oversized credential. Provider values never appear in
 arguments/logs/images. Changes require a coordinated drain/restart.
@@ -114,10 +121,10 @@ arguments/logs/images. Changes require a coordinated drain/restart.
 | `bridge/user` | `SERVER_USER` | `SERVER_USER_FILE` |
 | `server/service`, `bridge/service` | Existing file-backed private-hop key | `REMEDY_BRIDGE_SERVICE_KEY_FILE` |
 
-Server UID999 and Bridge UID1000 need separate mode0400 files with identical
+Server UID 999 and Bridge UID 1000 need separate mode 0400 files with identical
 service-key bytes; Scanner keeps the image's `pwuser` UID, checked from the exact
 artifact. Application-key copies likewise match without broad group/world access.
-The service key format is64 lowercase hex characters, optionally one LF. These
+The service key format is 64 lowercase hex characters, optionally one LF. These
 are file names/prerequisites, not authorization to provision real credentials.
 
 Optional historical recovery uses existing issuer/store/fence settings and the
@@ -125,7 +132,7 @@ Optional historical recovery uses existing issuer/store/fence settings and the
 It is separate from signer configuration. A missing epoch can disable terminal
 proof recovery but must not prevent engine/scan/preview startup. Historical
 lookup works without signing when correctly configured, never clears state and
-never treats404/pending/null as proof of no write. Compatible Conductor manifests
+never treats 404/pending/null as proof of no write. Compatible Conductor manifests
 and its exact signer-setting matrix await the reviewed consumer/operational slice.
 
 ## Health, bounds and failures
@@ -135,12 +142,12 @@ Liveness is not readiness. Server `/readyz` concerns its store/engine; authentic
 Review mode requires scan+preview, explicitly `mutate:false`; status is optional.
 Full-write requires its published capability set. Unknown/malformed/partial
 producer profiles are not inferred as review-only. Required read failure must
-remain unavailable until genuine successful retry. Reviewed Bridge998fa1e corrects the observed upstream401/403 failure
+remain unavailable until genuine successful retry. Reviewed Bridge `998fa1e` corrects the observed upstream 401/403 failure
 classification without changing the public contract. The preserved red
-run40987997157 remains evidence; acceptance requires a fresh exact-artifact
+run `40987997157` remains evidence; acceptance requires a fresh exact-artifact
 run with the corrected pin. Successful required/default scan or deterministic
 preview is the verified recovery path; optional-source success does not itself
-clear the latch (LT202). Full-write read-capability debt (LT204) remains a
+clear the latch (LT-202). Full-write read-capability debt (LT-204) remains a
 separate blocker for the later full-integration freeze. A healthy metadata
 response alone is insufficient. Scanner `/healthz` concerns admission;
 only an actual authorized scan establishes its external/render/validator outcome.
@@ -149,7 +156,7 @@ on historical placeholder evidence; usable artifacts preserve explicit advisorie
 
 The chosen finite CPU/memory/PID/tmp/state/request/deadline/shutdown inputs are in
 `bundle.json`. They are candidate choices until measured actual Linux proof
-passes. Scanner uses1GiB shm,20-second stop grace, cap0/NNP/init and its exact
+passes. Scanner uses 1 GiB shm, 20-second stop grace, cap0/NNP/init and its exact
 seccomp policy. Server retains the minimal pidfd exceptions and real HTML sandbox
 requirements. Read-only image roots and bounded tmpfs are not replacements for
 persistent-state capacity, safe full-disk failure or cold recovery proof.
@@ -158,7 +165,7 @@ Server's `MAX_REQUEST_BYTES=5000000` bounds the complete raw `/v1/` envelope,
 including ignored JSON fields and multipart overhead, before normalization or
 job acceptance. Declared and streaming/chunked bodies use the same limit.
 `MAX_UPLOAD_MB=4` is a separate selected-file limit. Outside this package, an
-unset total limit derives from the file budget plus1MiB overhead; zero or
+unset total limit derives from the file budget plus 1 MiB overhead; zero or
 negative explicit limits refuse startup. Authentication still precedes body
 parsing/refusal, and rejected bodies do not reach Bridge or accept jobs.
 

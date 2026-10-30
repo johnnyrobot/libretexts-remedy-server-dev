@@ -36,7 +36,8 @@ for name in ('server', 'bridge'):
         (context / 'Dockerfile.dockerignore').write_text(original + '\n**/__tests__\n**/*.test.*\n*.log\n')
     hashes = {}
     for path in ('Dockerfile', 'Dockerfile.dockerignore', 'uv.lock', 'package-lock.json',
-                 'deploy/chromium-seccomp-amd64.json', '.dockerignore'):
+                 'deploy/chromium-seccomp-amd64.json', '.dockerignore',
+                 'verapdf-installer.zip', 'tools/build-inputs/verapdf-installer.json'):
         file = context / path
         if file.is_file(): hashes[path] = hashlib.sha256(file.read_bytes()).hexdigest()
     for file in context.rglob('package-lock.json'):

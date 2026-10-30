@@ -121,12 +121,17 @@ implied by a completed conversion.
 All env-driven. See `.env.example` for the full list. Key knobs:
 
 **HTTP layer** (`backend/app/config.py`):
-`APP_ENV`, `APP_DOCS_ENABLED`, `APP_API_KEY`, `MAX_UPLOAD_MB`, `JOB_STORE_PATH`, `JOB_DIR`,
+`APP_ENV`, `APP_DOCS_ENABLED`, `APP_API_KEY`, `MAX_UPLOAD_MB`, `MAX_REQUEST_BYTES`, `JOB_STORE_PATH`, `JOB_DIR`,
 `JOB_RETENTION_HOURS`, `JOB_BACKUP_DIR`, `JOB_BACKUP_KEEP_N`, `JOB_BACKUP_INTERVAL_HOURS`,
 `WORKER_CONCURRENCY`, `WORKER_MAX_PENDING`, `JOB_TOTAL_TIMEOUT_SECONDS`, `CORS_ALLOW_ORIGINS`,
 `CXONE_INTEGRATION_ENABLED`, `CXONE_BRIDGE_BASE_URL`, `CXONE_BRIDGE_TIMEOUT_SECONDS`,
 `CXONE_HEALTH_TIMEOUT_SECONDS`, `REMEDY_REVIEWER_REQUIRED`, `REMEDY_BRIDGE_SERVICE_KEY_FILE`,
 `RATE_LIMIT_DEFAULT`, `RATE_LIMIT_UPLOADS`, `RATE_LIMIT_STORAGE`.
+
+`MAX_REQUEST_BYTES` limits the complete raw `/v1/` request, including ignored
+fields and multipart overhead. It is separate from the selected-file limit
+`MAX_UPLOAD_MB`. The deployment package uses 5,000,000 bytes; when unset, the
+standalone total limit derives from the file budget plus 1 MiB overhead.
 
 **Engine** (`src/project_remedy/config.py`):
 - Ollama Cloud: `OLLAMA_BASE_URL` (default `https://ollama.com/v1`), `OLLAMA_API_KEY`,

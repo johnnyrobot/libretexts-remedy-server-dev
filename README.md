@@ -45,7 +45,7 @@ transport, modes, mounts, limits and operator checks. Current fixed inputs are:
 | Server baseline | `065c86ebb0d856d5b9ada8bd7b41bd8c4d90ce10` or the reviewed descendant recorded in the candidate manifest |
 | Bridge | `998fa1ecee9eaa69aee350c05ca5ad34e5ccb20f` (`cxone-review-v1`, `cxone-terminal-v1`) |
 | Scanner | Registry manifest `sha256:00ab363669ccc7ae50fe7fc79286508af5923d3326d397f87cff91ee76e379a6`, source `1541bb8f3962553b65dab7bfd5aeb429354a8a4f` |
-| Platform | Linux amd64, Docker Engine/Compose v2, host Python3.11+ for preflight, compatible pidfd/subreaper/user/PID namespace and Chromium seccomp support |
+| Platform | Linux amd64, Docker Engine/Compose v2, host Python 3.11+ for preflight, compatible pidfd/subreaper/user/PID namespace and Chromium seccomp support |
 
 Server uses the full runtime, never runtime-slim for HTML/Scanner. The candidate
 workflow archives Server/Bridge OCI images, downloads/imports those same archives
@@ -69,7 +69,7 @@ or inconsistent known readiness fields fail closed. Optional nonsecret
 `REMEDY_REVIEWER_TRUST_EPOCH` belongs to Bridge/Conductor terminal-proof recovery,
 separately from signer settings; absence does not break engine/scan/preview
 startup. Lookup remains read-only, can work with signing disabled when configured,
-and a404/null proof is never proof of no write.
+and a 404/null proof is never proof of no write.
 
 ## Safe starting sequence
 
@@ -99,11 +99,11 @@ from private files; Server never holds a reviewer signing private key. `/healthz
 is liveness; `/readyz` is engine/store readiness. Authenticated `/v1/cxone/health`
 checks the private Bridge's `/readyz` and named capabilities.
 
-HTTP202 is acceptance, not success. Poll jobs to `done` or `failed`; result409
-means unavailable for queued/running/failed work,410 means a completed artifact is
+HTTP 202 is acceptance, not success. Poll jobs to `done` or `failed`; result 409
+means unavailable for queued/running/failed work, 410 means a completed artifact is
 now missing/empty/unreadable. Modern Office/HTML outcomes independently validate
 usable artifacts; accessibility/quality advisories preserve genuine downloads.
-Legacy DOC/PPT/XLS remediation is415, without changing unrelated handlers.
+Legacy DOC/PPT/XLS remediation is 415, without changing unrelated handlers.
 
 Calibration-dependent quality is unavailable until parser-readable, attributable
 corpus/result evidence has independent operator approval. The historical bootstrap
@@ -123,7 +123,7 @@ blindly retry uncertain writes/jobs, or turn a preview into conformance evidence
 ## Development
 
 Use `uv sync --extra dev --frozen`, then `uv run --frozen pytest tests/unit`.
-macOS/unsupported platforms intentionally refuse strict engine admission with503;
+macOS/unsupported platforms intentionally refuse strict engine admission with 503;
 profile-gated local skips do not establish shipping support. Actual Linux CI uses
 nonroot processes, cap-drop ALL, NNP, reviewed seccomp and real Chromium/native
 work. No Docker Desktop/host-policy relaxation or fake frontend is required.

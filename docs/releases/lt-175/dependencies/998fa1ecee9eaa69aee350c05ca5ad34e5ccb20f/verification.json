@@ -7,7 +7,7 @@
   ],
   "sha256": {
     "docs/release/lt-174-review-only-profile.md": "94eeaa458a213099feaad02d4b934f17461d8a18d2bdacd3a12918fce57c3e00",
-    "docs/contracts/cxone-terminal-v1.md": "cd51cd0fdc9652593b02b341f7f40dfaa750f22982c863d1e0bd21c688c148eb",
+    "docs/contracts/cxone-terminal-v1.md": "1a2423ce19709c6ff67d16aafe3dd2c4b87bc176831f572dace526c1bdb88ba8",
     "docs/contracts/cxone-terminal-v1-fixtures.json": "8766e60b567a13b864bf7efac3720a7954db3a58fb3e6f7ec78878295738413b"
   },
   "reviewedProducerCI": [
@@ -16,5 +16,14 @@
   ],
   "selectedStackProofRequired": true,
   "deploymentReady": false,
-  "productionWritesEnabled": false
+  "productionWritesEnabled": false,
+  "upstream_sha256": {
+    "docs/release/lt-174-review-only-profile.md": "94eeaa458a213099feaad02d4b934f17461d8a18d2bdacd3a12918fce57c3e00",
+    "docs/contracts/cxone-terminal-v1.md": "cd51cd0fdc9652593b02b341f7f40dfaa750f22982c863d1e0bd21c688c148eb",
+    "docs/contracts/cxone-terminal-v1-fixtures.json": "8766e60b567a13b864bf7efac3720a7954db3a58fb3e6f7ec78878295738413b"
+  },
+  "upstreamFiles": {
+    "docs/contracts/cxone-terminal-v1.md": "cxone-terminal-v1.upstream.md"
+  },
+  "localization": "Terminal-contract mirror changes only documentation link targets to immutable producer URLs. The upstream.md file retains exact producer bytes; public fields and JSON fixtures are unchanged."
 }
