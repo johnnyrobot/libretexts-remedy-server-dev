@@ -142,13 +142,12 @@ Liveness is not readiness. Server `/readyz` concerns its store/engine; authentic
 Review mode requires scan+preview, explicitly `mutate:false`; status is optional.
 Full-write requires its published capability set. Unknown/malformed/partial
 producer profiles are not inferred as review-only. Required read failure must
-remain unavailable until genuine successful retry. Reviewed Bridge `998fa1e` corrects the observed upstream 401/403 failure
+remain unavailable until genuine successful retry. Reviewed Bridge `f39566e` corrects the observed upstream 401/403 failure
 classification without changing the public contract. The preserved red
 run `40987997157` remains evidence; acceptance requires a fresh exact-artifact
 run with the corrected pin. Successful required/default scan or deterministic
 preview is the verified recovery path; optional-source success does not itself
-clear the latch (LT-202). Full-write read-capability debt (LT-204) remains a
-separate blocker for the later full-integration freeze. A healthy metadata
+clear the latch (LT-202). LT-204 is included in the final `f39566e` pin: required read health is truthful in both profiles. A healthy metadata
 response alone is insufficient. Scanner `/healthz` concerns admission;
 only an actual authorized scan establishes its external/render/validator outcome.
 Empty/malformed/partial data is not a clean pass. Calibration remains unavailable
@@ -193,3 +192,41 @@ Other maintained entry points:
 [Bridge README](https://github.com/johnnyrobot/libretexts-remedy-bridge-dev#readme),
 [Scanner README](https://github.com/johnnyrobot/adapt-a11y-scanner-dev#readme), and
 [Conductor patch README](https://github.com/johnnyrobot/conductor-remedy-patch#readme).
+
+
+## Full integration commissioning tracer (LT-197)
+
+The current branch adds a **candidate tracer**, not completed operational
+acceptance. The GitHub Linux workflow imports the two original compiled Conductor
+saved images selected by `conductor-candidates.json` (metadata source
+`dd152c5eca8e48609bbf7df9a9c8c63cf7b48fd2`). It verifies the original artifact ZIP,
+compressed image archive, config ID and every uncompressed filesystem layer before
+import. The separately archived/imported Bridge-owned rendered-page scanner uses
+Bridge source `f39566e`, Playwright 1.63 and its unchanged reviewed seccomp profile;
+its policy/license remain in the [producer README](https://github.com/johnnyrobot/libretexts-remedy-bridge-dev/tree/f39566e0fa6413ed17e7a5c2a11fefc540ed5233/browser-scanner).
+
+The tracer's complete owned topology is actual Server, exact ADAPT Scanner,
+Bridge, rendered-page scanner, Mongo 7.0.14 and each exact compiled Conductor
+sequentially. Only ADAPT/CXone data and startup-only unused provider credentials
+are synthetic. Conductor uses its real fallback authentication and stored project
+roles; this does not establish production SSO acceptance. Server uses Uvicorn's
+existing TLS arguments, and Node trusts only the generated fixture CA. Chromium
+uses an NSS fixture CA with certificate/hostname validation enabled. Its reviewed
+hostname/IP policy is retained, using Docker's **internal** TEST-NET
+`198.51.100.0/24`, an isolated `dev.libretexts.org` alias, no host ports and an
+additional deny-host rule. This topology cannot contact the real domain/provider.
+The renderer's allowlist is explicitly the one existing sandbox host, with no
+resource-host widening. It remains private on 5180 with a Bearer credential.
+
+Added bundle credential roles are `renderer/token` →
+`RENDER_SCANNER_TOKEN_FILE` and Conductor `session`, `mongo`, `remedy`, `openai`,
+`stripe`, `mailgun` → `SECRETKEY_FILE`, `MONGOOSEURI_FILE`, `REMEDY_API_KEY_FILE`,
+`OPENAI_API_KEY_FILE`, `STRIPE_SECRET_KEY_FILE`, `MAILGUN_API_KEY_FILE` respectively.
+The wrapper maps those private UID-owned files to existing product variables;
+it adds no consumer protocol or signing setting. Signer PEM remains the existing
+`REMEDY_REVIEWER_SIGNING_KEY_FILE`, separate from the opaque trust epoch.
+
+Full operational release packaging, signed dev/test apply/recovery, coherent cold
+restore/upgrade/rollback and mounted consumer UI evidence remain open until their
+actual executed receipts are recorded. Global flags stay false. The initial
+tracer must not be described as the full LT-197 acceptance suite.

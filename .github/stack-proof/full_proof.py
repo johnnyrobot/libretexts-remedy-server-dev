@@ -1,0 +1,171 @@
+"""Actual immutable compiled Conductor + current owned services, external fixtures only.
+
+Linux GitHub runner only. No provider or production host is contacted. This is a
+synthetic commissioning proof, never permission to enable production writes.
+"""
+import hashlib
+import http.client
+import json
+import os
+from pathlib import Path
+import platform
+import subprocess
+import time
+import uuid
+from evidence import write_product_log
+
+ROOT=Path.cwd();OUT=ROOT/'.stack-proof-evidence'
+if os.environ.get('GITHUB_ACTIONS')!='true' or platform.system()!='Linux' or platform.machine()!='x86_64':
+    raise SystemExit('Isolated authorized GitHub Linux amd64 runner required; no local Docker fallback.')
+PREFIX='lt197-'+os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT']
+WORK=Path(os.environ['RUNNER_TEMP'])/PREFIX;WORK.mkdir(mode=0o700)
+OWNER=uuid.uuid4().hex;network=PREFIX+'-private';owned=[];rule=None;mounted=False;network_created=False
+report={'serverSource':os.environ['GITHUB_SHA'],'deploymentReady':False,'productionWritesEnabled':False,'targets':{},'verificationComplete':False}
+INPUT=json.loads((ROOT/'deploy/stack/bundle.json').read_text())
+MONGO='mongo:7.0.14@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6'
+
+def run(*args,check=True):
+    result=subprocess.run(list(map(str,args)),capture_output=True,text=True,timeout=180)
+    if check and result.returncode:raise RuntimeError(str(args[:3])+': '+result.stderr[-1500:])
+    return result.stdout
+
+def inspect(name):return json.loads(run('docker','inspect',name))[0]
+def envfile(name,values):
+    p=WORK/(name+'.env');p.write_text(''.join(f'{k}={v}\n' for k,v in values.items()));p.chmod(0o600);return p
+
+def private(name,uid,values):
+    p=WORK/name;p.mkdir(mode=0o700);os.chown(p,uid,uid)
+    for field,value in values.items():
+        f=p/field;f.write_text(value+'\n');f.chmod(0o400);os.chown(f,uid,uid)
+    return p
+
+def start(role,image,command,env=None,mounts=(),extra=(),uid=None,limits=(1,'256m',64,'64m',30)):
+    name=PREFIX+'-'+role
+    cpu,memory,pids,shm,stop=limits
+    args=['docker','run','--detach','--name',name,'--label','org.libretexts.stack-proof-owner='+OWNER,
+        '--init','--cap-drop','ALL','--security-opt','no-new-privileges:true','--read-only',
+        '--cpus',str(cpu),'--memory',memory,'--pids-limit',str(pids),'--shm-size',shm,'--stop-timeout',str(stop),
+        '--tmpfs','/tmp:rw,nosuid,nodev,size=512m']
+    if uid is not None:args+=['--user',str(uid)+':'+str(uid)]
+    if env:args+=['--env-file',str(env)]
+    for source,target,ro in mounts:args+=['--mount',f'type=bind,src={source},dst={target}'+(',readonly' if ro else '')]
+    args+=list(extra)+['--entrypoint',command[0],image,*command[1:]]
+    run(*args)
+    owned.append(name)
+    value=inspect(name)
+    assert not value['HostConfig'].get('PortBindings')
+    return name
+
+def stop(role):
+    name=PREFIX+'-'+role;value=inspect(name)
+    assert value['Config']['Labels']['org.libretexts.stack-proof-owner']==OWNER
+    run('docker','stop',name)
+    final=inspect(name)
+    write_product_log(OUT/(role+'-'+str(len(report.get('stopped',[])))+'.log'),run('docker','logs',name,check=False))
+    report.setdefault('stopped',[]).append({'role':role,'image':value['Image'],'exitCode':final['State']['ExitCode']})
+    assert final['State']['ExitCode'] in {0,143},(role,final['State'])
+    run('docker','rm',name);owned.remove(name)
+
+def address(role):return inspect(PREFIX+'-'+role)['NetworkSettings']['Networks'][network]['IPAddress']
+def request(role,port,path,body=None,key=None,control=False):
+    conn=http.client.HTTPConnection(address(role),port,timeout=150)
+    headers={'Content-Type':'application/json'}
+    if key:headers['X-Fixture-Control' if control else 'X-API-Key']=key
+    try:
+        conn.request('POST' if body is not None else 'GET',path,json.dumps(body) if body is not None else None,headers)
+        response=conn.getresponse();raw=response.read()
+        try:value=json.loads(raw)
+        except ValueError:value={'nonJsonBytes':len(raw)}
+        return response.status,value
+    finally:conn.close()
+
+def wait(role,port,path='/healthz',key=None,control=False):
+    deadline=time.monotonic()+90
+    while time.monotonic()<deadline:
+        try:
+            if request(role,port,path,key=key,control=control)[0]==200:return
+        except (OSError,http.client.HTTPException):pass
+        assert inspect(PREFIX+'-'+role)['State']['Running'],role+' exited before readiness'
+        time.sleep(.2)
+    raise RuntimeError('Readiness deadline: '+role)
+
+try:
+    imports=json.loads((OUT/'imports.json').read_text());consumers=json.loads((OUT/'conductor-imports.json').read_text())
+    assert imports['verificationComplete'] and consumers['verificationComplete']
+    for role in ('server','bridge','renderer'):
+        value=json.loads(run('docker','image','inspect','remedy-'+role+':stack-candidate'))[0]
+        assert value['Id']==imports['images'][role]['loadedDockerImageID']
+    run('docker','pull',MONGO)
+    run('docker','network','create','--internal','--subnet','198.51.100.0/24','--label','org.libretexts.stack-proof-owner='+OWNER,network);network_created=True
+    info=json.loads(run('docker','network','inspect',network))[0];assert info['Internal']
+    interface=info['Options'].get('com.docker.network.bridge.name','br-'+info['Id'][:12])
+    rule=['INPUT','-i',interface,'-m','conntrack','!','--ctstate','ESTABLISHED,RELATED','-j','DROP'];run('iptables','-I',*rule)
+    fixture=WORK/'fixture';fixture.mkdir();fixture.chmod(0o755)
+    run('openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=dev.libretexts.org',
+        '-addext','subjectAltName=DNS:dev.libretexts.org,DNS:remedy-server','-keyout',fixture/'key.pem','-out',fixture/'cert.pem')
+    (fixture/'key.pem').chmod(0o400);os.chown(fixture/'key.pem',999,999);(fixture/'cert.pem').chmod(0o444)
+    # Chromium's NSS trust store uses the local fixture CA. Certificate and
+    # hostname verification stay enabled; no browser or Node TLS bypass.
+    nss=WORK/'nssdb';nss.mkdir();run('certutil','-N','--empty-password','-d','sql:'+str(nss))
+    run('certutil','-A','-d','sql:'+str(nss),'-n','isolated-cxone-fixture','-t','C,,','-i',fixture/'cert.pem')
+    for p in [nss,*nss.iterdir()]:os.chown(p,1000,1000);p.chmod(0o700 if p.is_dir() else 0o600)
+    state=WORK/'state';state.mkdir();state_image=WORK/'state.ext4'
+    with state_image.open('xb') as f:f.truncate(INPUT['limits']['server']['stateBytes'])
+    run('mkfs.ext4','-q','-F','-m','0',state_image);run('mount','-t','ext4','-o','loop,nodev,nosuid,noexec',state_image,state);mounted=True
+    os.chown(state,999,999);state.chmod(0o700)
+    server_keys=private('server-keys',999,{'app':'synthetic-server-key','ollama':'synthetic-provider-key','service':'a1'*32})
+    bridge_keys=private('bridge-keys',1000,{'key':'synthetic-key','secret':'synthetic-secret','user':'synthetic-user','service':'a1'*32})
+    renderer_keys=private('renderer-keys',1000,{'token':'synthetic-renderer-token'})
+    scanner_uid=int(run('docker','run','--rm','--network','none','--entrypoint','node',INPUT['scannerImage'],'-e','console.log(process.getuid())').strip());assert scanner_uid!=0
+    scanner_keys=private('scanner-keys',scanner_uid,{'api':'synthetic-scanner-key','adapt':'synthetic-adapt-token','remedy':'synthetic-server-key'})
+    source=ROOT/'.github/stack-proof';loader=ROOT/'deploy/stack/secret-env.mjs';net=['--network',network]
+    start('cxone','remedy-server:stack-candidate',['python','/proof/external.py','--kind','cxone'],mounts=[(source/'external.py','/proof/external.py',True),(fixture,'/fixtures',True)],extra=[*net,'--ip','198.51.100.10','--network-alias','dev.libretexts.org'],uid=999)
+    wait('cxone',8082,'/control/status','synthetic-control-only',True)
+    server_env={'APP_ENV':'production','PYTHON_DOTENV_DISABLED':'1','APP_API_KEY_FILE':'/run/secrets/app','OLLAMA_API_KEY_FILE':'/run/secrets/ollama','OLLAMA_BASE_URL':'https://provider.invalid/v1','CORS_ALLOW_ORIGINS':'https://conductor.invalid','JOB_DIR':'/app/state/jobs','JOB_STORE_PATH':'/app/state/jobs.sqlite3','JOB_BACKUP_DIR':'/app/state/backups','OUTPUT_DIR':'/app/state/output','LOG_DIR':'/app/state/logs','HOME':'/tmp','TMPDIR':'/tmp','CXONE_INTEGRATION_ENABLED':'true','CXONE_BRIDGE_BASE_URL':'http://127.0.0.1:5175','REMEDY_BRIDGE_SERVICE_KEY_FILE':'/run/secrets/service','WORKER_CONCURRENCY':'1','WORKER_MAX_PENDING':'8','JOB_TOTAL_TIMEOUT_SECONDS':'900','MAX_UPLOAD_MB':'4','MAX_REQUEST_BYTES':'5000000','RATE_LIMIT_DEFAULT':'10000/minute','RATE_LIMIT_UPLOADS':'10000/minute'}
+    start('server','remedy-server:stack-candidate',['node','/proof/secret-env.mjs','server','uvicorn','backend.app.main:app','--host','0.0.0.0','--port','8000','--workers','1','--timeout-graceful-shutdown','15','--ssl-certfile','/fixtures/cert.pem','--ssl-keyfile','/fixtures/key.pem'],envfile('server',server_env),[(loader,'/proof/secret-env.mjs',True),(server_keys,'/run/secrets',True),(state,'/app/state',False),(fixture,'/fixtures',True)],extra=[*net,'--network-alias','remedy-server','--security-opt','seccomp='+str(ROOT/'deploy/chromium-seccomp-amd64.json')],limits=(4,'4g',512,'256m',120))
+    # Exact Scanner calls the actual TLS Server, keeping certificate checks on.
+    scanner_env={'ADAPT_BASE_URL':'http://127.0.0.1:8081','ADAPT_TOKEN_FILE':'/run/secrets/adapt','SCANNER_API_KEY_FILE':'/run/secrets/api','REMEDY_API_KEY_FILE':'/run/secrets/remedy','SCAN_MODE':'http','RENDER_MODE':'iframe','REMEDY_ENDPOINT':'https://remedy-server:8000/v1/validate/html','NODE_EXTRA_CA_CERTS':'/fixtures/cert.pem','HOME':'/tmp','TMPDIR':'/tmp','SCANNER_MAX_ACTIVE_JOBS':'1','SCANNER_MAX_QUEUED_JOBS':'8','SCANNER_JOB_TIMEOUT_MS':'900000','SCANNER_MAX_REQUEST_BYTES':'5000000','REMEDY_TIMEOUT_MS':'920000'}
+    start('scanner',INPUT['scannerImage'],['node','/proof/secret-env.mjs','scanner','node','dist/server.js'],envfile('scanner',scanner_env),[(loader,'/proof/secret-env.mjs',True),(scanner_keys,'/run/secrets',True),(fixture/'cert.pem','/fixtures/cert.pem',True)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/scanner-seccomp-amd64.json')],limits=(2,'2g',512,'1g',20))
+    wait('scanner',5176)
+    start('adapt','remedy-server:stack-candidate',['python','/proof/external.py','--kind','adapt'],mounts=[(source/'external.py','/proof/external.py',True)],extra=['--network','container:'+PREFIX+'-scanner'],uid=999)
+    wait('scanner',8081,'/control/status','synthetic-control-only',True)
+    code,scan=request('scanner',5176,'/v1/adapt/scan',{'mode':'question','id':101},'synthetic-scanner-key');assert code==200 and scan['results'][0]['findings'] and scan['results'][0]['capturedBytes']>0,scan
+    report['actualScannerAgainstTLSserver']=True
+    start('renderer','remedy-renderer:stack-candidate',['node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/home/pwuser'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(nss,'/home/pwuser/.pki/nssdb',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
+    wait('renderer',5180)
+    bridge_base={'NODE_ENV':'production','CONDUCTOR_API_HOST':'127.0.0.1','REMEDY_REVIEWER_REQUIRED':'true','REMEDY_BRIDGE_SERVICE_KEY_FILE':'/run/secrets/service','CXONE_INTEGRATION_ENABLED':'true','SERVER_DOMAIN':'dev.libretexts.org','SERVER_KEY_FILE':'/run/secrets/key','SERVER_SECRET_FILE':'/run/secrets/secret','SERVER_USER_FILE':'/run/secrets/user','REMEDY_WRITE_ALLOWLIST':'^Sandboxes/johnnyphung(?:/|$)','REMEDY_MAX_REQUEST_BYTES':'5000000','REMEDY_WORK_ACTIVE':'1','REMEDY_WORK_QUEUED':'8','REMEDY_WORK_TIMEOUT_MS':'120000','HOME':'/tmp','NODE_EXTRA_CA_CERTS':'/fixtures/cert.pem','RENDER_SCANNER_URL':'http://remedy-renderer:5180','RENDER_SCANNER_TOKEN':'synthetic-renderer-token'}
+    for target,pin in consumers['targets'].items():
+        phases=[];mongo_data=WORK/('mongo-'+target);mongo_data.mkdir();os.chown(mongo_data,999,999)
+        start('mongo',MONGO,['mongod','--bind_ip_all'],mounts=[(mongo_data,'/data/db',False)],extra=[*net,'--network-alias','mongo'],uid=999,limits=(1,'1g',128,'64m',60))
+        deadline=time.monotonic()+60
+        while run('docker','exec',PREFIX+'-mongo','mongosh','--quiet','--eval','db.adminCommand({ping:1}).ok',check=False).strip()!='1':
+            assert time.monotonic()<deadline;time.sleep(.2)
+        config={'editor':uuid.uuid4().hex,'auditor':uuid.uuid4().hex,'outsider':uuid.uuid4().hex,'password':uuid.uuid4().hex,'projectID':'ci00000001','sectionID':'158000000000000000000001','pageURL':'https://dev.libretexts.org/Sandboxes/johnnyphung/Stack/Synthetic'}
+        app_fixture=WORK/('app-'+target);app_fixture.mkdir();(app_fixture/'app.json').write_text(json.dumps(config));(app_fixture/'app.json').chmod(0o444)
+        conductor_keys=private('conductor-keys-'+target,1000,{'session':uuid.uuid4().hex,'mongo':'mongodb://mongo:27017/conductor_synthetic','remedy':'synthetic-server-key','openai':'synthetic-not-real','stripe':'sk_test_synthetic_not_real','mailgun':'synthetic-not-real'})
+        app_env={'NODE_ENV':'production','APP_ENV':'candidate_ci','ORG_ID':'libretexts','PORT':'5000','TRUST_PROXY_HOPS':'0','PRODUCTIONURLS':'conductor.invalid,https://conductor.invalid','SECRETKEY_FILE':'/run/secrets/session','MONGOOSEURI_FILE':'/run/secrets/mongo','REMEDY_API_KEY_FILE':'/run/secrets/remedy','OPENAI_API_KEY_FILE':'/run/secrets/openai','STRIPE_SECRET_KEY_FILE':'/run/secrets/stripe','MAILGUN_API_KEY_FILE':'/run/secrets/mailgun','MAILGUN_DOMAIN':'fixture.example.invalid','NEW_RELIC_ENABLED':'false','NODE_EXTRA_CA_CERTS':'/fixtures/cert.pem','REMEDY_ENABLED':'true','REMEDY_ORG_ID':'libretexts','REMEDY_API_BASE_URL':'https://remedy-server:8000'}
+        for phase in ('review','production-held'):
+            start('bridge','remedy-bridge:stack-candidate',['node','/proof/secret-env.mjs','bridge','node','--import','tsx','packages/conductor-panel/server/server.ts'],envfile('bridge',{**bridge_base,'REMEDY_BRIDGE_PROFILE':'review-only' if phase=='review' else 'full-write'}),[(loader,'/proof/secret-env.mjs',True),(bridge_keys,'/run/secrets',True),(fixture/'cert.pem','/fixtures/cert.pem',True)],extra=['--network','container:'+PREFIX+'-server'],uid=1000,limits=(1,'768m',128,'64m',30))
+            start('conductor',pin['imageID'],['node','/proof/secret-env.mjs','conductor','node','dist/server.js'],envfile('conductor',app_env),[(loader,'/proof/secret-env.mjs',True),(conductor_keys,'/run/secrets',True),(app_fixture,'/fixture',True),(fixture/'cert.pem','/fixtures/cert.pem',True),(source/'conductor_probe.mjs','/proof/conductor_probe.mjs',True)],extra=net,uid=1000,limits=(2,'1536m',256,'64m',30))
+            wait('conductor',5000,'/health')
+            raw=run('docker','exec',PREFIX+'-conductor','node','/proof/secret-env.mjs','conductor','node','/proof/conductor_probe.mjs',phase)
+            observation=json.loads(raw.strip().splitlines()[-1]);assert observation['passed'];phases.append(observation)
+            stop('conductor');stop('bridge')
+        stop('mongo')
+        report['targets'][target]={'artifact':pin,'phases':phases}
+    code,status=request('cxone',8082,'/control/status',key='synthetic-control-only',control=True)
+    assert code==200 and status['mutations']==0,status
+    report['externalMutations']=0;report['verificationComplete']=len(report['targets'])==2
+except Exception as error:
+    report['error']=type(error).__name__+': '+str(error)[:1800]
+    raise
+finally:
+    for name in list(reversed(owned)):
+        try:stop(name.removeprefix(PREFIX+'-'))
+        except Exception as error:report.setdefault('shutdownErrors',[]).append(type(error).__name__+': '+str(error)[:600])
+    if rule:run('iptables','-D',*rule,check=False)
+    if network_created:run('docker','network','rm',network,check=False)
+    if mounted:run('umount',WORK/'state')
+    if report.get('shutdownErrors'):report['verificationComplete']=False
+    (OUT/'full-result.json').write_text(json.dumps(report,indent=2)+'\n')
+if not report['verificationComplete']:raise SystemExit('Full stack proof incomplete; release flags remain false')

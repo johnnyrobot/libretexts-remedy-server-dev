@@ -49,7 +49,7 @@ def main():
     candidate=json.loads((artifacts/'candidate.json').read_text())
     assert candidate['serverSource']==os.environ['GITHUB_SHA']
     report={'serverSource':candidate['serverSource'],'images':{},'verificationComplete':False}
-    for role in ('server','bridge'):
+    for role in ('server','bridge','renderer'):
         path=artifacts/(role+'.oci.tar')
         with path.open('rb') as stream: assert hashlib.file_digest(stream,'sha256').hexdigest()==candidate['sha256'][path.name]
         digest,source,blobs=read_oci(path)

@@ -7,6 +7,8 @@ const roles = {
   server: ['APP_API_KEY', 'OLLAMA_API_KEY'],
   scanner: ['SCANNER_API_KEY', 'ADAPT_TOKEN', 'REMEDY_API_KEY'],
   bridge: ['SERVER_KEY', 'SERVER_SECRET', 'SERVER_USER'],
+  renderer: ['RENDER_SCANNER_TOKEN'],
+  conductor: ['SECRETKEY', 'MONGOOSEURI', 'REMEDY_API_KEY', 'OPENAI_API_KEY', 'STRIPE_SECRET_KEY', 'MAILGUN_API_KEY'],
 };
 const [role, ...command] = process.argv.slice(2);
 async function privateFile(name) {

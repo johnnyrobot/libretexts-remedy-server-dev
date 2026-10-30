@@ -60,6 +60,9 @@ class Handler(BaseHTTPRequestHandler):
                 content='<!doctype html><html lang="en"><head><title>Synthetic clean question</title><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><main><h1>Actual clean fixture</h1><p>Controlled data.</p></main></body></html>' if clean else HTML
                 return self.reply(200,'<html><body><form><input type="password"></form></body></html>' if malformed else content,True)
         else:
+            if path.startswith('/Sandboxes/johnnyphung/'):
+                fragment=HTML.split('<main>',1)[1].split('</main>',1)[0]
+                return self.reply(200, '<!doctype html><html lang="en"><head><title>Synthetic reader</title><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><main><section class="mt-content-container">'+fragment+'</section></main></body></html>', True)
             if not self.headers.get('X-Deki-Token'):
                 with lock: state['denied']+=1
                 return self.reply(401,{'error':'external_auth_required'})

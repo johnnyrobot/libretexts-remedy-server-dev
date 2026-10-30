@@ -52,3 +52,15 @@ def test_unaccepted_bundle_refuses_production_before_host_or_secret_access(tmp_p
     body=json.loads(result.stdout)
     assert body['error']=='deployment_not_accepted_by_release_owner'
     assert body['deploymentReady'] is False and body['productionWritesEnabled'] is False
+
+
+def test_conductor_private_files_reach_unchanged_compiled_entrypoint(tmp_path):
+    names=['SECRETKEY','MONGOOSEURI','REMEDY_API_KEY','OPENAI_API_KEY','STRIPE_SECRET_KEY','MAILGUN_API_KEY']
+    env={'PATH':os.environ['PATH']}
+    for name in names:
+        path=tmp_path/name;path.write_text('synthetic-'+name+'\n');path.chmod(0o600)
+        env[name+'_FILE']=str(path)
+    result=subprocess.run(['node',str(SCRIPT),'conductor','node','-e',
+        'process.exit('+json.dumps(names)+'.every(n=>process.env[n]===`synthetic-${n}`)?0:1)'],env=env,text=True,capture_output=True,timeout=10)
+    assert result.returncode==0,result.stderr
+    assert result.stdout=='' and result.stderr==''
