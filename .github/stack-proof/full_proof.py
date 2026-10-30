@@ -63,7 +63,8 @@ def stop(role):
     final=inspect(name)
     write_product_log(OUT/(role+'-'+str(len(report.get('stopped',[])))+'.log'),run('docker','logs',name,check=False))
     report.setdefault('stopped',[]).append({'role':role,'image':value['Image'],'exitCode':final['State']['ExitCode']})
-    assert final['State']['ExitCode'] in {0,143},(role,final['State'])
+    expected = {143} if role in {'cxone','adapt','server'} else {0}
+    assert final['State']['ExitCode'] in expected,(role,final['State'])
     run('docker','rm',name);owned.remove(name)
 
 def address(role):return inspect(PREFIX+'-'+role)['NetworkSettings']['Networks'][network]['IPAddress']
@@ -139,13 +140,16 @@ try:
     bridge_base={'NODE_ENV':'production','CONDUCTOR_API_HOST':'127.0.0.1','REMEDY_REVIEWER_REQUIRED':'true','REMEDY_BRIDGE_SERVICE_KEY_FILE':'/run/secrets/service','CXONE_INTEGRATION_ENABLED':'true','SERVER_DOMAIN':'dev.libretexts.org','SERVER_KEY_FILE':'/run/secrets/key','SERVER_SECRET_FILE':'/run/secrets/secret','SERVER_USER_FILE':'/run/secrets/user','REMEDY_WRITE_ALLOWLIST':'^Sandboxes/johnnyphung(?:/|$)','REMEDY_MAX_REQUEST_BYTES':'5000000','REMEDY_WORK_ACTIVE':'1','REMEDY_WORK_QUEUED':'8','REMEDY_WORK_TIMEOUT_MS':'120000','HOME':'/tmp','NODE_EXTRA_CA_CERTS':'/fixtures/cert.pem','RENDER_SCANNER_URL':'http://remedy-renderer:5180','RENDER_SCANNER_TOKEN':'synthetic-renderer-token'}
     for target,pin in consumers['targets'].items():
         phases=[];mongo_data=WORK/('mongo-'+target);mongo_data.mkdir();os.chown(mongo_data,999,999)
-        start('mongo',MONGO,['mongod','--bind_ip_all'],mounts=[(mongo_data,'/data/db',False)],extra=[*net,'--network-alias','mongo'],uid=999,limits=(1,'1g',128,'64m',60))
+        mongo_bootstrap=private('mongo-bootstrap-'+target,999,{'credentials.json':json.dumps({'admin':uuid.uuid4().hex,'application':uuid.uuid4().hex})})
+        start('mongo',MONGO,['mongod','--auth','--bind_ip_all'],mounts=[(mongo_data,'/data/db',False),(mongo_bootstrap,'/run/bootstrap',True),(source/'mongo_bootstrap.js','/proof/mongo_bootstrap.js',True)],extra=[*net,'--network-alias','mongo'],uid=999,limits=(1,'1g',128,'64m',60))
         deadline=time.monotonic()+60
         while run('docker','exec',PREFIX+'-mongo','mongosh','--quiet','--eval','db.adminCommand({ping:1}).ok',check=False).strip()!='1':
             assert time.monotonic()<deadline;time.sleep(.2)
+        run('docker','exec',PREFIX+'-mongo','mongosh','--quiet','--norc','/proof/mongo_bootstrap.js')
+        mongo_credentials=json.loads((mongo_bootstrap/'credentials.json').read_text())
         config={'editor':uuid.uuid4().hex,'auditor':uuid.uuid4().hex,'outsider':uuid.uuid4().hex,'password':uuid.uuid4().hex,'projectID':'ci00000001','sectionID':'158000000000000000000001','pageURL':'https://dev.libretexts.org/Sandboxes/johnnyphung/Stack/Synthetic'}
         app_fixture=WORK/('app-'+target);app_fixture.mkdir();(app_fixture/'app.json').write_text(json.dumps(config));(app_fixture/'app.json').chmod(0o444)
-        conductor_keys=private('conductor-keys-'+target,1000,{'session':uuid.uuid4().hex,'mongo':'mongodb://mongo:27017/conductor_synthetic','remedy':'synthetic-server-key','openai':'synthetic-not-real','stripe':'sk_test_synthetic_not_real','mailgun':'synthetic-not-real'})
+        conductor_keys=private('conductor-keys-'+target,1000,{'session':uuid.uuid4().hex,'mongo':'mongodb://conductor:'+mongo_credentials['application']+'@mongo:27017/conductor_synthetic?authSource=conductor_synthetic','remedy':'synthetic-server-key','openai':'synthetic-not-real','stripe':'sk_test_synthetic_not_real','mailgun':'synthetic-not-real'})
         app_env={'NODE_ENV':'production','APP_ENV':'candidate_ci','ORG_ID':'libretexts','PORT':'5000','TRUST_PROXY_HOPS':'0','PRODUCTIONURLS':'conductor.invalid,https://conductor.invalid','SECRETKEY_FILE':'/run/secrets/session','MONGOOSEURI_FILE':'/run/secrets/mongo','REMEDY_API_KEY_FILE':'/run/secrets/remedy','OPENAI_API_KEY_FILE':'/run/secrets/openai','STRIPE_SECRET_KEY_FILE':'/run/secrets/stripe','MAILGUN_API_KEY_FILE':'/run/secrets/mailgun','MAILGUN_DOMAIN':'fixture.example.invalid','NEW_RELIC_ENABLED':'false','NODE_EXTRA_CA_CERTS':'/fixtures/cert.pem','REMEDY_ENABLED':'true','REMEDY_ORG_ID':'libretexts','REMEDY_API_BASE_URL':'https://remedy-server:8000'}
         for phase in ('review','production-held'):
             start('bridge','remedy-bridge:stack-candidate',['node','/proof/secret-env.mjs','bridge','node','--import','tsx','packages/conductor-panel/server/server.ts'],envfile('bridge',{**bridge_base,'REMEDY_BRIDGE_PROFILE':'review-only' if phase=='review' else 'full-write'}),[(loader,'/proof/secret-env.mjs',True),(bridge_keys,'/run/secrets',True),(fixture/'cert.pem','/fixtures/cert.pem',True)],extra=['--network','container:'+PREFIX+'-server'],uid=1000,limits=(1,'768m',128,'64m',30))
@@ -153,7 +157,7 @@ try:
             expected='200' if phase=='review' else '503'
             while run('docker','exec',PREFIX+'-server','curl','-sS','-o','/dev/null','-w','%{http_code}','-H','X-Remedy-Service-Key: '+'a1'*32,'http://127.0.0.1:5175/readyz',check=False).strip()!=expected:
                 assert time.monotonic()<deadline,'actual Bridge readiness';time.sleep(.2)
-            start('conductor',pin['imageID'],['node','/proof/secret-env.mjs','conductor','node','dist/server.js'],envfile('conductor',app_env),[(loader,'/proof/secret-env.mjs',True),(conductor_keys,'/run/secrets',True),(app_fixture,'/fixture',True),(fixture/'cert.pem','/fixtures/cert.pem',True),(source/'conductor_probe.mjs','/proof/conductor_probe.mjs',True)],extra=net,uid=1000,limits=(2,'1536m',256,'64m',30))
+            start('conductor',pin['loadedDockerImageID'],['node','/proof/secret-env.mjs','conductor','node','dist/server.js'],envfile('conductor',app_env),[(loader,'/proof/secret-env.mjs',True),(conductor_keys,'/run/secrets',True),(app_fixture,'/fixture',True),(fixture/'cert.pem','/fixtures/cert.pem',True),(source/'conductor_probe.mjs','/proof/conductor_probe.mjs',True)],extra=net,uid=1000,limits=(2,'1536m',256,'64m',30))
             wait('conductor',5000,'/health')
             raw=run('docker','exec',PREFIX+'-conductor','node','/proof/secret-env.mjs','conductor','node','/proof/conductor_probe.mjs',phase)
             observation=json.loads(raw.strip().splitlines()[-1]);assert observation['passed'];phases.append(observation)

@@ -7,6 +7,7 @@ rebuild the consumer or substitute its historical candidates.
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -46,6 +47,8 @@ def verify_saved_image(path, expected_id):
         if digest != expected_id:
             raise ValueError('saved-image config digest mismatch')
         config = json.loads(raw)
+        if set(config) - {'architecture','os','config','created','history','rootfs'}:
+            raise ValueError('unsupported saved-image platform/configuration field')
         if config.get('os') != 'linux' or config.get('architecture') != 'amd64':
             raise ValueError('Linux amd64 saved image required')
         layers = config['rootfs']['diff_ids']
@@ -56,7 +59,31 @@ def verify_saved_image(path, expected_id):
                 actual = 'sha256:' + hashlib.file_digest(stream, 'sha256').hexdigest()
             if actual != expected:
                 raise ValueError('saved-image layer digest mismatch')
-        return {'imageID': digest, 'filesystemDiffIDs': layers, 'runtimeConfiguration': config.get('config', {})}
+        runtime_configuration(config.get('config', {}))
+        tags = record.get('RepoTags', [])
+        if len(tags) != 1 or not isinstance(tags[0], str) or not tags[0]:
+            raise ValueError('one verified saved-image reference required')
+        return {'imageID': digest, 'sourceConfigDigest': digest, 'verifiedReference': tags[0],
+                'filesystemDiffIDs': layers, 'runtimeConfiguration': config.get('config', {})}
+
+
+def verify_loaded_image(source, loaded):
+    """Map original config to immutable runtime identity, never trusting a tag alone."""
+    identity = loaded.get('Id', '')
+    if not re.fullmatch(r'sha256:[a-f0-9]{64}', identity):
+        raise ValueError('immutable loaded image identity required')
+    if loaded.get('Architecture') != 'amd64' or loaded.get('Os') != 'linux' or loaded.get('Variant'):
+        raise ValueError('loaded platform differs from saved Linux amd64 image')
+    if loaded.get('RootFS') != {'Type':'layers', 'Layers': source['filesystemDiffIDs']}:
+        raise ValueError('loaded filesystem differs from verified saved image')
+    expected = runtime_configuration(source['runtimeConfiguration'])
+    actual = runtime_configuration(loaded['Config'])
+    if actual != expected:
+        raise ValueError('loaded runtime configuration differs from saved image')
+    return {'sourceConfigDigest':source['sourceConfigDigest'], 'loadedDockerImageID':identity,
+            'identityChanged': identity != source['sourceConfigDigest'],
+            'runtimeConfigurationSHA256':hashlib.sha256(json.dumps(actual,sort_keys=True,separators=(',',':')).encode()).hexdigest(),
+            'inspectConfiguration':loaded['Config'], 'filesystemDiffIDs':source['filesystemDiffIDs']}
 
 
 def main():
@@ -94,15 +121,21 @@ def main():
             if sha256(image_path) != pin['archiveSHA256']:
                 raise ValueError('saved-image archive digest mismatch')
             source = verify_saved_image(image_path, pin['imageID'])
-            subprocess.run(['docker', 'load', '--input', str(image_path)], check=True, stdout=subprocess.DEVNULL)
-            loaded = json.loads(subprocess.check_output(['docker', 'image', 'inspect', pin['imageID']], text=True))[0]
-            if loaded['Id'] != source['imageID'] or loaded['RootFS']['Layers'] != source['filesystemDiffIDs']:
-                raise ValueError('loaded image differs from verified saved image')
-            if runtime_configuration(loaded['Config']) != runtime_configuration(source['runtimeConfiguration']):
-                raise ValueError('saved-image runtime configuration changed during import')
+            load = subprocess.run(['docker', 'load', '--input', str(image_path)], capture_output=True, text=True)
+            (root / '.stack-proof-evidence' / ('conductor-load-' + name + '.log')).write_text(load.stdout + load.stderr)
+            load.check_returncode()
+            loaded = json.loads(subprocess.check_output(['docker', 'image', 'inspect', source['verifiedReference']], text=True))[0]
+            (root / '.stack-proof-evidence' / ('conductor-inspect-' + name + '.json')).write_text(json.dumps(loaded,indent=2)+'\n')
+            mapping = verify_loaded_image(source, loaded)
+            # Resolve once more by verified immutable identity, which all launches use.
+            immutable = json.loads(subprocess.check_output(['docker','image','inspect',mapping['loadedDockerImageID']],text=True))[0]
+            if verify_loaded_image(source, immutable) != mapping:
+                raise ValueError('immutable identity lookup changed after verification')
+            if source['runtimeConfiguration'].get('Labels',{}).get('org.opencontainers.image.revision') != target['sourceTree']:
+                raise ValueError('saved consumer source tree mismatch')
             receipt['targets'][name] = {'baseCommit': target['baseCommit'], 'sourceTree': target['sourceTree'],
                 'artifactID': pin['artifactID'], 'ZIPDigest': pin['artifactDigest'], 'archiveSHA256': pin['archiveSHA256'],
-                **source}
+                **source, **mapping}
         receipt['verificationComplete'] = True
     finally:
         (root / '.stack-proof-evidence/conductor-imports.json').write_text(json.dumps(receipt, indent=2) + '\n')

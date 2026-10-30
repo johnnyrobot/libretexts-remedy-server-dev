@@ -52,3 +52,31 @@ def test_saved_image_refuses_different_config_id(tmp_path):
     path, _ = image(tmp_path)
     with pytest.raises(ValueError, match="config digest"):
         load().verify_saved_image(path, "sha256:" + "0" * 64)
+
+
+def test_loaded_identity_mapping_binds_runtime_instead_of_assuming_config_id(tmp_path):
+    module = load()
+    path, image_id = image(tmp_path)
+    source = module.verify_saved_image(path, image_id)
+    actual = {'Id': 'sha256:' + 'a' * 64, 'Architecture': 'amd64', 'Os': 'linux',
+              'RootFS': {'Type': 'layers', 'Layers': source['filesystemDiffIDs']}, 'Config': {}}
+    mapping = module.verify_loaded_image(source, actual)
+    assert mapping['sourceConfigDigest'] == image_id
+    assert mapping['loadedDockerImageID'] == actual['Id']
+    assert mapping['identityChanged'] is True
+
+
+@pytest.mark.parametrize('change', ['layers', 'config', 'unknown', 'platform', 'identity'])
+def test_loaded_identity_mapping_rejects_tag_substitution(tmp_path, change):
+    module = load()
+    path, image_id = image(tmp_path)
+    source = module.verify_saved_image(path, image_id)
+    actual = {'Id': image_id, 'Architecture': 'amd64', 'Os': 'linux',
+              'RootFS': {'Type': 'layers', 'Layers': source['filesystemDiffIDs']}, 'Config': {}}
+    if change == 'layers': actual['RootFS']['Layers'] = ['sha256:' + 'b' * 64]
+    if change == 'config': actual['Config'] = {'Entrypoint': ['different-command']}
+    if change == 'unknown': actual['Config'] = {'FutureExecutionSetting': True}
+    if change == 'platform': actual['Architecture'] = 'arm64'
+    if change == 'identity': actual['Id'] = 'mutable:tag'
+    with pytest.raises(ValueError):
+        module.verify_loaded_image(source, actual)
