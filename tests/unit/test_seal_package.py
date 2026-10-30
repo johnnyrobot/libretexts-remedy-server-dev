@@ -180,6 +180,38 @@ def candidate(tmp_path, monkeypatch):
             phases.append({'phase': phase, 'signerPresent': signed, 'checkpoints': observed})
         synthetic['targets'][target] = {'artifact': pin, 'complete': True, 'phases': phases,
             'offlineResolution': {'originalOutcome': 'unknown_write', 'reconciliation': 'resolved', 'exclusiveStoppedWriter': True, 'originalFieldsPreserved': True, 'remoteWrites': 0, 'currentIndependentFencePreserved': True, 'actualHelperImageID': images['bridge']['loadedDockerImageID']}}
+        # Invented observations exercise the validator, never real recovery.
+        history = {'passed': True, 'operationRecords': 10, 'intentRecords': 4, 'knownOperations': 3,
+            'unknownOperations': 1, 'auditFalseOperations': 2, 'pendingUnknownHeld': True,
+            'refusedRecoveryStatus': 409, 'authenticatedHistoryVerified': True, 'signerPresent': False,
+            'missingAuditPreserved': True, 'verifiedCriteria': 0,
+            **{field: 'a' * 64 for field in ('journalSHA256', 'historySHA256', 'actorOutcomeSHA256', 'issuerNonceBindingsSHA256')}}
+        contents = {'snapshotFiles': 3, 'snapshotBytes': 60, 'auditBytes': 80,
+            **{field: 'b' * 64 for field in ('snapshotsSHA256', 'auditSHA256', 'jobTreeSHA256')}}
+        cold = {**{field: True for field in ('complete', 'publicColdCLI', 'unresolvedUnknownCaptured',
+            'originalStoresRetained', 'currentFenceNeverRestored', 'unresolvedUnknownPreserved',
+            'originalsRemainDisabled', 'currentFenceUnchanged', 'opaqueEpochUnchanged', 'explicitOfflineResolutionOnCurrentClone')},
+            'fenceScope': 'capture-restore-and-read-only-binary-transitions',
+            'remoteMutationRetries': 0, 'deploymentReady': False, 'productionWritesEnabled': False,
+            'admissionAuthorized': False, 'processCleanupCertified': False, 'operationRecords': 10,
+            'captureHistory': history, 'captureContents': contents,
+            **{field: 'c' * 64 for field in ('archiveSHA256', 'manifestSHA256', 'currentFenceSHA256', 'opaqueEpochSHA256')},
+            'processes': {role: {'id': 'd' * 64, 'image': images[role]['loadedDockerImageID'] if role in images else
+                pin['loadedDockerImageID'] if role == 'conductor' else 'sha256:' + 'e' * 64}
+                for role in ('server', 'bridge', 'renderer', 'scanner', 'mongo', 'conductor')},
+            'rawExitCodes': {role: 143 if role == 'server' else 0 for role in ('server', 'bridge', 'renderer', 'scanner', 'mongo', 'conductor')},
+            'stages': []}
+        alternate = next(value['loadedDockerImageID'] for name, value in conductors.items() if name != target)
+        for stage, image in [('cold-reopen', pin['loadedDockerImageID']), ('compatible-alternate-binary', alternate), ('rollback-on-current-data', pin['loadedDockerImageID'])]:
+            cold['stages'].append({'stage': stage, 'consumerImageID': image,
+                **{field: True for field in ('passed', 'reviewOnly', 'pendingUnknownHeld', 'authenticatedHistoryVerified',
+                    'actorOutcomeHashesUnchanged', 'issuerNonceBindingsUnchanged', 'originalsUnchanged', 'snapshotsUnchanged',
+                    'auditUnchanged', 'missingAuditPreserved', 'jobTreeUnchanged', 'currentFenceUnchanged', 'opaqueEpochUnchanged')},
+                'signerPresent': False, 'remoteMutationRetries': 0, 'verifiedCriteria': 0, 'operationRecords': 10,
+                **{field: history[field] for field in ('journalSHA256', 'historySHA256', 'actorOutcomeSHA256')},
+                **{field: contents[field] for field in ('snapshotsSHA256', 'auditSHA256', 'jobTreeSHA256')},
+                'currentFenceSHA256': cold['currentFenceSHA256']})
+        synthetic['targets'][target]['coldOperations'] = cold
         for mode in ('review-only', 'full-write'):
             preflight['cases'].append({'target': target, 'mode': mode, 'checks': {'ok': True, 'startupCompatibility': True, 'writeReady': False, 'admission': False}})
     full['publicIntegration'] = public
@@ -211,6 +243,33 @@ def change_receipt(root, name, change):
     aggregate_key = {'public-integration-result.json': 'publicIntegration', 'public-integration-preflight-result.json': 'publicIntegrationPreflight'}.get(name)
     if aggregate_key:
         change_receipt(root, 'full-result.json', lambda full: full.update({aggregate_key: value}))
+
+
+def test_signed_history_without_actual_cold_unresolved_recovery_cannot_be_sealed(candidate):
+    def remove_cold(value):
+        for target in value['targets'].values():
+            target.pop('coldOperations', None)
+    change_receipt(candidate, 'synthetic-signed-result.json', remove_cold)
+    with pytest.raises(ValueError, match='signed cold'):
+        sealer.seal(candidate)
+
+
+@pytest.mark.parametrize('damage', [
+    'no-unknown', 'no-snapshot', 'mutation-retry', 'other-image', 'rewound-fence', 'changed-actor-history',
+])
+def test_signed_cold_acceptance_requires_real_uncertainty_and_preserved_current_state(candidate, damage):
+    def change(value):
+        cold = next(iter(value['targets'].values()))['coldOperations']
+        if damage == 'no-unknown': cold['captureHistory']['unknownOperations'] = 0
+        elif damage == 'no-snapshot': cold['captureContents']['snapshotFiles'] = 0
+        elif damage == 'mutation-retry': cold['stages'][1]['remoteMutationRetries'] = 1
+        elif damage == 'other-image': cold['stages'][1]['consumerImageID'] = 'sha256:' + '0' * 64
+        elif damage == 'rewound-fence': cold['currentFenceNeverRestored'] = False
+        elif damage == 'changed-actor-history': cold['stages'][2]['actorOutcomeSHA256'] = '0' * 64
+    change_receipt(candidate, 'synthetic-signed-result.json', change)
+    with pytest.raises(ValueError, match='cold'):
+        sealer.seal(candidate)
+    assert not (candidate / '.stack-package').exists()
 
 
 @pytest.mark.parametrize(('receipt', 'change', 'reason'), [

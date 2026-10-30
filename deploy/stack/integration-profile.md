@@ -306,7 +306,13 @@ Resolve the **same** selection to a private mode 0600 JSON file, outside the
 repository. It contains file paths and nonsecret metadata, never credential
 values. Preserve it with the operator's private deployment inventory. The
 following candidate verification runs no product admission or write enablement;
-every path must already exist with the documented ownership and permissions:
+every path must already exist with the documented ownership and permissions.
+Run this preparation and CLI in the authorized operator's **root shell**, so
+role-owned private inputs can be checked without broadening their permissions;
+the resolved JSON and optional signing JSON must also be root-owned. Set the
+nonsecret shell path inputs below to the same values as the interpolation file;
+`--env-file` does not export them to the shell. Do not execute an env file as
+shell code.
 
 ```sh
 (umask 077; stack config --format json > "${REMEDY_RESOLVED_CONFIG:?required}")

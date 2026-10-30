@@ -118,6 +118,52 @@ def verify_oci(path):
     return config_digest, config, count
 
 
+def verify_signed_cold(cold, target, consumers, imports):
+    """Require unresolved real signed history through the same cold clones."""
+    require(isinstance(cold, dict), 'actual signed cold recovery proof required/' + target)
+    matches(cold, {**{key: True for key in ('complete', 'publicColdCLI', 'unresolvedUnknownCaptured',
+        'originalStoresRetained', 'currentFenceNeverRestored', 'unresolvedUnknownPreserved',
+        'originalsRemainDisabled', 'currentFenceUnchanged', 'opaqueEpochUnchanged', 'explicitOfflineResolutionOnCurrentClone')},
+        'fenceScope': 'capture-restore-and-read-only-binary-transitions',
+        'remoteMutationRetries': 0, 'deploymentReady': False, 'productionWritesEnabled': False,
+        'admissionAuthorized': False, 'processCleanupCertified': False}, 'actual signed cold/' + target)
+    history, contents = cold['captureHistory'], cold['captureContents']
+    for field in ('operationRecords', 'intentRecords', 'knownOperations', 'unknownOperations', 'auditFalseOperations'):
+        require(type(history.get(field)) is int and history[field] > 0, 'nonempty signed cold history/' + target + '/' + field)
+    require(cold['operationRecords'] == history['operationRecords'], 'signed cold operation count/' + target)
+    matches(history, {'passed': True, 'pendingUnknownHeld': True, 'refusedRecoveryStatus': 409,
+        'authenticatedHistoryVerified': True, 'signerPresent': False, 'missingAuditPreserved': True,
+        'verifiedCriteria': 0}, 'actual signed cold capture/' + target)
+    for field in ('snapshotFiles', 'snapshotBytes', 'auditBytes'):
+        require(type(contents.get(field)) is int and contents[field] > 0, 'nonempty signed cold content/' + target + '/' + field)
+    digests = {**{key: cold[key] for key in ('archiveSHA256', 'manifestSHA256', 'currentFenceSHA256', 'opaqueEpochSHA256')},
+        **{key: history[key] for key in ('journalSHA256', 'historySHA256', 'actorOutcomeSHA256', 'issuerNonceBindingsSHA256')},
+        **{key: contents[key] for key in ('snapshotsSHA256', 'auditSHA256', 'jobTreeSHA256')}}
+    require(all(isinstance(value, str) and HEX.fullmatch(value) for value in digests.values()), 'signed cold digests required/' + target)
+    processes = cold['processes']
+    require(set(processes) == {'server', 'bridge', 'renderer', 'scanner', 'mongo', 'conductor'}, 'six exact signed cold processes/' + target)
+    for role, process in processes.items():
+        require(re.fullmatch(r'[a-f0-9]{64}', process['id']) and re.fullmatch(r'sha256:[a-f0-9]{64}', process['image']), 'immutable signed cold process/' + role)
+        if role in imports['images']:
+            require(process['image'] == imports['images'][role]['loadedDockerImageID'], 'signed cold imported image/' + role)
+    require(processes['conductor']['image'] == consumers[target]['loadedDockerImageID'], 'signed cold original consumer/' + target)
+    require(set(cold['rawExitCodes']) == set(processes) and all(type(code) is int and code == (143 if role == 'server' else 0)
+        for role, code in cold['rawExitCodes'].items()), 'signed cold graceful raw exits/' + target)
+    stages = cold['stages']
+    alternate = next(pin['loadedDockerImageID'] for name, pin in consumers.items() if name != target)
+    require([(stage['stage'], stage['consumerImageID']) for stage in stages] == [
+        ('cold-reopen', consumers[target]['loadedDockerImageID']), ('compatible-alternate-binary', alternate),
+        ('rollback-on-current-data', consumers[target]['loadedDockerImageID'])], 'signed cold original binary transitions/' + target)
+    for stage in stages:
+        matches(stage, {**{key: True for key in ('passed', 'reviewOnly', 'pendingUnknownHeld', 'authenticatedHistoryVerified',
+            'actorOutcomeHashesUnchanged', 'issuerNonceBindingsUnchanged', 'originalsUnchanged', 'snapshotsUnchanged',
+            'auditUnchanged', 'missingAuditPreserved', 'jobTreeUnchanged', 'currentFenceUnchanged', 'opaqueEpochUnchanged')},
+            'signerPresent': False, 'remoteMutationRetries': 0, 'verifiedCriteria': 0,
+            'operationRecords': history['operationRecords'], **{key: value for key, value in digests.items()
+            if key in ('journalSHA256', 'historySHA256', 'actorOutcomeSHA256', 'snapshotsSHA256', 'auditSHA256', 'jobTreeSHA256', 'currentFenceSHA256')}},
+            'actual signed cold stage/' + target)
+
+
 def verify_receipts(receipts, source, index, imports):
     for name, value in receipts.items():
         require(value.get('verificationComplete') is True, name + ': verificationComplete is not true')
@@ -185,6 +231,7 @@ def verify_receipts(receipts, source, index, imports):
     for target, pin in consumers.items():
         actual = signed['targets'][target]
         require(actual.get('complete') is True and actual.get('artifact') == pin, 'synthetic original artifact binding/' + target)
+        verify_signed_cold(actual.get('coldOperations'), target, consumers, imports)
         phases = actual['phases']
         require({'seed', 'known', 'race', 'terminal-lost-reply', 'status', 'recover-refused', 'recover', 'unknown'} <= {phase.get('phase') for phase in phases}, 'synthetic signed/recovery phases missing/' + target)
         sequence = [('seed', True), ('known', True), ('race', True), ('terminal-lost-reply', True),

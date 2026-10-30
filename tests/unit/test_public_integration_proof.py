@@ -34,6 +34,47 @@ def test_package_copy_retains_every_public_byte_and_resolves_only_fixture_metada
     assert 'REMEDY_REVIEWER_SIGNING' not in conductor
 
 
+def test_public_tls_preparation_meets_actual_preflight_file_permissions(tmp_path, monkeypatch):
+    import os
+    proof = load()
+    fixture = tmp_path / 'fixture'
+    fixture.mkdir()
+    for name in ('ca.pem', 'cert.pem', 'key.pem'):
+        (fixture / name).write_text('synthetic-' + name)
+    # UID transitions are the privileged OS adapter; exercise real disk modes
+    # and the unchanged public preflight guard as this unprivileged test user.
+    monkeypatch.setattr(proof.os, 'chown', lambda *args: None)
+    root = tmp_path / 'tls'
+    proof.prepare_tls(root, fixture, os.getuid())
+    preflight_spec = importlib.util.spec_from_file_location('tls_preflight', ROOT / 'deploy/stack/preflight.py')
+    preflight = importlib.util.module_from_spec(preflight_spec)
+    preflight_spec.loader.exec_module(preflight)
+    for path in root.rglob('*.pem'):
+        assert preflight.protected_file(path, os.getuid()) == ('synthetic-' + path.name).encode()
+
+
+def test_historical_proof_uses_the_published_nested_terminal_state():
+    import json
+    fixtures = json.loads((ROOT / 'tests/unit/contracts_v1/cxone-terminal-v1-fixtures.json').read_text())
+    body = next(item['body'] for item in fixtures['statuses'] if item['name'] == 'not-attempted-no-change')
+    assert 'state' not in body
+    load().require_terminal_history(body, 'urn:conductor:synthetic', 'A' * 43, 'synthetic-terminal-epoch')
+
+
+@pytest.mark.parametrize('damage', ['404', 'pending', 'wrong-epoch', 'wrong-nonce', 'outer-outcome'])
+def test_historical_control_never_infers_no_write_from_untrusted_status(damage):
+    import json
+    fixtures = json.loads((ROOT / 'tests/unit/contracts_v1/cxone-terminal-v1-fixtures.json').read_text())
+    body = next(item['body'] for item in fixtures['statuses'] if item['name'] == 'not-attempted-no-change')
+    if damage == '404': body = {'error': 'operation_not_found'}
+    elif damage == 'pending': body = {'outcome': 'pending', 'terminal_proof': None}
+    elif damage == 'wrong-epoch': body['terminal_proof']['trust_epoch'] = 'different'
+    elif damage == 'wrong-nonce': body['terminal_proof']['jti'] = 'B' * 43
+    elif damage == 'outer-outcome': body['outcome'] = 'unknown_write'
+    with pytest.raises(ValueError):
+        load().require_terminal_history(body, 'urn:conductor:synthetic', 'A' * 43, 'synthetic-terminal-epoch')
+
+
 @pytest.mark.parametrize('override', [
     {'services': {'mongo': {'command': ['mongod', '--noauth']}}},
     {'services': {'remedy-renderer': {'security_opt': ['seccomp=unconfined']}}},

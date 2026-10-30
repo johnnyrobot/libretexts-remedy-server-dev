@@ -132,8 +132,10 @@ Optional historical recovery uses existing issuer/store/fence settings and the
 It is separate from signer configuration. A missing epoch can disable terminal
 proof recovery but must not prevent engine/scan/preview startup. Historical
 lookup works without signing when correctly configured, never clears state and
-never treats 404/pending/null as proof of no write. Compatible Conductor manifests
-and its exact signer-setting matrix await the reviewed consumer/operational slice.
+never treats 404/pending/null as proof of no write. The reviewed Conductor
+pins and existing signer-setting matrix are in the
+[integration guide](integration-profile.md); publication alone does not establish
+assembled-stack operational acceptance.
 
 ## Health, bounds and failures
 
@@ -213,15 +215,17 @@ saved images selected by `conductor-candidates.json` (metadata source
 `dd152c5eca8e48609bbf7df9a9c8c63cf7b48fd2`). It verifies the original artifact ZIP,
 compressed image archive, config ID and every uncompressed filesystem layer before
 import. Docker's imported immutable identity is checked separately from the original
-config digest. The original saved archives also contain an OCI index/manifest:
-current Docker reports that **original OCI manifest digest** as its image ID.
+config digest. The original saved archives also contain an OCI index/manifest.
+Actual Linux runs have reported either the original config digest or the
+**original OCI manifest digest** as the immutable image ID; keep each run's
+verified binding rather than assuming a runtime-store representation.
 The verifier hashes the original index-referenced manifest, binds its config and
 every ordered uncompressed layer, rejects unknown execution settings and accepts
 only the original config or manifest identity. It then re-inspects by the verified
 immutable ID; no mutable tag or rebuilt consumer is a substitute. Actual Linux
 receipts retain both IDs and raw runtime configuration differences (currently none).
 
-| Conductor target | Original config digest | Original OCI manifest / observed runtime ID |
+| Conductor target | Original config digest | Original OCI manifest (also observed as runtime ID) |
 |---|---|---|
 | Release 2.156.2, tree `a60544214de7d3613e1dad0da99a6c62722c49a8` | `sha256:ac4eb83f4a0e5add09bf3afde29b9b4227ef6b8fcdf2b0e5d278a423cb6214f9` | `sha256:48631c03318e81196bf714d31ec73749128ada4247559a2ea818df440d1a5890` |
 | Staging, tree `1edf0ba1516e39731f5c3289e31045bffda311f3` | `sha256:e2c5d63ad527afd4c577b4f820ef65fe16222356d1dec3761bbf12eb5dcf58d9` | `sha256:90aa4b203154b9a14b1938fb0ebb4b186640126fd692eb3d1107b05dfd80bafa` |

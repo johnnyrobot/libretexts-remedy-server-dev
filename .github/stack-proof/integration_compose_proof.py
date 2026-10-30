@@ -68,6 +68,29 @@ def prepare_package(root, work):
     return package, hashes
 
 
+def prepare_tls(tls_root, fixture, scanner_uid):
+    """Prepare the exact role-owned files consumed by the public preflight."""
+    tls_root.mkdir(mode=0o700)
+    for role, uid in (('server', 999), ('scanner', scanner_uid), ('bridge', 1000), ('conductor', 1000)):
+        directory = _private_directory(tls_root / role, uid)
+        _private_file(directory / 'ca.pem', uid, (fixture / 'ca.pem').read_bytes())
+        if role == 'server':
+            for name in ('cert.pem', 'key.pem'):
+                _private_file(directory / name, uid, (fixture / name).read_bytes())
+
+
+def require_terminal_history(body, issuer, jti, epoch):
+    proof = body.get('terminal_proof') if isinstance(body, dict) else None
+    if (not isinstance(proof, dict) or body.get('outcome') != 'not_attempted' or
+            proof.get('contract') != 'cxone-terminal-v1' or proof.get('state') != 'terminal' or
+            proof.get('issuer') != issuer or proof.get('jti') != jti or proof.get('trust_epoch') != epoch or
+            any(proof.get(field) != body.get(field) for field in ('operation_id', 'action', 'outcome', 'reason', 'audit_recorded')) or
+            proof.get('terminal_updated_at') != body.get('updated_at') or
+            body.get('audit_recorded') is not None or body.get('requires_reconciliation') is not False or
+            not re.fullmatch(r'[a-f0-9]{64}', proof.get('binding_sha256', ''))):
+        raise ValueError('actual optional read-only historical lookup failed')
+
+
 def validate_fixture_overlay(overlay):
     """CI may only add dedicated readonly test inputs to owned services."""
     allowed = {
@@ -178,13 +201,7 @@ def verify(root, work, evidence, prefix, imports, conductor_imports, fixture, ns
     images['scanner'] = identity(bundle['scannerImage'])['Id']
     images['mongo'] = identity(MONGO)['Id']
     tls_root = workspace / 'tls'
-    tls_root.mkdir(mode=0o700)
-    for role, uid in (('server', 999), ('scanner', keys['scanner'].stat().st_uid), ('bridge', 1000), ('conductor', 1000)):
-        directory = _private_directory(tls_root / role, uid)
-        _private_file(directory / 'ca.pem', uid, (fixture / 'ca.pem').read_bytes(), 0o444)
-        if role == 'server':
-            for name in ('cert.pem', 'key.pem'):
-                _private_file(directory / name, uid, (fixture / name).read_bytes())
+    prepare_tls(tls_root, fixture, keys['scanner'].stat().st_uid)
     frontend_tls = _private_directory(workspace / 'frontend-tls', 1000)
     for name in ('cert.pem', 'key.pem'):
         _private_file(frontend_tls / name, 1000, (fixture / name).read_bytes())
@@ -595,8 +612,9 @@ def _run_profile(*, root, directory, package, evidence, prefix, target, mode, im
         if mode == 'history':
             code, historical = request('remedy-server', 8000, '/v1/cxone/page/operation-status',
                                        {'issuer': signing['issuer'], 'jti': history_jti}, server_key, tls=True)
-            if code != 200 or historical['outcome'] != 'not_attempted' or historical['state'] != 'terminal':
+            if code != 200:
                 raise RuntimeError('actual optional read-only historical lookup failed')
+            require_terminal_history(historical, signing['issuer'], history_jti, signing['trust_epoch'])
             code, missing = request('remedy-server', 8000, '/v1/cxone/page/operation-status',
                                     {'issuer': signing['issuer'], 'jti': 'B' * 42 + 'A'}, server_key, tls=True)
             if code != 404 or missing.get('error') != 'operation_not_found':
@@ -837,8 +855,9 @@ await client.close();console.log(JSON.stringify({collections,publicHistory:{coun
     def history_status():
         code, value = request('remedy-server', 8000, '/v1/cxone/page/operation-status',
                               {'issuer': signing['issuer'], 'jti': history_jti}, server_key, tls=True)
-        if code != 200 or value['state'] != 'terminal' or value['outcome'] != 'not_attempted':
+        if code != 200:
             raise RuntimeError('historical actor/outcome unavailable after operational transition')
+        require_terminal_history(value, signing['issuer'], history_jti, signing['trust_epoch'])
         return {'status': code, 'sha256': hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest(),
                 'outcome': value['outcome'], 'operationID': value['operation_id'],
                 'terminalProofSHA256': hashlib.sha256(json.dumps(value.get('terminal_proof'), sort_keys=True).encode()).hexdigest()}
