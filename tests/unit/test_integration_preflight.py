@@ -234,22 +234,51 @@ def test_actual_compose_byte_serialization_preserves_exact_resource_limits(prefl
     if version.returncode != 0:
         pytest.skip('Docker Compose plugin is unavailable on this local profile')
     config, args, policy, identities = integration_config
-    for service in config['services'].values():
-        fragment = {'services': {'sample': {name: service[name] for name in
-                    ('image', 'cpus', 'mem_limit', 'pids_limit', 'shm_size')}}}
-        process = subprocess.run(['docker', 'compose', '-f', '-', 'config', '--format', 'json'],
-                                 input=json.dumps(fragment), capture_output=True, text=True, timeout=20)
-        assert process.returncode == 0, process.stderr
-        resolved = json.loads(process.stdout)['services']['sample']
-        for name in ('cpus', 'mem_limit', 'pids_limit', 'shm_size'):
-            service[name] = resolved[name]
-    preflight.validate_compose(config, args, policy, identities, 1002, {}, configuration_hashes=args.configuration_hashes)
+    process = subprocess.run(['docker', 'compose', '-f', '-', 'config', '--format', 'json'],
+                             input=json.dumps(config), capture_output=True, text=True, timeout=20)
+    assert process.returncode == 0, process.stderr
+    preflight.validate_compose(json.loads(process.stdout), args, policy, identities, 1002, {}, configuration_hashes=args.configuration_hashes)
 
 
 def test_canonical_decimal_byte_limits_are_accepted_without_docker(preflight, integration_config):
     config, args, policy, identities = integration_config
     config['services']['remedy-renderer'].update(mem_limit='2147483648', shm_size='1073741824')
     preflight.validate_compose(config, args, policy, identities, 1002, {}, configuration_hashes=args.configuration_hashes)
+
+
+@pytest.mark.parametrize('bind', [{}, None])
+def test_compose_omitted_false_bind_default_retains_no_creation(preflight, integration_config, bind):
+    config, args, policy, identities = integration_config
+    for service in config['services'].values():
+        for volume in service['volumes']:
+            if bind is None:
+                volume.pop('bind')
+            else:
+                volume['bind'] = bind.copy()
+    preflight.validate_compose(config, args, policy, identities, 1002, {}, configuration_hashes=args.configuration_hashes)
+
+
+@pytest.mark.parametrize('bind', [{'create_host_path': True}, {'create_host_path': 'false'},
+                                  {'create_host_path': 0}, {'create_host_path': None}, None, []])
+def test_compose_bind_creation_or_malformed_options_are_refused(preflight, integration_config, bind):
+    config, args, policy, identities = integration_config
+    config['services']['mongo']['volumes'][0]['bind'] = bind
+    with pytest.raises(ValueError, match='preprovisioned_exact_mount_required'):
+        preflight.validate_compose(config, args, policy, identities, 1002, {}, configuration_hashes=args.configuration_hashes)
+
+
+def test_compose_serialized_dollar_keeps_the_exact_reviewed_allowlist(preflight, integration_config):
+    config, args, policy, identities = integration_config
+    config['services']['remedy-bridge']['environment']['REMEDY_WRITE_ALLOWLIST'] = '^Sandboxes/johnnyphung(?:/|$$)'
+    preflight.validate_compose(config, args, policy, identities, 1002, {}, configuration_hashes=args.configuration_hashes)
+
+
+@pytest.mark.parametrize('value', ['^.*$', '^Sandboxes/other(?:/|$$)', '^Sandboxes/johnnyphung(?:/|$$$)'])
+def test_compose_serialization_never_broadens_the_reviewed_allowlist(preflight, integration_config, value):
+    config, args, policy, identities = integration_config
+    config['services']['remedy-bridge']['environment']['REMEDY_WRITE_ALLOWLIST'] = value
+    with pytest.raises(ValueError, match='private_bridge_profile_or_namespace_mismatch'):
+        preflight.validate_compose(config, args, policy, identities, 1002, {}, configuration_hashes=args.configuration_hashes)
 
 
 @pytest.mark.parametrize('value', ['2147483649', '2g', ' 2147483648', '+2147483648',

@@ -670,7 +670,11 @@ def validate_compose(config, args, policy, identities, scanner_uid, signing, *, 
             require(service.get('network_mode') == 'service:remedy-server' and not service.get('networks') and
                     env.get('REMEDY_BRIDGE_PROFILE') == args.integration_mode and env.get('CONDUCTOR_API_HOST') == '127.0.0.1' and
                     env.get('RENDER_SCANNER_URL') == 'http://remedy-renderer:5180' and env.get('SERVER_DOMAIN') == 'dev.libretexts.org' and
-                    env.get('REMEDY_REVIEWER_REQUIRED') == 'true' and env.get('REMEDY_WRITE_ALLOWLIST') == '^Sandboxes/johnnyphung(?:/|$)', 'private_bridge_profile_or_namespace_mismatch')
+                    env.get('REMEDY_REVIEWER_REQUIRED') == 'true' and
+                    # Resolved Compose JSON escapes literal dollars for a
+                    # subsequent Compose read; accept only this exact policy.
+                    env.get('REMEDY_WRITE_ALLOWLIST') in {'^Sandboxes/johnnyphung(?:/|$)', '^Sandboxes/johnnyphung(?:/|$$)'},
+                    'private_bridge_profile_or_namespace_mismatch')
             require(service.get('command') == ['node','--import','tsx','packages/conductor-panel/server/server.ts'], 'unchanged_bridge_command_required')
         else:
             require(not service.get('network_mode'), 'unexpected_service_network_namespace')
@@ -714,8 +718,11 @@ def validate_compose(config, args, policy, identities, scanner_uid, signing, *, 
             destination = volume.get('target')
             require(destination in expected_mounts and destination not in mounted[role], 'unexpected_or_duplicate_compose_mount')
             path, readonly = expected_mounts[destination]
+            bind = volume.get('bind', {})
+            # Compose v2 omits false options from resolved JSON. For long-form
+            # bind mounts the omitted create_host_path default is false.
             require(volume.get('type') == 'bind' and volume.get('source') == str(path) and
-                    bool(volume.get('read_only',False)) == readonly and volume.get('bind',{}).get('create_host_path') is False,
+                    bool(volume.get('read_only',False)) == readonly and isinstance(bind,dict) and bind.get('create_host_path',False) is False,
                     'preprovisioned_exact_mount_required')
             mounted[role][destination] = str(path)
         if role in {'bridge','conductor'}:
