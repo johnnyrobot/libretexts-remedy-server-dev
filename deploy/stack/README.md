@@ -207,10 +207,10 @@ Other maintained entry points:
 [Conductor patch README](https://github.com/johnnyrobot/conductor-remedy-patch#readme).
 
 
-## Full integration commissioning tracer (LT-197)
+## Full integration candidate (LT-197)
 
-The current branch is **incomplete commissioning work**, not completed
-operational acceptance. The GitHub Linux workflow imports the two original compiled Conductor
+Use only a completed matching handoff; incomplete or refused receipts do not
+establish operational acceptance. The GitHub Linux workflow imports the two original compiled Conductor
 saved images selected by `conductor-candidates.json` (metadata source
 `dd152c5eca8e48609bbf7df9a9c8c63cf7b48fd2`). It verifies the original artifact ZIP,
 compressed image archive, config ID and every uncompressed filesystem layer before
@@ -281,4 +281,4 @@ it adds no consumer protocol or signing setting. Signer PEM remains the existing
 Full operational release packaging, signed dev/test apply/recovery, coherent cold
 restore/upgrade/rollback and mounted consumer UI evidence remain open until their
 actual executed receipts are recorded. Global flags stay false. The initial
-tracer must not be described as the full LT-197 acceptance suite.
+tracer receipts must not be substituted for the complete LT-197 acceptance suite.

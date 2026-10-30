@@ -1,10 +1,11 @@
-"""Download original Conductor delivery ZIPs; verify bytes before Docker import.
+"""Import original Conductor delivery ZIPs; verify bytes before Docker import.
 
-Uses only the current runner's existing ephemeral GitHub token, never a PAT or
-cross-repository secret. A 403 is an explicit packaging blocker, not a reason to
-rebuild the consumer or substitute its historical candidates.
+Sealed package input needs no GitHub credential. CI download uses only the
+current runner's existing ephemeral token, never a PAT or cross-repo secret.
+A 403 blocks download; never rebuild or substitute a historical consumer.
 """
 import hashlib
+import argparse
 import json
 import os
 import re
@@ -113,13 +114,42 @@ def verify_loaded_image(source, loaded):
                 if (key in source['runtimeConfiguration'],source['runtimeConfiguration'].get(key)) != (key in loaded['Config'],loaded['Config'].get(key))}}
 
 
+def acquire_original_zip(destination, target, local_directory=None):
+    """Copy a sealed original or download it; authenticate bytes identically."""
+    pin = target['validation']
+    if local_directory is not None:
+        source = Path(local_directory) / target['target'] / 'original-artifact.zip'
+        if source.is_symlink() or not source.is_file() or 'sha256:' + sha256(source) != pin['artifactDigest']:
+            raise ValueError('sealed original artifact ZIP digest mismatch')
+        with source.open('rb') as incoming, destination.open('xb') as outgoing:
+            shutil.copyfileobj(incoming, outgoing)
+    else:
+        url = 'https://api.github.com/repos/johnnyrobot/conductor-remedy-patch/actions/artifacts/' + str(pin['artifactID']) + '/zip'
+        headers = {'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'}
+        if os.environ.get('GH_TOKEN'):
+            headers['Authorization'] = 'Bearer ' + os.environ['GH_TOKEN']
+        with build_opener(ArtifactRedirect()).open(Request(url, headers=headers), timeout=120) as response, destination.open('xb') as stream:
+            shutil.copyfileobj(response, stream)
+    if 'sha256:' + sha256(destination) != pin['artifactDigest']:
+        raise ValueError('original artifact ZIP digest mismatch: ' + target['target'])
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--from-package', type=Path, help='verified handoff conductor/ directory; makes no GitHub download')
+    parser.add_argument('--output', type=Path, default=Path('.stack-conductor'), help='new import directory; existing paths are refused')
+    parser.add_argument('--receipt', type=Path, default=Path('.stack-proof-evidence/conductor-imports.json'), help='new output receipt path')
+    args = parser.parse_args()
     root = Path.cwd()
     index_path = root / 'deploy/stack/conductor-candidates.json'
     if sha256(index_path) != INDEX_SHA256:
         raise ValueError('authoritative current-candidates index changed')
     index = json.loads(index_path.read_text())
-    output = root / '.stack-conductor'
+    output = args.output.resolve()
+    if args.receipt.exists() or args.receipt.is_symlink():
+        raise ValueError('existing import receipt refused')
+    if not args.receipt.parent.is_dir():
+        raise ValueError('existing private receipt directory required')
     output.mkdir(mode=0o700)
     receipt = {'indexSHA256': INDEX_SHA256, 'targets': {}, 'verificationComplete': False}
     try:
@@ -129,14 +159,7 @@ def main():
             destination = output / name
             destination.mkdir()
             archive_zip = destination / 'original-artifact.zip'
-            url = 'https://api.github.com/repos/johnnyrobot/conductor-remedy-patch/actions/artifacts/' + str(pin['artifactID']) + '/zip'
-            headers = {'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'}
-            if os.environ.get('GH_TOKEN'):
-                headers['Authorization'] = 'Bearer ' + os.environ['GH_TOKEN']
-            with build_opener(ArtifactRedirect()).open(Request(url, headers=headers), timeout=120) as response, archive_zip.open('xb') as stream:
-                shutil.copyfileobj(response, stream)
-            if 'sha256:' + sha256(archive_zip) != pin['artifactDigest']:
-                raise ValueError('original artifact ZIP digest mismatch: ' + name)
+            acquire_original_zip(archive_zip, target, args.from_package)
             # Extract only the known image payload; ZIP paths never become host paths.
             with zipfile.ZipFile(archive_zip) as zipped:
                 matches = [info for info in zipped.infolist() if Path(info.filename).name == pin['archive']]
@@ -149,10 +172,12 @@ def main():
                 raise ValueError('saved-image archive digest mismatch')
             source = verify_saved_image(image_path, pin['imageID'])
             load = subprocess.run(['docker', 'load', '--input', str(image_path)], capture_output=True, text=True)
-            (root / '.stack-proof-evidence' / ('conductor-load-' + name + '.log')).write_text(load.stdout + load.stderr)
+            with (args.receipt.parent / (args.receipt.stem + '-load-' + name + '.log')).open('x') as stream:
+                stream.write(load.stdout + load.stderr)
             load.check_returncode()
             loaded = json.loads(subprocess.check_output(['docker', 'image', 'inspect', source['verifiedReference']], text=True))[0]
-            (root / '.stack-proof-evidence' / ('conductor-inspect-' + name + '.json')).write_text(json.dumps(loaded,indent=2)+'\n')
+            with (args.receipt.parent / (args.receipt.stem + '-inspect-' + name + '.json')).open('x') as stream:
+                stream.write(json.dumps(loaded,indent=2)+'\n')
             mapping = verify_loaded_image(source, loaded)
             # Resolve once more by verified immutable identity, which all launches use.
             immutable = json.loads(subprocess.check_output(['docker','image','inspect',mapping['loadedDockerImageID']],text=True))[0]
@@ -165,7 +190,8 @@ def main():
                 **source, **mapping}
         receipt['verificationComplete'] = True
     finally:
-        (root / '.stack-proof-evidence/conductor-imports.json').write_text(json.dumps(receipt, indent=2) + '\n')
+        with args.receipt.open('x') as stream:
+            stream.write(json.dumps(receipt, indent=2) + '\n')
 
 
 if __name__ == '__main__':

@@ -57,7 +57,7 @@ a deployment input.
 ## Retaining and checking the handoff
 
 The candidate workflow's final `remedy-stack-handoff-<source commit>` artifact is
-created only after all nine acceptance receipts match. It contains `package.tar`,
+created only after all required acceptance receipts match. It contains `package.tar`,
 the identical internal/external `manifest.json`, `checksums.sha256` and the
 external `seal-receipt.json`. The TAR contains the exact tracked source archive,
 three downloaded/imported owned OCI archives, both original Conductor ZIPs and
@@ -87,6 +87,59 @@ keeps `deploymentReady`, `productionWritesEnabled`, `liveProvidersVerified`,
 `productionSSOVerified` and `releaseOwnerAcceptance` false. LibreTexts still owns
 target-host/provider/SSO acceptance and rollout, and vendor conditional-write
 validation remains an independent hold.
+
+### Import on the supported Linux host
+
+Use the authorized root operator and a new checkout/extracted `source.tar` at
+the package's exact source commit. Install the supported Docker Engine/Compose
+v2 and **Skopeo** archive reader first; this command sequence does not install or
+relax host policy. `REMEDY_VERIFIED_PACKAGE` below names the new private directory
+whose outer receipt, internal manifest and every payload checksum were verified
+above. It is separate from the source working directory. Retain the original
+package and receipts unchanged.
+
+From that source root, the following creates new import evidence directories;
+existing paths refuse rather than overwrite previous work:
+
+```sh
+set -eu
+mkdir -m 0700 .stack-artifacts .stack-proof-evidence
+for name in candidate.json build-inputs.json; do
+  cp "${REMEDY_VERIFIED_PACKAGE:?required}/metadata/$name" .stack-artifacts/
+done
+for role in server bridge renderer; do
+  cp "${REMEDY_VERIFIED_PACKAGE:?required}/images/$role.oci.tar" .stack-artifacts/
+done
+export GITHUB_SHA="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["source"]["commit"])' \
+  "${REMEDY_VERIFIED_PACKAGE:?required}/manifest.json")"
+skopeo copy --override-os linux --override-arch amd64 \
+  oci-archive:.stack-artifacts/server.oci.tar docker-daemon:remedy-server:stack-candidate
+skopeo copy --override-os linux --override-arch amd64 \
+  oci-archive:.stack-artifacts/bridge.oci.tar docker-daemon:remedy-bridge:stack-candidate
+skopeo copy --override-os linux --override-arch amd64 \
+  oci-archive:.stack-artifacts/renderer.oci.tar docker-daemon:remedy-renderer:stack-candidate
+python3 .github/stack-proof/verify_imports.py
+python3 .github/stack-proof/conductor_artifacts.py \
+  --from-package "${REMEDY_VERIFIED_PACKAGE:?required}/conductor"
+docker pull ghcr.io/johnnyrobot/adapt-a11y-scanner-dev-candidate@sha256:00ab363669ccc7ae50fe7fc79286508af5923d3326d397f87cff91ee76e379a6
+docker pull mongo:7.0.14@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6
+```
+
+These temporary import tags only let the verifier find the loaded objects; they
+are never trusted launch identities. Use `loadedDockerImageID` from the new
+`imports.json`/`conductor-imports.json` for the four Compose image variables.
+The local importer validates the original ZIP, saved archive, all layers,
+configuration and source before accepting either original config or original
+manifest identity. `--from-package` makes no GitHub download and needs no new
+GitHub credential. It retains separate import evidence; do not replace the
+immutable CI proof with host-generated JSON or edit it to force acceptance.
+
+The complete candidate preflight also binds the accepted assembly's measured
+image identities. A host/store representation that cannot reproduce that
+binding is not certified by this candidate and must stop at preflight; matching
+file hashes alone do not certify another Docker setup. Record Docker engine,
+storage representation and imported IDs with target-host acceptance. This
+limitation is separate from vendor write enablement.
 
 ## Host, filesystems and private transport
 

@@ -134,6 +134,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 .github/stack-proof/conductor_artifacts.py
+      - name: Exercise the operator's offline original-image import
+        run: |
+          python3 .github/stack-proof/conductor_artifacts.py --from-package .stack-conductor --output .stack-conductor-local --receipt .stack-proof-evidence/conductor-imports-local.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('.stack-proof-evidence')
+          original=json.loads((p/'conductor-imports.json').read_text())
+          local=json.loads((p/'conductor-imports-local.json').read_text())
+          assert local['verificationComplete'] and local==original
+          PY
       - name: Exercise actual services with only synthetic external systems
         run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/prove.py
       - name: Exercise actual compiled Conductor against the owned stack

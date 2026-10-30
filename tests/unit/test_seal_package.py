@@ -135,6 +135,7 @@ def candidate(tmp_path, monkeypatch):
     receipts = {name: {'verificationComplete': True} for name in sealer.RECEIPTS}
     receipts['imports.json'] = imports
     receipts['conductor-imports.json'] = {'indexSHA256': index_hash, 'targets': conductors, 'verificationComplete': True}
+    receipts['conductor-imports-local.json'] = json.loads(json.dumps(receipts['conductor-imports.json']))
     receipts['result.json'].update(serverSource=source, errors=[], importedArtifacts=imports, sections=['actual-service-bootstrap', 'private-isolation', 'sandbox-identities', 'limits-and-failures', 'bounded-storage', 'safe-shutdown', 'public-compose'],
                                   host={'kernel': 'fixture Linux', 'docker': 'fixture'}, resourceMeasurements={'fixture': True}, images={'scanner': {'repoDigests': [bundle['scannerImage']]}})
     receipts['compose-result.json']['profiles'] = {'engine-scanner': {'actualScan': True}, 'bridge-review': {'actualPreview': True, 'mutationDenied': True, 'externalMutations': 0}}

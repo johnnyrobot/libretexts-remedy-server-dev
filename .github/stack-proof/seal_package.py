@@ -23,7 +23,7 @@ from verify_imports import read_oci, runtime_configuration
 RECEIPTS = ('result.json', 'compose-result.json', 'preflight-result.json',
             'imports.json', 'conductor-imports.json', 'full-result.json',
             'public-integration-result.json', 'public-integration-preflight-result.json',
-            'synthetic-signed-result.json')
+            'synthetic-signed-result.json', 'conductor-imports-local.json')
 FLAGS = ('deploymentReady', 'productionWritesEnabled', 'liveProvidersVerified',
          'productionSSOVerified', 'releaseOwnerAcceptance')
 MONGO = 'mongo:7.0.14@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6'
@@ -192,6 +192,7 @@ def verify_receipts(receipts, source, index, imports):
     require(full.get('publicIntegration') == public, 'full publicIntegration receipt mismatch')
     require(full.get('publicIntegrationPreflight') == preflight, 'full publicIntegrationPreflight receipt mismatch')
     consumers = receipts['conductor-imports.json']['targets']
+    require(receipts['conductor-imports-local.json'] == receipts['conductor-imports.json'], 'operator offline original import differs')
     require(set(full['targets']) == set(public['targets']) == set(consumers), 'both original target proofs required')
     for target, pin in consumers.items():
         actual = full['targets'][target]

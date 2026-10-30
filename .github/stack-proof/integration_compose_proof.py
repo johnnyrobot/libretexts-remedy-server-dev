@@ -816,10 +816,13 @@ def _operational_rehearsal(*, root, directory, evidence, target, project, interp
             args.append('-i')
         args += [inspect('remedy-server')['Id'], 'node', '/opt/remedy-bundle/secret-env.mjs',
                  'server', 'python', '/proof/job_state_probe.py', mode]
-        observed = run(*args, input_text=json.dumps(witness) if witness is not None else None)
+        observed = run(*args, input_text=json.dumps(witness) if witness is not None else None, private_stdout=True)
+        value = json.loads(observed.stdout.strip().splitlines()[-1])
+        public = {key: value[key] for key in ('jobID', 'inputSHA256', 'outputSHA256', 'options',
+                  'postCount', 'genuineDOCXParsed', 'persistedOptionsUnchanged', 'postRepeated') if key in value}
         write_product_log(evidence / f'public-{target}-office-{mode}-{len(result.get("stages", []))}.log',
-                          observed.stdout + observed.stderr, sensitive)
-        return json.loads(observed.stdout.strip().splitlines()[-1])
+                          json.dumps(public) + '\n' + observed.stderr, sensitive)
+        return value
 
     # No session cookie or password is printed. This witness reads immutable
     # collections through the actual authenticated driver and also exercises the

@@ -120,3 +120,19 @@ def test_restored_job_requires_original_artifact_and_exact_persisted_options():
         helper.verify_existing({**status, 'metadata_json': '{}'}, raw, expected)
     with pytest.raises(ValueError, match='artifact hash'):
         helper.verify_existing(status, raw + b'changed', expected)
+
+
+def test_retained_job_options_preserve_the_actual_office_acceptance_metadata():
+    helper_spec = importlib.util.spec_from_file_location('job_options_probe', PROOF / 'job_state_probe.py')
+    helper = importlib.util.module_from_spec(helper_spec)
+    helper_spec.loader.exec_module(helper)
+    # The production engine enriches terminal metadata with an acceptance
+    # advisory; it does not replace the original admission options.
+    import json
+    status = {'metadata_json': json.dumps({'allow_semantic_rebuild': False,
+        'acceptance': {'passed': False, 'failed_rule_ids': ['unresolved-manual-review'], 'summary': 'Advisory remains unresolved.'}})}
+    assert helper.retained_options(status) == {'allow_semantic_rebuild': False}
+    original = json.loads(status['metadata_json'])
+    for metadata in ({**original, 'allow_semantic_rebuild': True}, {**original, 'quality': True}, {'allow_semantic_rebuild': False}):
+        with pytest.raises(ValueError, match='admission options'):
+            helper.retained_options({'metadata_json': json.dumps(metadata)})

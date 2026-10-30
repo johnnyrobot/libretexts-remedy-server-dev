@@ -20,6 +20,34 @@ def load():
     return module
 
 
+@pytest.mark.parametrize('damage', [None, 'changed', 'missing', 'symlink', 'existing-output'])
+def test_packaged_original_zip_uses_exact_bytes_without_network_or_overwrite(tmp_path, monkeypatch, damage):
+    module = load()
+    def network_forbidden(*args, **kwargs):
+        raise AssertionError('sealed originals must not require a network credential')
+    monkeypatch.setattr(module, 'build_opener', network_forbidden)
+    directory = tmp_path / 'package' / 'release-2.156.2'
+    directory.mkdir(parents=True)
+    raw = b'original synthetic ZIP bytes; acquisition fixture only'
+    source = directory / 'original-artifact.zip'
+    source.write_bytes(raw)
+    target = {'target': 'release-2.156.2', 'validation': {'artifactDigest': 'sha256:' + hashlib.sha256(raw).hexdigest()}}
+    destination = tmp_path / 'copied.zip'
+    if damage == 'changed': source.write_bytes(raw + b'tampered')
+    elif damage == 'missing': source.unlink()
+    elif damage == 'symlink':
+        original = directory / 'original';source.rename(original);source.symlink_to(original)
+    elif damage == 'existing-output': destination.write_bytes(b'retain previous evidence')
+    if damage is None:
+        module.acquire_original_zip(destination, target, tmp_path / 'package')
+        assert destination.read_bytes() == raw
+    else:
+        with pytest.raises((ValueError, FileExistsError)):
+            module.acquire_original_zip(destination, target, tmp_path / 'package')
+        if damage == 'existing-output': assert destination.read_bytes() == b'retain previous evidence'
+        else: assert not destination.exists()
+
+
 def image(tmp_path, corrupt_layer=False):
     layer = b"known synthetic layer bytes"
     digest = hashlib.sha256(layer).hexdigest()

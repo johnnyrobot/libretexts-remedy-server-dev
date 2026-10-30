@@ -17,6 +17,18 @@ import uuid
 from docx import Document
 
 SENTINEL = 'LT197 owned cold state DOCX sentinel'
+PHASE = 'configuration'
+
+
+def retained_options(status):
+    metadata = json.loads(status['metadata_json'])
+    if (not isinstance(metadata, dict) or set(metadata) != {'allow_semantic_rebuild', 'acceptance'} or
+            metadata['allow_semantic_rebuild'] is not False or not isinstance(metadata['acceptance'], dict) or
+            type(metadata['acceptance'].get('passed')) is not bool):
+        raise ValueError('explicit original admission options changed')
+    # Keep the complete enriched metadata in statusSnapshot for byte-equivalent
+    # restoration checks; extract only the original, explicitly disabled option.
+    return {'allow_semantic_rebuild': metadata['allow_semantic_rebuild']}
 
 
 def _artifact(raw):
@@ -39,6 +51,7 @@ def verify_existing(status, raw, expected):
 
 
 def main():
+    global PHASE
     mode = sys.argv[1]
     if mode not in ('create', 'verify-existing') or os.environ.get('APP_ENV') != 'production':
         raise ValueError('production create/verify-existing mode required')
@@ -74,6 +87,7 @@ def main():
         body += raw + f'\r\n--{boundary}--\r\n'.encode()
         # Exactly one submission. An ambiguous response is a failed witness,
         # never permission to resubmit or reconstruct its admission options.
+        PHASE = 'single-submission'
         code, response = request('POST', '/v1/remediate', body, 'multipart/form-data; boundary=' + boundary)
         if code != 202:
             raise ValueError('Office job was not accepted')
@@ -85,6 +99,7 @@ def main():
     if not re.fullmatch(r'[a-f0-9]{32}', job_id):
         raise ValueError('exact job identity required')
     deadline = time.monotonic() + 120
+    PHASE = 'terminal-status'
     while True:
         code, raw_status = request('GET', '/v1/jobs/' + job_id)
         if code != 200:
@@ -97,16 +112,17 @@ def main():
         time.sleep(.2)
     if status['status'] != 'done' or status['kind'] != 'remediate_office':
         raise ValueError('actual Office remediation did not complete')
+    PHASE = 'original-download'
     code, result = request('GET', '/v1/jobs/' + job_id + '/result')
     if code != 200:
         raise ValueError('retained Office download unavailable')
     if mode == 'create':
-        options = json.loads(status['metadata_json'])
-        if options != {'allow_semantic_rebuild': False}:
-            raise ValueError('explicit original admission options changed')
+        PHASE = 'retained-options'
+        options = retained_options(status)
+        PHASE = 'genuine-artifact'
         expected.update(outputSHA256=_artifact(result), statusSnapshot=status)
-        # Exact original metadata is nonsecret synthetic input for subsequent
-        # checks. No internal paths, artifact bytes or credentials are emitted.
+        # The complete synthetic terminal snapshot is PRIVATE input for the
+        # caller's subsequent restoration checks, never an uploaded raw log.
         print(json.dumps({**expected, 'options': options, 'postCount': 1, 'genuineDOCXParsed': True}))
     else:
         print(json.dumps(verify_existing(status, result, expected)))
@@ -115,6 +131,8 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except Exception:
+    except Exception as error:
         # Provider bodies, API keys and file contents never become diagnostics.
+        print(json.dumps({'actualOfficeWitnessFailed': True, 'phase': PHASE, 'errorType': type(error).__name__,
+                          'postRetried': False}), file=sys.stderr)
         raise SystemExit('actual Office job witness failed; no automatic submission retry') from None
