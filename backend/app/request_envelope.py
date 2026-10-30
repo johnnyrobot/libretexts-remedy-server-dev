@@ -4,6 +4,20 @@ from starlette.exceptions import HTTPException
 from starlette.formparsers import MultiPartException
 
 
+def declared_too_large(scope, maximum: int) -> bool:
+    for name,value in scope.get('headers',[]):
+        if name.lower()==b'content-length':
+            try: declared=int(value)
+            except ValueError: continue  # streaming count remains authoritative
+            if declared>maximum: return True
+    return False
+
+
+def refusal():
+    return JSONResponse({'detail':'Request exceeds total byte limit.'},status_code=413,
+        headers={'connection':'close'})
+
+
 class RequestEnvelopeMiddleware:
     def __init__(self, app, maximum: int):
         self.app,self.maximum=app,maximum
@@ -11,15 +25,10 @@ class RequestEnvelopeMiddleware:
     async def __call__(self, scope, receive, send):
         if scope['type']!='http' or not scope.get('path','').startswith('/v1/'):
             return await self.app(scope,receive,send)
-        response=JSONResponse({'detail':'Request exceeds total byte limit.'},status_code=413,
-            headers={'connection':'close'})
+        response=refusal()
         # Authentication is outside this middleware. An honest large length
-        # needs no body read, engine reservation, parser spool or source call.
-        for name,value in scope.get('headers',[]):
-            if name.lower()==b'content-length':
-                try: declared=int(value)
-                except ValueError: continue  # streaming count remains authoritative
-                if declared>self.maximum: return await response(scope,receive,send)
+        # needs no body read, parser spool or source call.
+        if declared_too_large(scope,self.maximum): return await response(scope,receive,send)
         total=0
         exceeded=False
         started=False

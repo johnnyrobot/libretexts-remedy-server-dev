@@ -79,14 +79,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v4
-        with:
-          name: remedy-stack-candidate-${{ github.sha }}
-          path: .stack-artifacts
-      - name: Install archive reader
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends skopeo tcpdump
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
@@ -101,6 +93,14 @@ jobs:
           uv sync --frozen --extra dev
           mkdir -p .stack-proof-evidence
           uv run --frozen pytest tests/unit/test_request_envelope.py -v --junitxml=.stack-proof-evidence/request-envelope.xml
+      - uses: actions/download-artifact@v4
+        with:
+          name: remedy-stack-candidate-${{ github.sha }}
+          path: .stack-artifacts
+      - name: Install archive reader
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends skopeo tcpdump
       - name: Verify and import the exact downloaded OCI archives
         run: |
           python3 - <<'PY'

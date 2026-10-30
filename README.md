@@ -30,6 +30,11 @@ Scanner digest pass the complete Linux service proof and operational acceptance.
 `productionWritesEnabled` false. Do not infer acceptance from image build,
 process liveness, partial test output or component-only tests.
 
+Optional Bridge review acceptance is currently blocked by an upstream-read
+readiness defect in the pinned Bridge; the [health limitations](deploy/stack/README.md#health-bounds-and-failures)
+record the actual failure. The corrective Server envelope and packaging work
+still require complete Linux proof and review.
+
 The [stack guide](deploy/stack/README.md) is the next entry point. It describes
 artifact verification, exact configuration/credential **file names**, private
 transport, modes, mounts, limits and operator checks. Current fixed inputs are:

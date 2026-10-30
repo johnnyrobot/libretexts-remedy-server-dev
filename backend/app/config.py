@@ -139,6 +139,10 @@ class Settings:
     def is_production(self) -> bool:
         return self.app_env.strip().lower() in _PRODUCTION_ENVS
 
+    @property
+    def request_byte_limit(self) -> int:
+        return self.max_request_bytes if self.max_request_bytes is not None else (self.max_upload_mb+1)*1024*1024
+
     def validation_errors(self) -> list[str]:
         """Return startup-blocking configuration errors."""
         errors: list[str] = []

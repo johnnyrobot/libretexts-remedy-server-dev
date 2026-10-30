@@ -124,8 +124,12 @@ Liveness is not readiness. Server `/readyz` concerns its store/engine; authentic
 `/v1/cxone/health` checks actual Bridge `/readyz` and strict named capabilities.
 Review mode requires scan+preview, explicitly `mutate:false`; status is optional.
 Full-write requires its published capability set. Unknown/malformed/partial
-producer profiles are not inferred as review-only. Required read failure remains
-unavailable until genuine successful retry. Scanner `/healthz` concerns admission;
+producer profiles are not inferred as review-only. Required read failure must
+remain unavailable until genuine successful retry. The pinned Bridge03d961d7
+currently violates that requirement for an upstream401: scan fails while health
+still reports200 (actual Linux run40982422525). This blocks acceptance of the
+optional review deployment until a reviewed compatible producer correction is
+tested; a healthy metadata response alone is insufficient. Scanner `/healthz` concerns admission;
 only an actual authorized scan establishes its external/render/validator outcome.
 Empty/malformed/partial data is not a clean pass. Calibration remains unavailable
 on historical placeholder evidence; usable artifacts preserve explicit advisories.
