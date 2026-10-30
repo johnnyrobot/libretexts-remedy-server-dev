@@ -103,6 +103,18 @@ try:
         raise ValueError('incomplete_or_failed_actual_service_proof')
     if candidate['serverSource']!=proof.get('serverSource'):
         raise ValueError('candidate_and_proof_source_mismatch')
+    imports=proof.get('importedArtifacts',{})
+    if imports.get('verificationComplete') is not True or imports.get('serverSource')!=candidate['serverSource']:
+        raise ValueError('verified_image_import_binding_required')
+    for role in ('server','bridge'):
+        binding=imports['images'][role]
+        if candidate['sha256'][role+'.oci.tar']!=binding['OCIArchiveSHA256']:
+            raise ValueError('candidate_archive_not_in_proof')
+        source=candidate['serverSource'] if role=='server' else candidate['bridgeSource']
+        if binding['sourceRevision']!=source:
+            raise ValueError('candidate_revision_not_in_proof')
+        if proof['images'][role]['id']!=binding['loadedDockerImageID'] or proof['images'][role]['layers']!=binding['filesystemDiffIDs']:
+            raise ValueError('proof_image_not_bound_to_archive')
     for name,expected in candidate['sha256'].items():
         if Path(name).name!=name or sha(args.artifacts/name)!=expected: raise ValueError('archive_or_input_hash_mismatch')
     for name,expected in candidate['configurationSha256'].items():
