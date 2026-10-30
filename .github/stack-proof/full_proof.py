@@ -62,7 +62,21 @@ def start(role,image,command,env=None,mounts=(),extra=(),uid=None,limits=(1,'256
     run(*args)
     owned.append(name)
     value=inspect(name)
-    assert not value['HostConfig'].get('PortBindings')
+    host=value['HostConfig']
+    assert not host.get('PortBindings')
+    assert host['ReadonlyRootfs'] and host['Init'] and host['CapDrop']==['ALL']
+    assert any(option in {'no-new-privileges','no-new-privileges:true'} for option in host['SecurityOpt'])
+    def bytes_for(text):return int(text[:-1])*({'g':1024**3,'m':1024**2}[text[-1]])
+    assert host['NanoCpus']==int(float(cpu)*10**9) and host['Memory']==bytes_for(memory)
+    assert host['PidsLimit']==pids and host['ShmSize']==bytes_for(shm) and value['Config']['StopTimeout']==stop
+    image_config=json.loads(run('docker','image','inspect',image))[0]
+    assert image_config['Architecture']=='amd64' and image_config['Os']=='linux' and value['Image']==image_config['Id']
+    # PID1 is the retained init process in the product's actual nonroot context.
+    if role!='ui':
+        status=dict(line.split(':',1) for line in run('docker','exec',name,'cat','/proc/1/status').splitlines() if ':' in line)
+        actual_uid=int(status['Uid'].split()[1]);assert actual_uid>0
+        assert int(status['CapEff'].strip(),16)==0 and status['NoNewPrivs'].strip()=='1' and status['Seccomp'].strip()=='2'
+        report.setdefault('started',[]).append({'role':role,'imageID':value['Image'],'uid':actual_uid,'capEff':0,'noNewPrivileges':True,'seccomp':2,'cpus':cpu,'memoryBytes':host['Memory'],'pidLimit':pids,'shmBytes':host['ShmSize'],'stopSeconds':stop,'readOnlyRoot':True})
     return name
 
 def stop(role):
@@ -149,7 +163,7 @@ try:
     wait('scanner',8081,'/control/status','synthetic-control-only',True)
     code,scan=request('scanner',5176,'/v1/adapt/scan',{'mode':'question','id':101},'synthetic-scanner-key');assert code==200 and scan['results'][0]['findings'] and scan['results'][0]['capturedBytes']>0,scan
     report['actualScannerAgainstTLSserver']=True
-    start('renderer','remedy-renderer:stack-candidate',['node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/home/pwuser'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(nss,'/home/pwuser/.pki/nssdb',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
+    start('renderer','remedy-renderer:stack-candidate',['node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/home/pwuser'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(nss,'/home/pwuser/.pki/nssdb',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
     wait('renderer',5180)
     bridge_base={'NODE_ENV':'production','CONDUCTOR_API_HOST':'127.0.0.1','REMEDY_REVIEWER_REQUIRED':'true','REMEDY_BRIDGE_SERVICE_KEY_FILE':'/run/secrets/service','CXONE_INTEGRATION_ENABLED':'true','SERVER_DOMAIN':'dev.libretexts.org','SERVER_KEY_FILE':'/run/secrets/key','SERVER_SECRET_FILE':'/run/secrets/secret','SERVER_USER_FILE':'/run/secrets/user','REMEDY_WRITE_ALLOWLIST':'^Sandboxes/johnnyphung(?:/|$)','REMEDY_MAX_REQUEST_BYTES':'5000000','REMEDY_WORK_ACTIVE':'1','REMEDY_WORK_QUEUED':'8','REMEDY_WORK_TIMEOUT_MS':'120000','HOME':'/tmp','NODE_EXTRA_CA_CERTS':'/fixtures/cert.pem','RENDER_SCANNER_URL':'http://remedy-renderer:5180','RENDER_SCANNER_TOKEN':'synthetic-renderer-token'}
     for target,pin in consumers['targets'].items():
@@ -164,7 +178,8 @@ try:
         sensitive_values.update(mongo_credentials.values())
         config={'editor':uuid.uuid4().hex,'auditor':uuid.uuid4().hex,'outsider':uuid.uuid4().hex,'password':uuid.uuid4().hex,'projectID':'ci00000001','sectionID':'158000000000000000000001','pageURL':'https://dev.libretexts.org/Sandboxes/johnnyphung/Stack/Synthetic'}
         sensitive_values.add(config['password'])
-        app_fixture=WORK/('app-'+target);app_fixture.mkdir();(app_fixture/'app.json').write_text(json.dumps(config));(app_fixture/'app.json').chmod(0o444)
+        app_fixture=private('app-'+target,1000,{'app.json':json.dumps(config)})
+        browser_fixture=private('browser-config-'+target,renderer_uid,{'app.json':json.dumps(config)})
         conductor_keys=private('conductor-keys-'+target,1000,{'session':uuid.uuid4().hex,'mongo':'mongodb://conductor:'+mongo_credentials['application']+'@mongo:27017/conductor_synthetic?authSource=conductor_synthetic','remedy':'synthetic-server-key','openai':'synthetic-not-real','stripe':'sk_test_synthetic_not_real','mailgun':'synthetic-not-real'})
         signer=WORK/('signer-'+target);signer.mkdir(mode=0o700)
         run('node',source/'signing_fixture.mjs',signer)
@@ -175,7 +190,7 @@ try:
         run('docker','run','--rm','--network','none','--user','1000:1000','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true','--mount',f'type=bind,src={ledger},dst=/ledger','--mount',f'type=bind,src={fence},dst=/fence',imports['images']['bridge']['loadedDockerImageID'],'python3','packages/conductor-panel/server/ledger-helper.py','--directory','/ledger','--fence','/fence/fence.json','--epoch',signing['trust_epoch'],'--initialize')
         app_env={'NODE_ENV':'production','APP_ENV':'candidate_ci','ORG_ID':'libretexts','PORT':'5000','TRUST_PROXY_HOPS':'0','PRODUCTIONURLS':'conductor.invalid,https://conductor.invalid,https://conductor.invalid:8443','SECRETKEY_FILE':'/run/secrets/session','MONGOOSEURI_FILE':'/run/secrets/mongo','REMEDY_API_KEY_FILE':'/run/secrets/remedy','OPENAI_API_KEY_FILE':'/run/secrets/openai','STRIPE_SECRET_KEY_FILE':'/run/secrets/stripe','MAILGUN_API_KEY_FILE':'/run/secrets/mailgun','MAILGUN_DOMAIN':'fixture.example.invalid','NEW_RELIC_ENABLED':'false','NODE_EXTRA_CA_CERTS':'/fixtures/cert.pem','REMEDY_ENABLED':'true','REMEDY_ORG_ID':'libretexts','REMEDY_API_BASE_URL':'https://remedy-server:8000'}
         for phase in ('review','production-held'):
-            writer_env={} if phase=='review' else {'REMEDY_REVIEWER_KEYRING_FILE':'/signer/production.json','REMEDY_REVIEWER_TRUST_EPOCH':signing['trust_epoch'],'REMEDY_CLAIM_DB':'/ledger/claims.sqlite3','REMEDY_CLAIM_FENCE_DIR':'/fence'}
+            writer_env={} if phase=='review' else {'REMEDY_REVIEWER_KEYRING_FILE':'/signer/production.json','REMEDY_REVIEWER_TRUST_EPOCH':signing['trust_epoch'],'REMEDY_CLAIM_DB':'/ledger/claims.sqlite3','REMEDY_CLAIM_FENCE_DIR':'/fence','REMEDY_SNAPSHOT_DIR':'/ledger/snapshots','REMEDY_AUDIT_LOG':'/ledger/audit.log'}
             signer_env={} if phase=='review' else {'REMEDY_REVIEWER_SIGNING_KEY_FILE':'/signer/private.pem','REMEDY_REVIEWER_KEY_ID':signing['kid'],'REMEDY_REVIEWER_ISSUER':signing['issuer'],'REMEDY_REVIEWER_AUDIENCE':signing['audience'],'REMEDY_REVIEWER_KEY_ENABLED':'true','REMEDY_REVIEWER_KEY_NOT_BEFORE':'0','REMEDY_REVIEWER_KEY_NOT_AFTER':'4102444800'}
             writer_mounts=[] if phase=='review' else [(signer,'/signer',True),(ledger,'/ledger',False),(fence,'/fence',False)]
             start('bridge','remedy-bridge:stack-candidate',['node','/proof/secret-env.mjs','bridge','node','--import','tsx','packages/conductor-panel/server/server.ts'],envfile('bridge',{**bridge_base,**writer_env,'REMEDY_BRIDGE_PROFILE':'review-only' if phase=='review' else 'full-write'}),[(loader,'/proof/secret-env.mjs',True),(bridge_keys,'/run/secrets',True),(fixture/'cert.pem','/fixtures/cert.pem',True),*writer_mounts],extra=['--network','container:'+PREFIX+'-server'],uid=1000,limits=(1,'768m',128,'64m',30))
@@ -190,7 +205,7 @@ try:
             if phase=='review':
                 browser_evidence=WORK/('browser-'+target);browser_evidence.mkdir();os.chown(browser_evidence,renderer_uid,renderer_uid)
                 start('tls',pin['loadedDockerImageID'],['node','/proof/tls_proxy.mjs'],mounts=[(source/'tls_proxy.mjs','/proof/tls_proxy.mjs',True),(tls_fixture,'/fixtures',True)],extra=[*net,'--network-alias','conductor.invalid'],uid=1000)
-                start('ui',imports['images']['renderer']['loadedDockerImageID'],['node','/proof/conductor_browser.mjs'],envfile('ui',{'HOME':'/home/pwuser'}),[(source/'conductor_browser.mjs','/proof/conductor_browser.mjs',True),(app_fixture,'/fixture',True),(nss,'/home/pwuser/.pki/nssdb',True),(browser_evidence,'/browser-evidence',False)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],uid=renderer_uid,limits=(1.5,'2g',256,'1g',30))
+                start('ui',imports['images']['renderer']['loadedDockerImageID'],['node','/proof/conductor_browser.mjs'],envfile('ui',{'HOME':'/home/pwuser'}),[(source/'conductor_browser.mjs','/proof/conductor_browser.mjs',True),(browser_fixture,'/fixture',True),(nss,'/home/pwuser/.pki/nssdb',True),(browser_evidence,'/browser-evidence',False)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],uid=renderer_uid,limits=(1.5,'2g',256,'1g',30))
                 assert run('docker','wait',PREFIX+'-ui').strip()=='0','actual UI browser failed; see sanitized ui log'
                 browser_result=json.loads(run('docker','logs',PREFIX+'-ui').strip().splitlines()[-1]);assert browser_result['passed']
                 phases.append(browser_result)
@@ -204,6 +219,17 @@ try:
     report['externalMutations']=0;report['verificationComplete']=len(report['targets'])==2
 except Exception as error:
     report['error']=safe_error(error)
+    if PREFIX+'-renderer' in owned and inspect(PREFIX+'-renderer')['State']['Running']:
+        try:
+            diagnostic=run('docker','exec',PREFIX+'-renderer','node','/proof/renderer_diagnose.mjs')
+            write_product_log(OUT/'renderer-diagnostic.json',diagnostic,sensitive_values)
+            if json.loads(diagnostic)['state']=='threw-before-response':
+                # One-variable launch probe: copy the SAME fixture NSS database
+                # into writable temporary HOME, never disable TLS/sandbox.
+                run('docker','exec',PREFIX+'-renderer','sh','-c','mkdir -p /tmp/renderer-home && cp -R /home/pwuser/.pki /tmp/renderer-home/.pki')
+                alternate=run('docker','exec','--env','HOME=/tmp/renderer-home',PREFIX+'-renderer','node','/proof/renderer_diagnose.mjs')
+                write_product_log(OUT/'renderer-writable-home-diagnostic.json',alternate,sensitive_values)
+        except Exception as diagnostic_error:report['rendererDiagnosticError']=safe_error(diagnostic_error)
     raise RuntimeError(report['error']) from None
 finally:
     for name in list(reversed(owned)):

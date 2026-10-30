@@ -132,10 +132,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 .github/stack-proof/conductor_artifacts.py
-      - name: Exercise actual services with only synthetic external systems
-        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/prove.py
       - name: Exercise actual compiled Conductor against the owned stack
         run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/full_proof.py
+      - name: Exercise actual services with only synthetic external systems
+        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/prove.py
       - name: Exercise the public candidate preflight and retained production holds
         run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/preflight_proof.py
       - name: Retain sanitized proof separately from images
