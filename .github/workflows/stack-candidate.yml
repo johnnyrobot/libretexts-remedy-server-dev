@@ -117,6 +117,8 @@ jobs:
           docker pull ghcr.io/johnnyrobot/adapt-a11y-scanner-dev-candidate@sha256:00ab363669ccc7ae50fe7fc79286508af5923d3326d397f87cff91ee76e379a6
       - name: Exercise actual services with only synthetic external systems
         run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/prove.py
+      - name: Exercise the public candidate preflight and retained production holds
+        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/preflight_proof.py
       - name: Retain sanitized proof separately from images
         if: always()
         uses: actions/upload-artifact@v4
