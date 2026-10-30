@@ -44,7 +44,7 @@ assert.equal(health.status,200,JSON.stringify(health));
 assert.equal(health.data.capabilities.scan,true,JSON.stringify(health));
 assert.equal(health.data.capabilities.preview,true,JSON.stringify(health));
 assert.equal(health.data.capabilities.mutate,false,JSON.stringify(health));
-assert.equal(health.data.profile.name,phase==='review'?'review-only':'full-write');
+assert.equal(health.data.profile.name,phase==='production-held'?'full-write':'review-only');
 checkpoint('project-authorization-and-required-read-capabilities');
 const scan=await request(page+'/scan',input);assert.equal(scan.status,200,JSON.stringify(scan));
 checkpoint('actual-source-scan');

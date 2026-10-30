@@ -32,7 +32,9 @@ def cold(tmp_path):
             "StartedAt": "2026-10-30T01:00:00Z", "FinishedAt": "2026-10-30T01:01:00Z"},
             "Mounts": [{"Type": "bind", "Source": str(source), "Destination": "/data", "RW": True}]})
         expected[role] = {"id": container, "image": image}
-    fence = tmp_path / "current-fence"
+    trust = tmp_path / "trust"
+    trust.mkdir(mode=0o700)
+    fence = trust / "current-fence"
     fence.write_bytes(b"independent-current-epoch-7")
     fence.chmod(0o600)
     keys = tmp_path / "credentials"
@@ -364,3 +366,80 @@ def test_cold_operation_refuses_running_container_with_only_current_fence_access
         assert not (root / "receipt.json").exists()
     else:
         assert all(not list(path.iterdir()) for path in targets.values())
+
+
+@pytest.mark.parametrize("wrong_owner", [False, True])
+def test_capture_refuses_public_or_wrong_owner_output_parent(cold, monkeypatch, wrong_owner):
+    helper = load_helper()
+    plan, docker, root = cold
+    output = root / "output"
+    output.mkdir(mode=0o700)
+    if wrong_owner:
+        monkeypatch.setattr(helper.os, "geteuid", lambda: output.stat().st_uid + 1)
+    else:
+        output.chmod(0o755)
+    with pytest.raises(helper.Refused, match="parent.*private|parent.*owner"):
+        helper.backup(plan, output / "backup.tar", output / "receipt.json", docker=docker)
+    assert not list(output.iterdir())
+
+
+@pytest.mark.parametrize("field", ["archive", "receipt"])
+@pytest.mark.parametrize("wrong_owner", [False, True])
+def test_restore_refuses_public_or_wrong_owner_evidence_files(cold, monkeypatch, field, wrong_owner):
+    helper = load_helper()
+    plan, docker, root = cold
+    archive, receipt = root / "backup.tar", root / "receipt.json"
+    helper.backup(plan, archive, receipt, docker=docker)
+    targets = clone_targets(plan, root)
+    evidence = archive if field == "archive" else receipt
+    if wrong_owner:
+        # Model a consistently wrong owner through the filesystem interface;
+        # no real chown or privileged test process is required.
+        from types import SimpleNamespace
+        original_fstat, original_stat = helper.os.fstat, helper.os.stat
+        identity = evidence.stat().st_dev, evidence.stat().st_ino
+        def wrong_owner_stat(info):
+            if (info.st_dev, info.st_ino) == identity:
+                fields = {name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
+                fields["st_uid"] += 1
+                return SimpleNamespace(**fields)
+            return info
+        monkeypatch.setattr(helper.os, "fstat", lambda fd: wrong_owner_stat(original_fstat(fd)))
+        monkeypatch.setattr(helper.os, "stat", lambda *args, **kwargs: wrong_owner_stat(original_stat(*args, **kwargs)))
+    else:
+        evidence.chmod(0o644)
+    with pytest.raises(helper.Refused, match="owner|private regular"):
+        helper.restore(plan, archive, receipt, targets, docker=docker)
+    assert all(not list(path.iterdir()) for path in targets.values())
+
+
+@pytest.mark.parametrize("operation", ["archive", "receipt", "restore"])
+def test_fence_parent_is_reserved_from_backup_and_restore_placement(cold, operation):
+    helper = load_helper()
+    plan, docker, root = cold
+    fence = Path(plan["fence"])
+    before = fence.read_bytes(), fence.stat()
+    archive, receipt = root / "backup.tar", root / "receipt.json"
+    targets = None
+    if operation == "restore":
+        helper.backup(plan, archive, receipt, docker=docker)
+        targets = clone_targets(plan, root)
+        targets["bridge"] = fence.parent / "sibling-clone"
+        targets["bridge"].mkdir(mode=0o700)
+    elif operation == "archive":
+        archive = fence.parent / "sibling-backup.tar"
+    else:
+        receipt = fence.parent / "sibling-receipt.json"
+    with pytest.raises(helper.Refused, match="overlap"):
+        if operation == "restore":
+            helper.restore(plan, archive, receipt, targets, docker=docker)
+        else:
+            helper.backup(plan, archive, receipt, docker=docker)
+    assert fence.read_bytes() == before[0]
+    assert (fence.stat().st_dev, fence.stat().st_ino, fence.stat().st_ctime_ns) == (
+        before[1].st_dev, before[1].st_ino, before[1].st_ctime_ns)
+    if operation == "restore":
+        assert all(not list(path.iterdir()) for path in targets.values())
+    else:
+        assert not archive.exists()
+        assert not receipt.exists()

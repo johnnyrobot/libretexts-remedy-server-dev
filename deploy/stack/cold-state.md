@@ -131,8 +131,12 @@ this helper.
    stopped byte-for-byte trees; it performs no SQLite checkpoint or database API
    backup and no database repair.
 4. Keep current independent fence/epoch and credentials outside those roots.
-   Prepare a private output directory and a reviewed plan file (mode 0600);
-   output parents must already exist. Use new archive and receipt names. The
+   Reserve the fence's entire parent directory for trust state: archives,
+   receipts and restore targets must not overlap it or any credential root.
+   Prepare a private output directory and a reviewed plan file (mode 0600).
+   Archive and receipt parents must already exist, be owned by the effective
+   operator UID (root for the CLI), and grant no group/other permissions; the
+   normal directory mode is 0700. Use new archive and receipt names. The
    helper refuses existing outputs and never deletes failed output evidence.
 5. From the reviewed checkout, run the command below with the actual absolute
    paths. These example `/srv/remedy` paths are operator-selected prerequisites,
@@ -146,7 +150,9 @@ sudo python3 deploy/stack/cold_state.py backup \
 ```
 
 Exit 0 returns the archive and manifest SHA-256 values plus the explicit limited
-receipt. Both output files are created exclusively with mode 0600. The archive
+receipt. Both output files are created exclusively with mode 0600. Restore requires
+both files to remain single-link, mode 0600 regular files owned by the effective
+operator UID; a differently owned or public evidence file is refused. The archive
 and containing directory are fsynced before a receipt is durably written. Full
 source inventories, file identity/stat fingerprints, Docker state and fence
 must remain unchanged during capture. A failure may leave a private partial
@@ -161,7 +167,8 @@ retention controls; do not publish them as CI artifacts containing private data.
 ## Verify and restore only to empty new targets
 
 Provision three private empty local directories outside every original store,
-credential/configuration root, fence and backup location. Do not rename,
+credential/configuration root, the fence's entire parent directory and backup
+location. Do not use the trust directory for sibling backup or clone storage. Do not rename,
 overwrite, delete or empty current data. A targets JSON file maps all three roles:
 
 ```json

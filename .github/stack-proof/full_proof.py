@@ -26,6 +26,7 @@ report={'serverSource':os.environ['GITHUB_SHA'],'deploymentReady':False,'product
 INPUT=json.loads((ROOT/'deploy/stack/bundle.json').read_text())
 consumers={'targets':{}}
 image_aliases={}
+public_contexts=[]
 MONGO='mongo:7.0.14@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6'
 
 def run(*args,check=True):
@@ -148,6 +149,7 @@ def wait(role,port,path='/healthz',key=None,control=False):
 try:
     imports=json.loads((OUT/'imports.json').read_text());consumers=json.loads((OUT/'conductor-imports.json').read_text())
     assert imports['verificationComplete'] and consumers['verificationComplete']
+    report['conductorIndexSHA256']=consumers['indexSHA256']
     for role in ('server','bridge','renderer'):
         value=json.loads(run('docker','image','inspect','remedy-'+role+':stack-candidate'))[0]
         assert value['Id']==imports['images'][role]['loadedDockerImageID']
@@ -187,7 +189,7 @@ try:
     scanner_uid=int(run('docker','run','--rm','--network','none','--entrypoint','node',INPUT['scannerImage'],'-e','console.log(process.getuid())').strip());assert scanner_uid!=0
     scanner_keys=private('scanner-keys',scanner_uid,{'api':'synthetic-scanner-key','adapt':'synthetic-adapt-token','remedy':'synthetic-server-key'})
     source=ROOT/'.github/stack-proof';loader=ROOT/'deploy/stack/secret-env.mjs';net=['--network',network]
-    start('cxone','remedy-server:stack-candidate',['python','/proof/external.py','--kind','cxone'],mounts=[(source/'external.py','/proof/external.py',True),(fixture,'/fixtures',True)],extra=[*net,'--ip','198.51.100.10','--network-alias','dev.libretexts.org'],uid=999)
+    start('cxone','remedy-server:stack-candidate',['python','/proof/external.py','--kind','cxone','--synthetic-source-controls'],mounts=[(source/'external.py','/proof/external.py',True),(fixture,'/fixtures',True)],extra=[*net,'--ip','198.51.100.10','--network-alias','dev.libretexts.org'],uid=999)
     wait('cxone',8082,'/control/status','synthetic-control-only',True)
     server_env={'APP_ENV':'production','PYTHON_DOTENV_DISABLED':'1','APP_API_KEY_FILE':'/run/secrets/app','OLLAMA_API_KEY_FILE':'/run/secrets/ollama','OLLAMA_BASE_URL':'https://provider.invalid/v1','CORS_ALLOW_ORIGINS':'https://conductor.invalid','JOB_DIR':'/app/state/jobs','JOB_STORE_PATH':'/app/state/jobs.sqlite3','JOB_BACKUP_DIR':'/app/state/backups','OUTPUT_DIR':'/app/state/output','LOG_DIR':'/app/state/logs','HOME':'/tmp','TMPDIR':'/tmp','CXONE_INTEGRATION_ENABLED':'true','CXONE_BRIDGE_BASE_URL':'http://127.0.0.1:5175','REMEDY_BRIDGE_SERVICE_KEY_FILE':'/run/secrets/service','WORKER_CONCURRENCY':'1','WORKER_MAX_PENDING':'8','JOB_TOTAL_TIMEOUT_SECONDS':'900','MAX_UPLOAD_MB':'4','MAX_REQUEST_BYTES':'5000000','RATE_LIMIT_DEFAULT':'10000/minute','RATE_LIMIT_UPLOADS':'10000/minute'}
     start('server','remedy-server:stack-candidate',['node','/proof/secret-env.mjs','server','uvicorn','backend.app.main:app','--host','0.0.0.0','--port','8000','--workers','1','--timeout-graceful-shutdown','15','--ssl-certfile','/fixtures/cert.pem','--ssl-keyfile','/fixtures/key.pem'],envfile('server',server_env),[(loader,'/proof/secret-env.mjs',True),(server_keys,'/run/secrets',True),(state,'/app/state',False),(fixture,'/fixtures',True)],extra=[*net,'--network-alias','remedy-server','--security-opt','seccomp='+str(ROOT/'deploy/chromium-seccomp-amd64.json')],limits=(4,'4g',512,'256m',120))
@@ -264,10 +266,21 @@ try:
                     browser_result=json.loads(run('docker','logs',PREFIX+'-ui').strip().splitlines()[-1]);assert browser_result['passed']
                     phases.append(browser_result)
                     (OUT/('browser-'+target+'.png')).write_bytes((browser_evidence/'synthetic-review.png').read_bytes())
+                    stop('ui')
+                    expected=browser_fixture/'expected-history.sha256';expected.write_text(browser_result['historySHA256']+'\n');expected.chmod(0o400);os.chown(expected,renderer_uid,renderer_uid)
+                    fragment='<h1>Retained stack sentinel</h1><h3>Skipped heading fixture</h3><p>Source changed after synthetic review.</p><img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==">'
+                    code,_=request('cxone',8082,'/control/change-source',{'fragment':fragment},'synthetic-control-only',True);assert code==200
+                    start('ui',imports['images']['renderer']['loadedDockerImageID'],['sh','/proof/nss_home.sh','node','/proof/conductor_browser.mjs','stale'],envfile('ui-stale',{'HOME':'/tmp/renderer-home'}),[(source/'conductor_browser.mjs','/proof/conductor_browser.mjs',True),(browser_fixture,'/fixture',True),(ROOT/'deploy/stack/browser-home.sh','/proof/nss_home.sh',True),(nss,'/run/certificates/nss-seed',True),(browser_evidence,'/browser-evidence',False)],extra=[*net,'--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],uid=renderer_uid,limits=(1.5,'2g',256,'1g',30))
+                    assert run('docker','wait',PREFIX+'-ui').strip()=='0','actual changed-source UI failed'
+                    stale_result=json.loads(run('docker','logs',PREFIX+'-ui').strip().splitlines()[-1]);assert stale_result['changedSourceStalesManualEvidence']
+                    phases.append(stale_result)
+                    (OUT/('browser-stale-'+target+'.png')).write_bytes((browser_evidence/'synthetic-stale.png').read_bytes())
+
                 except Exception as ui_error:
                     report.setdefault('uiFailures',[]).append({'target':target,'error':safe_error(ui_error)})
                     collect_browser_evidence(WORK,OUT,consumers['targets'],sensitive_values)
                 finally:
+                    code,_=request('cxone',8082,'/control/reset-source',{},'synthetic-control-only',True);assert code==200
                     if PREFIX+'-ui' in owned:stop('ui')
                     if PREFIX+'-tls' in owned:stop('tls')
             stop('conductor');stop('bridge')
@@ -276,7 +289,15 @@ try:
     code,status=request('cxone',8082,'/control/status',key='synthetic-control-only',control=True)
     assert code==200 and status['mutations']==0,status
     report['externalMutations']=0;report['verificationComplete']=len(report['targets'])==2 and not report.get('uiFailures')
+    if report['verificationComplete']:
+        from integration_compose_proof import verify as public_verify
+        public_receipt,public_contexts=public_verify(ROOT,WORK,OUT,PREFIX,imports,consumers,fixture,nss,
+            {'server':server_keys,'bridge':bridge_keys,'renderer':renderer_keys,'scanner':scanner_keys},bounded_state)
+        report['publicIntegration']=public_receipt
+        assert public_receipt['verificationComplete'],'actual public integration rehearsal incomplete'
+
 except Exception as error:
+    report['verificationComplete']=False
     report['error']=safe_error(error)
     collect_browser_evidence(WORK,OUT,consumers['targets'],sensitive_values)
     if PREFIX+'-renderer' in owned and inspect(PREFIX+'-renderer')['State']['Running']:
@@ -302,6 +323,12 @@ finally:
         except Exception as error:report.setdefault('shutdownErrors',[]).append(safe_error(error)[:600])
     if rule:run('iptables','-D',*rule,check=False)
     if network_created:run('docker','network','rm',network,check=False)
+    if report.get('verificationComplete') and public_contexts and not report.get('shutdownErrors'):
+        try:
+            from preflight_integration_proof import verify as verify_public_preflight
+            report['publicIntegrationPreflight']=verify_public_preflight(ROOT,WORK,OUT,public_contexts,consumers,report,sensitive_values)
+        except Exception as preflight_error:
+            report['integrationPreflightError']=safe_error(preflight_error);report['verificationComplete']=False
     for directory in reversed(mounted):
         try:run('umount',directory)
         except Exception as error:report.setdefault('shutdownErrors',[]).append(safe_error(error)[:600])

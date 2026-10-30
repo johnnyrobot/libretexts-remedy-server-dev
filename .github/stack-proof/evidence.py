@@ -20,7 +20,7 @@ def collect_browser_evidence(work: Path, output: Path, targets, sensitive_values
         if '/' in target or '\\' in target:
             raise ValueError('invalid evidence target')
         directory = work / ('browser-' + target)
-        for name in ('synthetic-review.png', 'synthetic-failure.png', 'browser-error.json'):
+        for name in ('synthetic-review.png', 'synthetic-stale.png', 'synthetic-failure.png', 'browser-error.json'):
             source = directory / name
             if source.is_symlink() or not source.is_file():
                 continue

@@ -15,7 +15,8 @@
     "engine",
     "engine-scanner",
     "bridge-review",
-    "bridge-full"
+    "bridge-full",
+    "integration"
   ],
   "limits": {
     "requestBytes": 5000000,

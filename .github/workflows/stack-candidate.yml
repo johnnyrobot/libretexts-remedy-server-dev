@@ -73,6 +73,8 @@ jobs:
           for name in names:
               with (root/name).open('rb') as stream: value['sha256'][name]=hashlib.file_digest(stream,'sha256').hexdigest()
           value['configurationSha256']={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in Path('deploy/stack').rglob('*') if p.is_file() and p.suffix in {'.py','.mjs','.json','.yml','.example','.md','.sh'}}
+          for name in ['.github/stack-proof/verify_imports.py','.github/stack-proof/conductor_artifacts.py']:
+              value['configurationSha256'][name]=hashlib.sha256(Path(name).read_bytes()).hexdigest()
           (root/'candidate.json').write_text(json.dumps(value,indent=2)+'\n')
           PY
       - uses: actions/upload-artifact@v4
@@ -85,7 +87,7 @@ jobs:
   prove:
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -132,12 +134,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 .github/stack-proof/conductor_artifacts.py
-      - name: Exercise actual compiled Conductor against the owned stack
-        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/full_proof.py
       - name: Exercise actual services with only synthetic external systems
         run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/prove.py
+      - name: Exercise actual compiled Conductor against the owned stack
+        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/full_proof.py
       - name: Exercise the public candidate preflight and retained production holds
         run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/preflight_proof.py
+      - name: Exercise separate synthetic signed outcomes and explicit recovery
+        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/synthetic_signed_proof.py
       - name: Retain sanitized proof separately from images
         if: always()
         uses: actions/upload-artifact@v4

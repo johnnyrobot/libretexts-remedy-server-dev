@@ -226,14 +226,25 @@ def _output(path, roots, protected):
     path = Path(path)
     _require(path.is_absolute() and path.name not in ("", ".", ".."), "absolute output path required")
     parent = _path(path.parent)
+    parent_fd = _open_dir(parent)
+    try:
+        _private_parent(os.fstat(parent_fd))
+    finally:
+        os.close(parent_fd)
     _require(not any(_overlap(path, other) for other in [*roots.values(), *protected]), "output overlaps protected state")
     _require(not path.exists() and not path.is_symlink(), "output already exists")
     return parent / path.name
 
 
+def _private_parent(info):
+    _require(info.st_uid == os.geteuid(), "output parent owner must be the effective operator UID")
+    _require(stat.S_IMODE(info.st_mode) & 0o077 == 0, "output parent must be private with no group/other permissions")
+
+
 def _private(path):
     parent = _open_dir(path.parent)
     try:
+        _private_parent(os.fstat(parent))
         fd = os.open(path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
         os.fchmod(fd, 0o600)
         return os.fdopen(fd, "wb")
@@ -265,8 +276,8 @@ def _source_file(root, name):
 def backup(plan, archive_path, receipt_path, *, docker):
     """Archive all three stopped stores. Retain any partial files on failure."""
     roots, fence, credentials = _layout(plan)
-    archive = _output(archive_path, roots, [fence, *credentials])
-    receipt = _output(receipt_path, roots, [fence, *credentials])
+    archive = _output(archive_path, roots, [fence.parent, *credentials])
+    receipt = _output(receipt_path, roots, [fence.parent, *credentials])
     _require(archive != receipt, "archive and receipt must differ")
     stopped = _cold(plan, docker)
     fence_before = _fence(fence)
@@ -323,7 +334,8 @@ def _private_read(path):
     try:
         info = os.fstat(fd)
         _require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and
-                 stat.S_IMODE(info.st_mode) == 0o600, "archive/receipt must be private regular 0600 files")
+                 stat.S_IMODE(info.st_mode) == 0o600 and info.st_uid == os.geteuid(),
+                 "archive/receipt must be operator-owned private regular 0600 files")
         _require(_stat_fingerprint(os.stat(path, follow_symlinks=False)) == _stat_fingerprint(info), "archive/receipt changed")
         return os.fdopen(fd, "rb")
     except BaseException:
@@ -406,7 +418,7 @@ def restore(plan, archive_path, receipt_path, targets, *, docker):
     archive, receipt = _path(archive_path), _path(receipt_path)
     _require(set(targets) == set(roots), "three explicit targets required")
     target_roots = {role: _path(path) for role, path in targets.items()}
-    protected = [*roots.values(), fence, *credentials, archive, receipt]
+    protected = [*roots.values(), fence.parent, *credentials, archive, receipt]
     for role, target in target_roots.items():
         _require(target.is_dir() and not any(target.iterdir()), "restore target must be an existing empty directory")
         _require(not any(_overlap(target, other) for other in protected), "restore target overlaps protected state")
