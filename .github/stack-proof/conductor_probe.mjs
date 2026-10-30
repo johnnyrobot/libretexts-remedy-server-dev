@@ -47,6 +47,8 @@ const project=await db.collection('projects').findOne({projectID:config.projectI
 assert.ok(evidence.sourceHash,'real authored source hash');
 assert.equal(evidence.rendered.state,'complete',JSON.stringify(evidence.rendered));
 assert.match(evidence.rendered.renderedHash,/^[a-f0-9]{64}$/);assert.match(evidence.rendered.platformHash,/^[a-f0-9]{64}$/);
+input.findingIDs=rendered.data.findings.filter(f=>f.fixable).map(f=>f.id);
+assert.ok(input.findingIDs.length,'actual source scan supplies selected fixable finding IDs');
 const preview=await request(matrix+'/preview',input);assert.equal(preview.status,200,JSON.stringify(preview));
 assert.ok(preview.data.localReviewID&&preview.data.preview_hash&&preview.data.preview_token);
 const before=await db.collection('projects').findOne({projectID:config.projectID});
