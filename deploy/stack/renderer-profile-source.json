@@ -1,0 +1,12 @@
+{
+  "source": "johnnyrobot/libretexts-remedy-bridge-dev",
+  "revision": "f39566e0fa6413ed17e7a5c2a11fefc540ed5233",
+  "path": "browser-scanner/seccomp_profile.json",
+  "upstreamSHA256": "cc3e61cabda6bbc1e53e54d27ba4d55a9d3be829b6dd1a596f4a7b31b1cc7849",
+  "license": "Apache-2.0; Microsoft Playwright profile retained by the immutable Bridge source",
+  "modified": true,
+  "onlyChange": "Replace capability-conditional chroot with the existing reviewed engine/Scanner nested-user-namespace rule. No container capability is added; kernel checks deny chroot in the initial unprivileged namespace.",
+  "unchangedPolicySHA256": "7be57a44ea4077d9aa9b20124a8eb7e934092aaf025d8af105f5aded557fe3a3",
+  "profileSHA256": "fcecf1a0ae6f84effa439b44d5f0e51bc25b4a975a7025c71e6f9ee0490ca7b0",
+  "inheritedRuleSource": "deploy/stack/scanner-seccomp-amd64.json"
+}

@@ -10,7 +10,25 @@ RUNTIME_FIELDS = ('User','ExposedPorts','Env','Entrypoint','Cmd','Volumes','Work
                   'Labels','StopSignal','Healthcheck','ArgsEscaped','Shell','OnBuild')
 
 
+# Docker inspect can expose legacy container defaults absent from OCI configs.
+# Only these explicit empty/false defaults are inert; future settings fail closed.
+DOCKER_DEFAULTS = {'Hostname':'', 'Domainname':'', 'AttachStdin':False,
+                   'AttachStdout':False, 'AttachStderr':False, 'Tty':False,
+                   'OpenStdin':False, 'StdinOnce':False, 'Image':'',
+                   'NetworkDisabled':False, 'MacAddress':'', 'StopTimeout':None}
+
+
+def validate_runtime_fields(value):
+    for key, field in value.items():
+        if key not in RUNTIME_FIELDS and (key not in DOCKER_DEFAULTS or field != DOCKER_DEFAULTS[key]):
+            raise ValueError('unsupported runtime configuration field: ' + key)
+    health = value.get('Healthcheck')
+    if health and set(health) - {'Test','Interval','Timeout','StartPeriod','StartInterval','Retries'}:
+        raise ValueError('unsupported healthcheck configuration field')
+
+
 def runtime_configuration(value):
+    validate_runtime_fields(value)
     result={}
     for key in RUNTIME_FIELDS:
         field=value.get(key)
@@ -49,7 +67,7 @@ def main():
     candidate=json.loads((artifacts/'candidate.json').read_text())
     assert candidate['serverSource']==os.environ['GITHUB_SHA']
     report={'serverSource':candidate['serverSource'],'images':{},'verificationComplete':False}
-    for role in ('server','bridge'):
+    for role in ('server','bridge','renderer'):
         path=artifacts/(role+'.oci.tar')
         with path.open('rb') as stream: assert hashlib.file_digest(stream,'sha256').hexdigest()==candidate['sha256'][path.name]
         digest,source,blobs=read_oci(path)

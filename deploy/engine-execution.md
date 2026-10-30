@@ -180,8 +180,10 @@ explicit resubmission. No automatic recovery of unjournalled legacy queued rows
 is safe because their original options cannot be proved.
 
 This adds a table to local SQLite stores; this work performs no live migration.
-Back up the database, WAL state through SQLite's backup API, job files and
-ownership evidence coherently while the service is stopped. Keep quarantined
+Capture the complete stopped database/WAL/SHM, job files and ownership evidence
+as one coherent cold tree. The [stack cold-state helper](stack/cold-state.md)
+preserves those bytes without a checkpoint or database mutation; a database-only
+SQLite API backup does not capture the input/options/ownership bundle. Keep quarantined
 inputs and staging evidence. Before rollback to an older binary, stop all APIs
 and retain the cold bundle: older code does not enforce journal phases and must
 not open a store containing prepared/ready submissions. Restore a proven coherent

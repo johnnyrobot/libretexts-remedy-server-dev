@@ -9,7 +9,7 @@ root = Path.cwd()
 out = root / '.stack-artifacts'
 out.mkdir(exist_ok=True)
 records = {}
-for name in ('server', 'bridge'):
+for name in ('server', 'bridge', 'renderer'):
     context = root / '.stack-inputs' / name
     dockerfile = context / 'Dockerfile'
     source = dockerfile.read_text()

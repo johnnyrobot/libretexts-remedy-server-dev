@@ -132,8 +132,10 @@ Optional historical recovery uses existing issuer/store/fence settings and the
 It is separate from signer configuration. A missing epoch can disable terminal
 proof recovery but must not prevent engine/scan/preview startup. Historical
 lookup works without signing when correctly configured, never clears state and
-never treats 404/pending/null as proof of no write. Compatible Conductor manifests
-and its exact signer-setting matrix await the reviewed consumer/operational slice.
+never treats 404/pending/null as proof of no write. The reviewed Conductor
+pins and existing signer-setting matrix are in the
+[integration guide](integration-profile.md); publication alone does not establish
+assembled-stack operational acceptance.
 
 ## Health, bounds and failures
 
@@ -142,13 +144,12 @@ Liveness is not readiness. Server `/readyz` concerns its store/engine; authentic
 Review mode requires scan+preview, explicitly `mutate:false`; status is optional.
 Full-write requires its published capability set. Unknown/malformed/partial
 producer profiles are not inferred as review-only. Required read failure must
-remain unavailable until genuine successful retry. Reviewed Bridge `998fa1e` corrects the observed upstream 401/403 failure
+remain unavailable until genuine successful retry. Reviewed Bridge `f39566e` corrects the observed upstream 401/403 failure
 classification without changing the public contract. The preserved red
 run `40987997157` remains evidence; acceptance requires a fresh exact-artifact
 run with the corrected pin. Successful required/default scan or deterministic
 preview is the verified recovery path; optional-source success does not itself
-clear the latch (LT-202). Full-write read-capability debt (LT-204) remains a
-separate blocker for the later full-integration freeze. A healthy metadata
+clear the latch (LT-202). LT-204 is included in the final `f39566e` pin: required read health is truthful in both profiles. A healthy metadata
 response alone is insufficient. Scanner `/healthz` concerns admission;
 only an actual authorized scan establishes its external/render/validator outcome.
 Empty/malformed/partial data is not a clean pass. Calibration remains unavailable
@@ -159,7 +160,18 @@ The chosen finite CPU/memory/PID/tmp/state/request/deadline/shutdown inputs are 
 passes. Scanner uses 1 GiB shm, 20-second stop grace, cap0/NNP/init and its exact
 seccomp policy. Server retains the minimal pidfd exceptions and real HTML sandbox
 requirements. Read-only image roots and bounded tmpfs are not replacements for
-persistent-state capacity, safe full-disk failure or cold recovery proof.
+persistent-state capacity, safe full-disk failure or cold recovery proof. The
+full commissioning candidate gives Bridge 512 MiB, Mongo 1 GiB and the independent
+fence 32 MiB on separate bounded filesystems, in addition to Server's 1 GiB.
+Mongo's cache is 0.25 GiB; its unused `/data/configdb` is a bounded 16 MiB tmpfs
+rather than an anonymous unbounded volume. Actual measurements remain required.
+
+Resource receipts retain actual live cgroup samples and require confirmation of
+each exact stopped container. A final post-stop counter read can be unavailable
+because the kernel has already removed its cgroup; `finalSampleAvailable:false`
+records that limitation without inventing a final peak. Prior positive samples,
+verified bounds and the independent graceful-stop/lifetime checks remain
+mandatory. A missing live counter or an unconfirmed stop still fails the proof.
 
 Server's `MAX_REQUEST_BYTES=5000000` bounds the complete raw `/v1/` envelope,
 including ignored JSON fields and multipart overhead, before normalization or
@@ -180,9 +192,16 @@ and Conductor Mongo immutable journals need their compatible cold procedure;
 never restore an old independent fence/epoch to force trust. Original actor,
 outcome/nonce/history and missing audit remain explicit.
 
+The [full integration overlays and exact configuration guide](integration-profile.md)
+add Conductor, authenticated Mongo and the real rendered-page scanner to this
+same package. Actual public-Compose and operational acceptance remains required.
+The [cold-state helper and ordered guide](cold-state.md) preserve all three
+stopped data trees and the current independent fence boundary. Its storage tests
+do not establish actual service restore or upgrade/rollback acceptance.
+
 Actual full-stack authorization, scan/preview/manual-evidence freshness,
 production mutation denial, terminal/unknown status and explicit recovery/races
-remain operational acceptance. Retained signed apply/rescan/restore/replay is
+remain operational acceptance. Retained signed apply/rescan/restore/replay must be
 proved separately only in clearly labeled dev/test synthetic mode; it is not
 vendor atomicity proof or a production-hold bypass. Coherent backup/restore,
 compatible upgrade/rollback and unsupported-host refusal must pass on disposable
@@ -193,3 +212,80 @@ Other maintained entry points:
 [Bridge README](https://github.com/johnnyrobot/libretexts-remedy-bridge-dev#readme),
 [Scanner README](https://github.com/johnnyrobot/adapt-a11y-scanner-dev#readme), and
 [Conductor patch README](https://github.com/johnnyrobot/conductor-remedy-patch#readme).
+
+
+## Full integration candidate (LT-197)
+
+Use only a completed matching handoff; incomplete or refused receipts do not
+establish operational acceptance. The GitHub Linux workflow imports the two original compiled Conductor
+saved images selected by `conductor-candidates.json` (metadata source
+`dd152c5eca8e48609bbf7df9a9c8c63cf7b48fd2`). It verifies the original artifact ZIP,
+compressed image archive, config ID and every uncompressed filesystem layer before
+import. Docker's imported immutable identity is checked separately from the original
+config digest. The original saved archives also contain an OCI index/manifest.
+Actual Linux runs have reported either the original config digest or the
+**original OCI manifest digest** as the immutable image ID; keep each run's
+verified binding rather than assuming a runtime-store representation.
+The verifier hashes the original index-referenced manifest, binds its config and
+every ordered uncompressed layer, rejects unknown execution settings and accepts
+only the original config or manifest identity. It then re-inspects by the verified
+immutable ID; no mutable tag or rebuilt consumer is a substitute. Actual Linux
+receipts retain both IDs and raw runtime configuration differences (currently none).
+
+| Conductor target | Original config digest | Original OCI manifest (also observed as runtime ID) |
+|---|---|---|
+| Release 2.156.2, tree `a60544214de7d3613e1dad0da99a6c62722c49a8` | `sha256:ac4eb83f4a0e5add09bf3afde29b9b4227ef6b8fcdf2b0e5d278a423cb6214f9` | `sha256:48631c03318e81196bf714d31ec73749128ada4247559a2ea818df440d1a5890` |
+| Staging, tree `1edf0ba1516e39731f5c3289e31045bffda311f3` | `sha256:e2c5d63ad527afd4c577b4f820ef65fe16222356d1dec3761bbf12eb5dcf58d9` | `sha256:90aa4b203154b9a14b1938fb0ebb4b186640126fd692eb3d1107b05dfd80bafa` |
+
+The unchanged index SHA256 is
+`99d70fe71fdf956bc60e34ca55b262cc39747cd5fd30bd386ec7518d3ba58da8`.
+Those original source artifacts expire November 12, 2026; retain the exact verified
+saved images with the final package before expiry. Historical 24-patch candidates
+are not compatible substitutes for these 32-patch deliveries. The metadata-only
+index correction did not rebuild either product image.
+
+The separately archived/imported Bridge-owned rendered-page scanner uses
+Bridge source `f39566e` and Playwright 1.63. The deployment filter retains the
+producer profile with one recorded correction: its `chroot` rule matches the
+already reviewed engine/Scanner nested-user-namespace rule. It grants no
+container capability; actual Linux proof must show initial-namespace chroot
+remains kernel-denied and real Chromium rendering succeeds under zero
+capabilities/NNP. `renderer-profile-source.json` binds the upstream bytes, delta,
+unchanged remainder and deployed hash;
+its policy/license remain in the [producer README](https://github.com/johnnyrobot/libretexts-remedy-bridge-dev/tree/f39566e0fa6413ed17e7a5c2a11fefc540ed5233/browser-scanner).
+
+The tracer's complete owned topology is actual Server, exact ADAPT Scanner,
+Bridge, rendered-page scanner, Mongo 7.0.14 and each exact compiled Conductor
+sequentially. Only ADAPT/CXone data and startup-only unused provider credentials
+are synthetic. Conductor uses its real fallback authentication and stored project
+roles; this does not establish production SSO acceptance. Server uses Uvicorn's
+existing TLS arguments, and Node trusts only the generated fixture CA. Chromium
+uses a separate synthetic root CA and server certificate with certificate/hostname
+validation enabled; the CA private key is never mounted into a workload. The NSS
+setup follows [Chromium's Linux certificate guidance](https://chromium.googlesource.com/chromium/src/+/main/docs/linux/cert_management.md). Trust-store diagnostics are test-fixture evidence, not production PKI or SSO acceptance.
+The commissioning workflow pins Ubuntu 24.04: newer runner NSS tools failed to
+load against the immutable Noble renderer libraries. It records the host tool
+hash/package and runtime NSS package. The public fixture database is seeded into
+a private writable `/tmp/renderer-home` under the existing 512 MiB temporary
+filesystem budget, with the renderer's actual UID 1001. The seed mount stays
+read-only; location-dependent host module configuration is not copied. Both
+current and legacy NSS paths are initialized as the Chromium guidance describes.
+No CA private key or ignored-certificate-error setting is supplied to Chromium. Its reviewed
+hostname/IP policy is retained, using Docker's **internal** TEST-NET
+`198.51.100.0/24`, an isolated `dev.libretexts.org` alias, no host ports and an
+additional deny-host rule. This topology cannot contact the real domain/provider.
+The renderer's allowlist is explicitly the one existing sandbox host, with no
+resource-host widening. It remains private on 5180 with a Bearer credential.
+
+Added bundle credential roles are `renderer/token` →
+`RENDER_SCANNER_TOKEN_FILE` and Conductor `session`, `mongo`, `remedy`, `openai`,
+`stripe`, `mailgun` → `SECRETKEY_FILE`, `MONGOOSEURI_FILE`, `REMEDY_API_KEY_FILE`,
+`OPENAI_API_KEY_FILE`, `STRIPE_SECRET_KEY_FILE`, `MAILGUN_API_KEY_FILE` respectively.
+The wrapper maps those private UID-owned files to existing product variables;
+it adds no consumer protocol or signing setting. Signer PEM remains the existing
+`REMEDY_REVIEWER_SIGNING_KEY_FILE`, separate from the opaque trust epoch.
+
+Full operational release packaging, signed dev/test apply/recovery, coherent cold
+restore/upgrade/rollback and mounted consumer UI evidence remain open until their
+actual executed receipts are recorded. Global flags stay false. The initial
+tracer receipts must not be substituted for the complete LT-197 acceptance suite.

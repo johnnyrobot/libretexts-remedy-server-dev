@@ -1,0 +1,172 @@
+# Apply after docker-compose.yml, compose.scanner.yml and compose.bridge.yml.
+# Candidate only: verified immutable loaded IDs and pre-provisioned paths required.
+# See integration-profile.md; this overlay never provisions credentials or data.
+services:
+  remedy-server:
+    user: '999:999'
+    restart: 'no'
+    environment:
+      NODE_ENV: production
+    command: [uvicorn, backend.app.main:app, --host, 0.0.0.0, --port, '8000', --workers, '1', --timeout-graceful-shutdown, '15', --ssl-certfile, /run/tls/cert.pem, --ssl-keyfile, /run/tls/key.pem]
+    volumes:
+      - type: bind
+        source: ${REMEDY_TLS_ROOT:?pre-provisioned per-role TLS files required}/server/cert.pem
+        target: /run/tls/cert.pem
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${REMEDY_TLS_ROOT:?pre-provisioned per-role TLS files required}/server/key.pem
+        target: /run/tls/key.pem
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${REMEDY_TLS_ROOT:?pre-provisioned per-role TLS files required}/server/ca.pem
+        target: /run/tls/ca.pem
+        read_only: true
+        bind: {create_host_path: false}
+    healthcheck:
+      test: [CMD, curl, -fsS, --cacert, /run/tls/ca.pem, https://remedy-server:8000/readyz]
+  adapt-scanner:
+    restart: 'no'
+    environment:
+      NODE_ENV: production
+      REMEDY_ENDPOINT: https://remedy-server:8000/v1/validate/html
+      NODE_EXTRA_CA_CERTS: /run/tls/ca.pem
+    volumes:
+      - type: bind
+        source: ${REMEDY_TLS_ROOT:?pre-provisioned per-role TLS files required}/scanner/ca.pem
+        target: /run/tls/ca.pem
+        read_only: true
+        bind: {create_host_path: false}
+  remedy-bridge:
+    restart: 'no'
+    shm_size: 64m
+    environment:
+      NODE_ENV: production
+      NODE_EXTRA_CA_CERTS: /run/tls/ca.pem
+      RENDER_SCANNER_URL: http://remedy-renderer:5180
+      RENDER_SCANNER_TOKEN_FILE: /run/secrets/renderer
+    volumes:
+      - type: bind
+        source: ${REMEDY_TLS_ROOT:?pre-provisioned per-role TLS files required}/bridge/ca.pem
+        target: /run/tls/ca.pem
+        read_only: true
+        bind: {create_host_path: false}
+  remedy-renderer:
+    image: ${REMEDY_RENDERER_IMAGE:?load and verify the exact Bridge renderer OCI archive first}
+    user: '1001:1001'
+    init: true
+    read_only: true
+    restart: 'no'
+    cpus: 1.5
+    mem_limit: 2g
+    pids_limit: 256
+    shm_size: 1g
+    stop_grace_period: 30s
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=${REMEDY_RENDERER_SECCOMP_FILE:?absolute reviewed renderer-seccomp-amd64.json path required}
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=512m"]
+    env_file: [./env/renderer.env]
+    environment:
+      NODE_ENV: production
+      HOME: /tmp/renderer-home
+    entrypoint: [sh, /opt/remedy-bundle/browser-home.sh, node, /opt/remedy-bundle/secret-env.mjs, renderer]
+    command: [node, server.mjs]
+    configs:
+      - source: credential-loader
+        target: /opt/remedy-bundle/secret-env.mjs
+      - source: browser-home
+        target: /opt/remedy-bundle/browser-home.sh
+    volumes:
+      - type: bind
+        source: ${REMEDY_SECRET_ROOT:?private per-role credential directories required}/renderer
+        target: /run/secrets
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${REMEDY_NSS_SEED_ROOT:?compatible fresh CA-only public NSS seed required}
+        target: /run/certificates/nss-seed
+        read_only: true
+        bind: {create_host_path: false}
+    dns: [127.0.0.1]
+    networks: [remedy]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:5180/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  mongo:
+    image: mongo:7.0.14@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6
+    user: '999:999'
+    init: true
+    read_only: true
+    restart: 'no'
+    cpus: 1
+    mem_limit: 1g
+    pids_limit: 128
+    shm_size: 64m
+    stop_grace_period: 60s
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=512m", "/data/configdb:rw,nosuid,nodev,size=16m,uid=999,gid=999,mode=0700"]
+    environment:
+      NODE_ENV: production
+      HOME: /tmp
+    # Bypass automatic first-run provisioning. The deployment team must have
+    # provisioned the authenticated application database before this start.
+    entrypoint: [mongod]
+    command: [--auth, --bind_ip_all, --wiredTigerCacheSizeGB, '0.25']
+    volumes:
+      - type: bind
+        source: ${REMEDY_MONGO_STATE_ROOT:?pre-provisioned bounded authenticated Mongo store required}
+        target: /data/db
+        bind: {create_host_path: false}
+    dns: [127.0.0.1]
+    networks: [remedy]
+  conductor:
+    image: ${REMEDY_CONDUCTOR_IMAGE:?load and verify one original target-specific 32-patch saved image first}
+    user: '1000:1000'
+    init: true
+    read_only: true
+    restart: 'no'
+    cpus: 2
+    mem_limit: 1536m
+    pids_limit: 256
+    shm_size: 64m
+    stop_grace_period: 30s
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=512m"]
+    env_file: [./env/conductor.env]
+    environment:
+      NODE_ENV: production
+      NODE_EXTRA_CA_CERTS: /run/tls/ca.pem
+      REMEDY_API_BASE_URL: https://remedy-server:8000
+    entrypoint: [node, /opt/remedy-bundle/secret-env.mjs, conductor]
+    command: [node, dist/server.js]
+    configs:
+      - source: credential-loader
+        target: /opt/remedy-bundle/secret-env.mjs
+    volumes:
+      - type: bind
+        source: ${REMEDY_SECRET_ROOT:?private per-role credential directories required}/conductor
+        target: /run/secrets
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${REMEDY_TLS_ROOT:?pre-provisioned per-role TLS files required}/conductor/ca.pem
+        target: /run/tls/ca.pem
+        read_only: true
+        bind: {create_host_path: false}
+    dns: [127.0.0.1]
+    networks: [remedy]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:5000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+configs:
+  browser-home:
+    file: ./browser-home.sh

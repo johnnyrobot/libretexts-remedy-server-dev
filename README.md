@@ -30,20 +30,25 @@ Scanner digest pass the complete Linux service proof and operational acceptance.
 `productionWritesEnabled` false. Do not infer acceptance from image build,
 process liveness, partial test output or component-only tests.
 
-The selected Bridge pin includes the reviewed upstream-read readiness correction.
-The preserved failed assertion and complete selected-profile Linux proof must
-pass on the exact new archives before this candidate is accepted.
+The private engine/Scanner/optional-Bridge slice (LT196) is merged. Full integration
+commissioning and operational acceptance (LT197) require the complete matching
+handoff receipts and normal review gates. The final Bridge source below is
+reviewed; its original compiled Conductor counterparts have passed exact-archive
+Linux import. Full reader rendering, browser sessions, recovery and cold
+operational rehearsals are accepted only with their matching completed receipts.
 [Known limitations](deploy/stack/README.md#health-bounds-and-failures), final review
 and the full operational slice still apply.
 
-The [stack guide](deploy/stack/README.md) is the next entry point. It describes
+The [stack guide](deploy/stack/README.md) is the next entry point;
+[full integration configuration](deploy/stack/integration-profile.md) describes
+the original Conductor targets, private TLS and optional history/signing overlays. It describes
 artifact verification, exact configuration/credential **file names**, private
 transport, modes, mounts, limits and operator checks. Current fixed inputs are:
 
 | Input | Exact reference |
 |---|---|
 | Server baseline | `065c86ebb0d856d5b9ada8bd7b41bd8c4d90ce10` or the reviewed descendant recorded in the candidate manifest |
-| Bridge | `998fa1ecee9eaa69aee350c05ca5ad34e5ccb20f` (`cxone-review-v1`, `cxone-terminal-v1`) |
+| Bridge | `f39566e0fa6413ed17e7a5c2a11fefc540ed5233` (`cxone-review-v1`, `cxone-terminal-v1`) |
 | Scanner | Registry manifest `sha256:00ab363669ccc7ae50fe7fc79286508af5923d3326d397f87cff91ee76e379a6`, source `1541bb8f3962553b65dab7bfd5aeb429354a8a4f` |
 | Platform | Linux amd64, Docker Engine/Compose v2, host Python 3.11+ for preflight, compatible pidfd/subreaper/user/PID namespace and Chromium seccomp support |
 
@@ -117,6 +122,8 @@ Linux ownership, finite deadlines, quarantined work and one process per store.
 [HTML policy](deploy/html-resource-policy.md) covers offline resources and real
 sandbox requirements. The [stack operations guide](deploy/stack/README.md#operations-and-remaining-acceptance)
 is the entry for storage, backup/upgrade/rollback and target-host acceptance.
+The [cold-state guide](deploy/stack/cold-state.md) documents conservative stopped
+clones, independent fence preservation and refusal of newer-state rollback.
 Never erase unresolved markers, restore an old independent fence to force trust,
 blindly retry uncertain writes/jobs, or turn a preview into conformance evidence.
 

@@ -1,0 +1,29 @@
+# Optional after compose.history.yml, with an explicit existing Bridge profile.
+# Production automatic mutation stays held; signing keys never enable writes.
+services:
+  remedy-bridge:
+    environment:
+      REMEDY_REVIEWER_KEYRING_FILE: /run/reviewer/keyring.json
+      REMEDY_SNAPSHOT_DIR: /ledger/snapshots
+      REMEDY_AUDIT_LOG: /ledger/audit.log
+    volumes:
+      - type: bind
+        source: ${REMEDY_REVIEWER_KEYRING_PATH:?pre-provisioned reviewed public production keyring required}
+        target: /run/reviewer/keyring.json
+        read_only: true
+        bind: {create_host_path: false}
+  conductor:
+    environment:
+      REMEDY_REVIEWER_SIGNING_KEY_FILE: /run/signing/private.pem
+      REMEDY_REVIEWER_KEY_ID: ${REMEDY_REVIEWER_KEY_ID:?enabled coordinated key ID required}
+      REMEDY_REVIEWER_ISSUER: ${REMEDY_REVIEWER_ISSUER:?reviewed issuer matching keyring required}
+      REMEDY_REVIEWER_AUDIENCE: ${REMEDY_REVIEWER_AUDIENCE:?reviewed audience matching keyring required}
+      REMEDY_REVIEWER_KEY_ENABLED: ${REMEDY_REVIEWER_KEY_ENABLED:?explicit true or false signer selection required}
+      REMEDY_REVIEWER_KEY_NOT_BEFORE: ${REMEDY_REVIEWER_KEY_NOT_BEFORE:?reviewed validity start in epoch seconds required}
+      REMEDY_REVIEWER_KEY_NOT_AFTER: ${REMEDY_REVIEWER_KEY_NOT_AFTER:?reviewed validity end in epoch seconds required}
+    volumes:
+      - type: bind
+        source: ${REMEDY_REVIEWER_SIGNING_KEY_PATH:?pre-provisioned protected Ed25519 private signer required}
+        target: /run/signing/private.pem
+        read_only: true
+        bind: {create_host_path: false}

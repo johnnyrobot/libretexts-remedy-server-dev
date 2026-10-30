@@ -52,3 +52,71 @@ def test_unaccepted_bundle_refuses_production_before_host_or_secret_access(tmp_p
     body=json.loads(result.stdout)
     assert body['error']=='deployment_not_accepted_by_release_owner'
     assert body['deploymentReady'] is False and body['productionWritesEnabled'] is False
+
+
+def test_conductor_private_files_reach_unchanged_compiled_entrypoint(tmp_path):
+    names=['SECRETKEY','MONGOOSEURI','REMEDY_API_KEY','OPENAI_API_KEY','STRIPE_SECRET_KEY','MAILGUN_API_KEY']
+    env={'PATH':os.environ['PATH']}
+    for name in names:
+        path=tmp_path/name;path.write_text('synthetic-'+name+'\n');path.chmod(0o600)
+        env[name+'_FILE']=str(path)
+    result=subprocess.run(['node',str(SCRIPT),'conductor','node','-e',
+        'process.exit('+json.dumps(names)+'.every(n=>process.env[n]===`synthetic-${n}`)?0:1)'],env=env,text=True,capture_output=True,timeout=10)
+    assert result.returncode==0,result.stderr
+    assert result.stdout=='' and result.stderr==''
+
+
+def bridge_env(tmp_path):
+    env={'PATH':os.environ['PATH'],'RENDER_SCANNER_URL':'http://renderer.invalid:5180'}
+    for name in ('SERVER_KEY','SERVER_SECRET','SERVER_USER'):
+        path=tmp_path/name;path.write_text('synthetic-'+name);path.chmod(0o600);env[name+'_FILE']=str(path)
+    return env
+
+
+def test_configured_bridge_renderer_receives_protected_token_file(tmp_path):
+    env=bridge_env(tmp_path)
+    token=tmp_path/'renderer';token.write_text('synthetic-renderer-token');token.chmod(0o600)
+    env['RENDER_SCANNER_TOKEN_FILE']=str(token)
+    result=subprocess.run(['node',str(SCRIPT),'bridge','node','-e',
+        "process.exit(process.env.RENDER_SCANNER_TOKEN==='synthetic-renderer-token'?0:1)"],env=env,capture_output=True,text=True,timeout=10)
+    assert result.returncode==0,result.stderr
+    assert 'synthetic-renderer-token' not in result.stdout+result.stderr
+
+
+@pytest.mark.parametrize('damage',['missing','public','ambiguous'])
+def test_bridge_renderer_credential_refusal_precedes_product_start(tmp_path,damage):
+    env=bridge_env(tmp_path)
+    token=tmp_path/'renderer';token.write_text('synthetic-renderer-token');token.chmod(0o600)
+    if damage!='missing': env['RENDER_SCANNER_TOKEN_FILE']=str(token)
+    if damage=='public': token.chmod(0o644)
+    if damage=='ambiguous': env['RENDER_SCANNER_TOKEN']='synthetic-direct-token'
+    marker=tmp_path/'started'
+    result=subprocess.run(['node',str(SCRIPT),'bridge','node','-e',
+        f"require('fs').writeFileSync({json.dumps(str(marker))},'started')"],env=env,capture_output=True,text=True,timeout=10)
+    assert result.returncode!=0
+    assert not marker.exists()
+    assert result.stderr.strip()=='credential_configuration_invalid'
+    assert 'synthetic-renderer-token' not in result.stdout+result.stderr
+
+
+def test_bridge_wrapper_forwards_key_reload_without_terminating_product(tmp_path):
+    import signal
+    import time
+    env=bridge_env(tmp_path);env.pop('RENDER_SCANNER_URL')
+    ready=tmp_path/'ready';reloaded=tmp_path/'reloaded'
+    code=("const fs=require('fs');process.on('SIGHUP',()=>fs.writeFileSync("+json.dumps(str(reloaded))+",'reloaded'));"
+          "process.on('SIGTERM',()=>process.exit(0));fs.writeFileSync("+json.dumps(str(ready))+",'ready');"
+          "setTimeout(()=>process.exit(0),2500);")
+    product=subprocess.Popen(['node',str(SCRIPT),'bridge','node','-e',code],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    try:
+        deadline=time.monotonic()+2
+        while not ready.exists() and time.monotonic()<deadline:time.sleep(.01)
+        assert ready.exists()
+        product.send_signal(signal.SIGHUP)
+        deadline=time.monotonic()+1
+        while not reloaded.exists() and time.monotonic()<deadline:time.sleep(.01)
+        assert reloaded.exists(),'configured Bridge key reload must reach the unchanged child'
+        assert product.poll() is None
+    finally:
+        if product.poll() is None:product.terminate()
+        product.communicate(timeout=4)

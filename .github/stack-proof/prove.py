@@ -221,7 +221,13 @@ try:
         except OSError: pass
         assert time.monotonic()<deadline;time.sleep(.1)
     # Replace only our exact container, retaining its private job store.
-    cmd('docker','stop','--time','120',PREFIX+'-server');cmd('docker','rm',PREFIX+'-server');containers.remove(PREFIX+'-server')
+    prior=json.loads(cmd('docker','inspect',PREFIX+'-server'))[0]
+    assert prior['Config'].get('Labels',{}).get('org.libretexts.stack-proof-owner')==owner_token
+    prior_stopped=metrics.observe_stop(prior['Id'],lambda:cmd('docker','stop','--time','120',prior['Id']),
+        lambda:json.loads(cmd('docker','inspect',prior['Id']))[0])
+    assert prior_stopped['State']['ExitCode'] in {0,143},'initial Server stop failed'
+    cmd('docker','rm',PREFIX+'-server');containers.remove(PREFIX+'-server')
+    if metrics.errors: raise RuntimeError('actual resource measurements failed before Server restart')
     text=server_env.read_text().replace('CXONE_INTEGRATION_ENABLED=false','CXONE_INTEGRATION_ENABLED=true')+'CXONE_BRIDGE_BASE_URL=http://127.0.0.1:5175\nREMEDY_BRIDGE_SERVICE_KEY_FILE=/run/secrets/service\n'
     server_env.write_text(text)
     start(PREFIX+'-server',SERVER,server_env,[*base_mounts,(server_keys,'/run/secrets',True),(state,'/app/state',False),(public/'hooks','/proof-hooks',True),(audit['server'],'/proof-audit',False)],server_options,server_command)
@@ -437,9 +443,13 @@ try:
         while not any(f.done() for f in pending): assert time.monotonic()<deadline;time.sleep(.02)
         early=[f.result() for f in pending if f.done()]
         assert early and all(code==503 and body.get('ok') is False for code,body in early),early
-        began=time.monotonic();cmd('docker','stop','--time','20',PREFIX+'-scanner');elapsed=time.monotonic()-began
+        scanner_identity=json.loads(cmd('docker','inspect',PREFIX+'-scanner'))[0]['Id']
+        began=time.monotonic()
+        stopped_info=metrics.observe_stop(scanner_identity,lambda:cmd('docker','stop','--time','20',scanner_identity),
+            lambda:json.loads(cmd('docker','inspect',scanner_identity))[0])
+        elapsed=time.monotonic()-began
         result=[f.result(timeout=20) for f in pending]
-        stopped=json.loads(cmd('docker','inspect',PREFIX+'-scanner'))[0]['State']
+        stopped=stopped_info['State']
         assert elapsed<15 and stopped['ExitCode']==0,(elapsed,stopped)
         assert all(code==503 and body.get('ok') is False for code,body in result),result
     report['activeShutdown']={'heldExternalResponseReached':True,'admissionOverflow503':True,'all10Callers503':True,'stopSeconds':elapsed,'exitCode':stopped['ExitCode']}
@@ -455,6 +465,7 @@ finally:
     if observer is not None:
         observer.close();report['sandboxObservations']=observer.records;report['errors'].extend(observer.errors)
         report['vanishedCensusRows']=observer.vanished_rows
+    all_shutdown_confirmed=True
     for name in reversed(containers):
         # Only containers created by this invocation; preserve product failure
         # metadata and sanitized logs, then drain through the configured grace.
@@ -462,9 +473,18 @@ finally:
             info=json.loads(cmd('docker','inspect',name))[0]
             assert info['Config'].get('Labels',{}).get('org.libretexts.stack-proof-owner')==owner_token,'refusing unowned container cleanup'
             report.setdefault('containers',{})[name]={'state':info['State'],'runtimeUser':info['Config'].get('User',''),'hostConfig':{k:info['HostConfig'].get(k) for k in ['Memory','NanoCpus','PidsLimit','ShmSize','Init','ReadonlyRootfs','NetworkMode']}}
-            started=time.monotonic();cmd('docker','stop',name,check=False)
+            started=time.monotonic()
+            if name in {PREFIX+'-server',PREFIX+'-scanner',PREFIX+'-bridge'}:
+                stopped_info=metrics.observe_stop(info['Id'],lambda:cmd('docker','stop',info['Id'],check=False),
+                    lambda:json.loads(cmd('docker','inspect',info['Id']))[0])
+            else:
+                cmd('docker','stop',info['Id'],check=False)
+                stopped_info=json.loads(cmd('docker','inspect',info['Id']))[0]
             report['containers'][name]['stopSeconds']=time.monotonic()-started
-            stopped=json.loads(cmd('docker','inspect',name))[0]['State']
+            stopped=stopped_info['State']
+            assert stopped_info['Id']==info['Id'] and stopped_info['Image']==info['Image']
+            assert stopped['Status']=='exited' and stopped['Running'] is False and stopped['Pid']==0
+            assert not any(stopped.get(key) for key in ('Paused','Restarting','Dead'))
             report['containers'][name]['stoppedState']=stopped
             logs=subprocess.run(['docker','logs',name],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT).stdout
             write_product_log(EVIDENCE/(name+'.log'),logs)
@@ -476,11 +496,14 @@ finally:
                 markers=list((WORK/'state').glob('*.execution.lock.unresolved/*'))
                 if markers: report['errors'].append('unresolved_engine_ownership_after_stop')
             cmd('docker','rm',name,check=False)
-        except Exception as error: report['errors'].append('diagnostic_or_cleanup_failed:'+type(error).__name__)
+        except Exception as error:
+            all_shutdown_confirmed=False
+            report['errors'].append('diagnostic_or_cleanup_failed:'+type(error).__name__)
     if host_canary is not None: host_canary.shutdown();host_canary.server_close()
-    if deny_rule is not None: cmd('iptables','-D',*deny_rule,check=False)
-    if network_created: cmd('docker','network','rm',network,check=False)
-    if state_mounted:
+    if not all_shutdown_confirmed: report['errors'].append('owned_shutdown_unconfirmed_isolation_and_state_retained')
+    if all_shutdown_confirmed and deny_rule is not None: cmd('iptables','-D',*deny_rule,check=False)
+    if all_shutdown_confirmed and network_created: cmd('docker','network','rm',network,check=False)
+    if all_shutdown_confirmed and state_mounted:
         try: cmd('umount',WORK/'state')
         except Exception as error: report['errors'].append('owned_disposable_state_unmount_failed:'+type(error).__name__)
     if not report['errors'] and 'activeShutdown' in report: report['sections'].append('safe-shutdown')

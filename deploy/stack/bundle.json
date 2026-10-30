@@ -4,17 +4,86 @@
   "productionWritesEnabled": false,
   "platform": "linux/amd64",
   "serverMinimumSource": "065c86ebb0d856d5b9ada8bd7b41bd8c4d90ce10",
-  "bridgeSource": "998fa1ecee9eaa69aee350c05ca5ad34e5ccb20f",
+  "bridgeSource": "f39566e0fa6413ed17e7a5c2a11fefc540ed5233",
   "scannerSource": "1541bb8f3962553b65dab7bfd5aeb429354a8a4f",
   "scannerImage": "ghcr.io/johnnyrobot/adapt-a11y-scanner-dev-candidate@sha256:00ab363669ccc7ae50fe7fc79286508af5923d3326d397f87cff91ee76e379a6",
-  "contracts": ["cxone-review-v1", "cxone-terminal-v1"],
-  "profiles": ["engine", "engine-scanner", "bridge-review", "bridge-full"],
+  "contracts": [
+    "cxone-review-v1",
+    "cxone-terminal-v1"
+  ],
+  "profiles": [
+    "engine",
+    "engine-scanner",
+    "bridge-review",
+    "bridge-full",
+    "integration"
+  ],
   "limits": {
     "requestBytes": 5000000,
-    "server": {"cpus": 4, "memoryBytes": 4294967296, "pids": 512, "shmBytes": 268435456, "tmpBytes": 536870912, "stateBytes": 1073741824, "totalSeconds": 900, "stopSeconds": 120},
-    "scanner": {"cpus": 2, "memoryBytes": 2147483648, "pids": 512, "shmBytes": 1073741824, "tmpBytes": 536870912, "totalSeconds": 900, "stopSeconds": 20},
-    "bridge": {"cpus": 1, "memoryBytes": 805306368, "pids": 128, "tmpBytes": 268435456, "totalSeconds": 120, "stopSeconds": 30}
+    "server": {
+      "cpus": 4,
+      "memoryBytes": 4294967296,
+      "pids": 512,
+      "shmBytes": 268435456,
+      "tmpBytes": 536870912,
+      "stateBytes": 1073741824,
+      "totalSeconds": 900,
+      "stopSeconds": 120
+    },
+    "scanner": {
+      "cpus": 2,
+      "memoryBytes": 2147483648,
+      "pids": 512,
+      "shmBytes": 1073741824,
+      "tmpBytes": 536870912,
+      "totalSeconds": 900,
+      "stopSeconds": 20
+    },
+    "bridge": {
+      "cpus": 1,
+      "memoryBytes": 805306368,
+      "pids": 128,
+      "tmpBytes": 268435456,
+      "totalSeconds": 120,
+      "stopSeconds": 30,
+      "stateBytes": 536870912
+    },
+    "renderer": {
+      "cpus": 1.5,
+      "memoryBytes": 2147483648,
+      "pids": 256,
+      "shmBytes": 1073741824,
+      "tmpBytes": 536870912,
+      "totalSeconds": 120,
+      "stopSeconds": 30
+    },
+    "conductor": {
+      "cpus": 2,
+      "memoryBytes": 1610612736,
+      "pids": 256,
+      "shmBytes": 67108864,
+      "tmpBytes": 536870912,
+      "stopSeconds": 30
+    },
+    "mongo": {
+      "cpus": 1,
+      "memoryBytes": 1073741824,
+      "pids": 128,
+      "shmBytes": 67108864,
+      "stopSeconds": 60,
+      "stateBytes": 1073741824,
+      "tmpBytes": 536870912,
+      "configdbTmpBytes": 16777216,
+      "wiredTigerCacheGiB": 0.25
+    },
+    "fence": {
+      "stateBytes": 33554432
+    }
   },
   "artifactPolicy": "Exact OCI archive SHA256 and registry digest are verified after download/pull. Candidate retention and resolved base/lock/profile/image hashes are recorded in the producing CI run. No rebuild substitution.",
-  "acceptance": "Resource choices are candidate inputs until actual Linux proof passes. Global release flags remain false pending LT197 and Chief acceptance."
+  "acceptance": "Resource choices are candidate inputs until actual Linux proof passes. Global release flags remain false pending LT197 and Chief acceptance.",
+  "conductorMetadataSource": "dd152c5eca8e48609bbf7df9a9c8c63cf7b48fd2",
+  "conductorCandidateIndexSHA256": "99d70fe71fdf956bc60e34ca55b262cc39747cd5fd30bd386ec7518d3ba58da8",
+  "rendererSource": "f39566e0fa6413ed17e7a5c2a11fefc540ed5233",
+  "rendererSeccompSHA256": "fcecf1a0ae6f84effa439b44d5f0e51bc25b4a975a7025c71e6f9ee0490ca7b0"
 }

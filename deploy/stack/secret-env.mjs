@@ -7,6 +7,8 @@ const roles = {
   server: ['APP_API_KEY', 'OLLAMA_API_KEY'],
   scanner: ['SCANNER_API_KEY', 'ADAPT_TOKEN', 'REMEDY_API_KEY'],
   bridge: ['SERVER_KEY', 'SERVER_SECRET', 'SERVER_USER'],
+  renderer: ['RENDER_SCANNER_TOKEN'],
+  conductor: ['SECRETKEY', 'MONGOOSEURI', 'REMEDY_API_KEY', 'OPENAI_API_KEY', 'STRIPE_SECRET_KEY', 'MAILGUN_API_KEY'],
 };
 const [role, ...command] = process.argv.slice(2);
 async function privateFile(name) {
@@ -24,7 +26,9 @@ async function privateFile(name) {
 try {
   if (!Object.hasOwn(roles, role) || !command.length) throw new Error('role_or_command');
   const env = {...process.env};
-  for (const name of roles[role]) {
+  const credentialNames = [...roles[role]];
+  if (role === 'bridge' && (env.RENDER_SCANNER_URL || env.RENDER_SCANNER_TOKEN_FILE || env.RENDER_SCANNER_TOKEN)) credentialNames.push('RENDER_SCANNER_TOKEN');
+  for (const name of credentialNames) {
     if (env[name]) throw new Error(`${name}_ambiguous`);
     env[name] = await privateFile(`${name}_FILE`);
   }
@@ -33,11 +37,11 @@ try {
     if (!/^[a-f0-9]{64}$/.test(service)) throw new Error('service_key_format');
   }
   if (command.length === 1 && command[0] === '--check') {
-    console.log(JSON.stringify({ok: true, role, uid: process.getuid(), credentialNames: roles[role]}));
+    console.log(JSON.stringify({ok: true, role, uid: process.getuid(), credentialNames}));
   } else {
     const child = spawn(command[0], command.slice(1), {env, stdio: 'inherit'});
     let ended = false;
-    const signals = ['SIGTERM', 'SIGINT'];
+    const signals = ['SIGTERM', 'SIGINT', ...(role === 'bridge' ? ['SIGHUP'] : [])];
     const handlers = signals.map(signal => () => { if (!ended) child.kill(signal); });
     signals.forEach((signal, index) => process.on(signal, handlers[index]));
     child.once('error', () => { console.error('product_start_failed'); process.exitCode = 1; });

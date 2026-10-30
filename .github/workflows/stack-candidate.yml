@@ -1,16 +1,17 @@
 name: Private stack candidate
 on:
   push:
-    branches: [main, feat/lt-175-integration-bundle]
+    branches: [main, feat/lt-175-integration-bundle, feat/lt-197-integration-operations]
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: private-stack-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   build:
     if: github.repository == 'johnnyrobot/libretexts-remedy-server-dev'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -19,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: johnnyrobot/libretexts-remedy-bridge-dev
-          ref: 998fa1ecee9eaa69aee350c05ca5ad34e5ccb20f
+          ref: f39566e0fa6413ed17e7a5c2a11fefc540ed5233
           path: .stack-inputs/bridge
           persist-credentials: false
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
@@ -28,6 +29,7 @@ jobs:
           mkdir -p .stack-inputs/server .stack-artifacts
           git archive HEAD | tar -x -C .stack-inputs/server
           python3 tools/fetch_verapdf_installer.py .stack-inputs/server/verapdf-installer.zip
+          cp -R .stack-inputs/bridge/browser-scanner .stack-inputs/renderer
           python3 .github/stack-proof/pin-inputs.py
       - name: Archive full Server runtime
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
@@ -47,20 +49,32 @@ jobs:
           platforms: linux/amd64
           outputs: type=oci,dest=.stack-artifacts/bridge.oci.tar
           provenance: mode=max
-          labels: org.opencontainers.image.revision=998fa1ecee9eaa69aee350c05ca5ad34e5ccb20f
+          labels: org.opencontainers.image.revision=f39566e0fa6413ed17e7a5c2a11fefc540ed5233
           cache-from: type=gha,scope=stack-bridge
           cache-to: type=gha,mode=max,scope=stack-bridge
+      - name: Archive the actual Bridge rendered-page scanner
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .stack-inputs/renderer
+          platforms: linux/amd64
+          outputs: type=oci,dest=.stack-artifacts/renderer.oci.tar
+          provenance: mode=max
+          labels: org.opencontainers.image.revision=f39566e0fa6413ed17e7a5c2a11fefc540ed5233
+          cache-from: type=gha,scope=stack-renderer
+          cache-to: type=gha,mode=max,scope=stack-renderer
       - name: Bind archives and configuration to this source
         run: |
           python3 - <<'PY'
           import hashlib,json,os
           from pathlib import Path
           root=Path('.stack-artifacts')
-          names=['server.oci.tar','bridge.oci.tar','build-inputs.json']
-          value={'serverSource':os.environ['GITHUB_SHA'],'bridgeSource':'998fa1ecee9eaa69aee350c05ca5ad34e5ccb20f','deploymentReady':False,'productionWritesEnabled':False,'retentionDays':30,'sha256':{}}
+          names=['server.oci.tar','bridge.oci.tar','renderer.oci.tar','build-inputs.json']
+          value={'serverSource':os.environ['GITHUB_SHA'],'bridgeSource':'f39566e0fa6413ed17e7a5c2a11fefc540ed5233','deploymentReady':False,'productionWritesEnabled':False,'retentionDays':30,'sha256':{}}
           for name in names:
               with (root/name).open('rb') as stream: value['sha256'][name]=hashlib.file_digest(stream,'sha256').hexdigest()
-          value['configurationSha256']={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in Path('deploy/stack').rglob('*') if p.is_file() and p.suffix in {'.py','.mjs','.json','.yml','.example','.md'}}
+          value['configurationSha256']={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in Path('deploy/stack').rglob('*') if p.is_file() and p.suffix in {'.py','.mjs','.json','.yml','.example','.md','.sh'}}
+          for name in ['.github/stack-proof/verify_imports.py','.github/stack-proof/conductor_artifacts.py']:
+              value['configurationSha256'][name]=hashlib.sha256(Path(name).read_bytes()).hexdigest()
           (root/'candidate.json').write_text(json.dumps(value,indent=2)+'\n')
           PY
       - uses: actions/upload-artifact@v4
@@ -72,8 +86,8 @@ jobs:
           include-hidden-files: true
   prove:
     needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -99,7 +113,7 @@ jobs:
       - name: Install archive reader
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends skopeo tcpdump
+          sudo apt-get install -y --no-install-recommends skopeo tcpdump libnss3-tools
       - name: Verify and import the exact downloaded OCI archives
         run: |
           python3 - <<'PY'
@@ -114,11 +128,78 @@ jobs:
           skopeo copy --override-os linux --override-arch amd64 oci-archive:.stack-artifacts/server.oci.tar docker-daemon:remedy-server:stack-candidate
           skopeo copy --override-os linux --override-arch amd64 oci-archive:.stack-artifacts/bridge.oci.tar docker-daemon:remedy-bridge:stack-candidate
           docker pull ghcr.io/johnnyrobot/adapt-a11y-scanner-dev-candidate@sha256:00ab363669ccc7ae50fe7fc79286508af5923d3326d397f87cff91ee76e379a6
+          docker pull mongo:7.0.14@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6
+          skopeo copy --override-os linux --override-arch amd64 oci-archive:.stack-artifacts/renderer.oci.tar docker-daemon:remedy-renderer:stack-candidate
           python3 .github/stack-proof/verify_imports.py
+      - name: Verify pinned registry identities before expensive service proof
+        run: |
+          python3 - <<'PY'
+          import importlib.util,json,subprocess
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('registry_preflight',Path('deploy/stack/preflight.py'))
+          preflight=importlib.util.module_from_spec(spec);spec.loader.exec_module(preflight)
+          pins=json.loads(Path('deploy/stack/bundle.json').read_text())
+          observed={}
+          for role,reference in [('scanner',pins['scannerImage']),('mongo',preflight.MONGO)]:
+              value=json.loads(subprocess.check_output(['docker','image','inspect',reference],text=True))[0]
+              preflight.require_registry_manifest(value,reference,role)
+              observed[role]={'reference':reference,**{key:value.get(key) for key in ['Id','Os','Architecture','Variant','RepoDigests']}}
+          Path('.stack-proof-evidence/registry-bindings.json').write_text(json.dumps(observed,indent=2)+'\n')
+          PY
+      - name: Download, verify and import both original compiled Conductor candidates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/stack-proof/conductor_artifacts.py
+      - name: Exercise the operator's offline original-image import
+        run: |
+          python3 .github/stack-proof/conductor_artifacts.py --from-package .stack-conductor --output .stack-conductor-local --receipt .stack-proof-evidence/conductor-imports-local.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('.stack-proof-evidence')
+          original=json.loads((p/'conductor-imports.json').read_text())
+          local=json.loads((p/'conductor-imports-local.json').read_text())
+          assert local['verificationComplete'] and local==original
+          PY
+      - name: Check original Conductor kernel and cryptographic prerequisites early
+        run: |
+          sudo python3 - <<'PY'
+          import importlib.util,json
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('early_preflight',Path('deploy/stack/preflight.py'))
+          preflight=importlib.util.module_from_spec(spec);spec.loader.exec_module(preflight)
+          pins=json.loads(Path('deploy/stack/bundle.json').read_text())
+          originals=json.loads(Path('.stack-proof-evidence/conductor-imports.json').read_text())
+          results={}
+          for target,pin in originals['targets'].items():
+              result=preflight.probe(pin['loadedDockerImageID'],'conductor',pins,None,integration=True,
+                  command_override=['node','-e',preflight.CONDUCTOR_CRYPTO_PROBE])
+              assert result=='compiled-node22-crypto-and-file-credentials-available'
+              results[target]={'originalImageID':pin['loadedDockerImageID'],'passed':True,'network':'none'}
+          Path('.stack-proof-evidence/conductor-prerequisites.json').write_text(json.dumps(results,indent=2)+'\n')
+          PY
       - name: Exercise actual services with only synthetic external systems
         run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/prove.py
+      - name: Exercise actual compiled Conductor against the owned stack
+        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/full_proof.py
       - name: Exercise the public candidate preflight and retained production holds
         run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/preflight_proof.py
+      - name: Exercise separate synthetic signed outcomes and explicit recovery
+        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/synthetic_signed_proof.py
+      - name: Seal only the exact archives with all matching acceptance receipts
+        run: python3 .github/stack-proof/seal_package.py --tar
+      - name: Retain the versioned candidate handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: remedy-stack-handoff-${{ github.sha }}
+          path: |
+            .stack-package/package.tar
+            .stack-package/manifest.json
+            .stack-package/checksums.sha256
+            .stack-package/seal-receipt.json
+          retention-days: 30
+          compression-level: 0
+          include-hidden-files: true
       - name: Retain sanitized proof separately from images
         if: always()
         uses: actions/upload-artifact@v4
