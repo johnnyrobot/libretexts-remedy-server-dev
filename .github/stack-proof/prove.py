@@ -33,6 +33,16 @@ def cmd(*args,check=True):
     if check and result.returncode: raise RuntimeError(str(args[:3])+': '+result.stderr[-1600:])
     return result.stdout
 
+def response_after_send(conn,method,path,body=None,headers=None,encode_chunked=False):
+    try:
+        conn.request(method,path,body=body,headers=headers or {},encode_chunked=encode_chunked)
+    except (BrokenPipeError,ConnectionResetError) as error:
+        # Early refusal can close the write side while an eager client is still
+        # sending. A readable actual HTTP response is still mandatory below;
+        # the socket error alone is never considered a successful assertion.
+        report.setdefault('clientWriteClosures',[]).append({'path':path,'error':type(error).__name__})
+    return conn.getresponse()
+
 def request(base,path,body=None,key=None,control=False):
     url=urlsplit(base); conn=http.client.HTTPConnection(url.hostname,url.port,timeout=950)
     headers={}
@@ -40,8 +50,8 @@ def request(base,path,body=None,key=None,control=False):
     raw=json.dumps(body).encode() if body is not None else None
     if raw is not None: headers['Content-Type']='application/json'
     try:
-        conn.request('POST' if raw is not None else 'GET',path,body=raw,headers=headers)
-        response=conn.getresponse();data=response.read()
+        response=response_after_send(conn,'POST' if raw is not None else 'GET',path,raw,headers)
+        data=response.read()
         try: value=json.loads(data)
         except ValueError: value={'nonJsonBytes':len(data)}
         return response.status,value
@@ -55,8 +65,8 @@ def multipart(base,path,content,filename='fixture.html',extra=()):
     raw.extend(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{filename}"\r\nContent-Type: application/octet-stream\r\n\r\n'.encode()+content+f'\r\n--{boundary}--\r\n'.encode())
     url=urlsplit(base);connection=http.client.HTTPConnection(url.hostname,url.port,timeout=950)
     try:
-        connection.request('POST',path,raw,{'X-API-Key':'synthetic-server-key','Content-Type':'multipart/form-data; boundary='+boundary})
-        response=connection.getresponse();data=response.read()
+        response=response_after_send(connection,'POST',path,raw,{'X-API-Key':'synthetic-server-key','Content-Type':'multipart/form-data; boundary='+boundary})
+        data=response.read()
         try: value=json.loads(data)
         except ValueError: value={'nonJsonBytes':len(data)}
         return response.status,value,len(raw)
@@ -338,9 +348,9 @@ try:
         url=urlsplit(base);conn=http.client.HTTPConnection(url.hostname,url.port,timeout=180)
         raw=json.dumps(exact).encode()
         try:
-            conn.request('POST',path,(raw[i:i+65536] for i in range(0,len(raw),65536)),
+            response=response_after_send(conn,'POST',path,(raw[i:i+65536] for i in range(0,len(raw),65536)),
                 {'X-API-Key':key,'Content-Type':'application/json'},encode_chunked=True)
-            response=conn.getresponse();body=response.read()
+            body=response.read()
             assert response.status==413,{'path':path,'chunkedStatus':response.status,'responseBytes':len(body)}
         finally: conn.close()
         assert request(external,'/control/status',key='synthetic-control-only',control=True)[1]['reads']==previous
