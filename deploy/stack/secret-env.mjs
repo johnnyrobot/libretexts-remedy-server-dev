@@ -41,7 +41,7 @@ try {
   } else {
     const child = spawn(command[0], command.slice(1), {env, stdio: 'inherit'});
     let ended = false;
-    const signals = ['SIGTERM', 'SIGINT'];
+    const signals = ['SIGTERM', 'SIGINT', ...(role === 'bridge' ? ['SIGHUP'] : [])];
     const handlers = signals.map(signal => () => { if (!ended) child.kill(signal); });
     signals.forEach((signal, index) => process.on(signal, handlers[index]));
     child.once('error', () => { console.error('product_start_failed'); process.exitCode = 1; });

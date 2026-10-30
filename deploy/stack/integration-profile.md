@@ -54,6 +54,40 @@ equivalence. Supply only those **verified loaded immutable IDs** through
 identity or provenance. No `latest`, mutable tag, `build:` or rebuilt consumer is
 a deployment input.
 
+## Retaining and checking the handoff
+
+The candidate workflow's final `remedy-stack-handoff-<source commit>` artifact is
+created only after all nine acceptance receipts match. It contains `package.tar`,
+the identical internal/external `manifest.json`, `checksums.sha256` and the
+external `seal-receipt.json`. The TAR contains the exact tracked source archive,
+three downloaded/imported owned OCI archives, both original Conductor ZIPs and
+saved archives, allowlisted receipts and metadata. Scanner and Mongo retain
+their literal registry digest references; a registry pull is still required.
+Runtime credentials, private TLS/signing keys, raw cold-state archives and live
+databases are never package inputs. A refused seal is incomplete evidence, not
+a distributable accepted package.
+
+Obtain the handoff only from the exact reviewed source/run and independently
+verify its GitHub artifact ZIP digest. Compare `package.tar` with the
+`packageTARSHA256` in that run's seal receipt, then compare the external manifest
+and checksums file against their recorded digests. Extract only the verified TAR
+into a new private directory and run `sha256sum --check checksums.sha256` there;
+compare its internal manifest bytes with the external manifest before using any
+input. SHA-256 proves integrity, not a signature or independent authenticity.
+The trusted source/run is a separate prerequisite. Re-run the package's import
+verification against the actual loaded images; archive checks do not replace
+runtime identity, sandbox, host or authenticated capability checks.
+
+New workflow artifacts have 30-day retention. The original Conductor inputs have
+the separate expiry recorded above; a completed sealed copy preserves their
+original bytes and provenance beyond that download window. Retain the **whole**
+package and its trusted receipt before either download expires. Missing bytes
+require a newly verified delivery, never substitution. Even a completed seal
+keeps `deploymentReady`, `productionWritesEnabled`, `liveProvidersVerified`,
+`productionSSOVerified` and `releaseOwnerAcceptance` false. LibreTexts still owns
+target-host/provider/SSO acceptance and rollout, and vendor conditional-write
+validation remains an independent hold.
+
 ## Host, filesystems and private transport
 
 The candidate target is Linux amd64, rootful Docker Engine with Compose v2,
@@ -238,11 +272,15 @@ audit paths remain `/ledger/snapshots` and `/ledger/audit.log`.
 Before any actual deployment, the deployment team must freeze the accepted
 manifest, target, inspected image IDs, selected files, runtime versions,
 configuration hashes, mount capacities/ownership, credential-name inventory,
-network/PKI policy and current independent fence/epoch. Run [preflight.py](preflight.py)
-for its supported checks; production acceptance remains refused while release
-flags are false. A partial engine preflight does not validate all added owned
-services. Complete full-profile host/role, TLS/NSS, authenticated Mongo, filesystem
-and exact public-Compose Linux checks remain release gates.
+network/PKI policy and current independent fence/epoch. The integration entry to
+[preflight.py](preflight.py) requires `--profile integration` and explicit
+`--integration-mode review-only` or `full-write`. It checks the original consumer
+archive, matching actual-service receipts, resolved public Compose configuration,
+per-role mounts, bounded filesystems and private TLS/NSS material. An engine-only
+preflight does not validate those added services. Successful candidate checks
+report `startupCompatibility:true`, `writeReady:false`, `admission:false`;
+production acceptance remains refused while release flags are false. Add
+`--production` for production acceptance: the current package must refuse it.
 
 After that acceptance, from the reviewed repository root define the following
 for the full signed selection. `REMEDY_COMPOSE_ENV` must name an already prepared
@@ -263,6 +301,50 @@ stack() {
 }
 stack config --quiet
 ```
+
+Resolve the **same** selection to a private mode 0600 JSON file, outside the
+repository. It contains file paths and nonsecret metadata, never credential
+values. Preserve it with the operator's private deployment inventory. The
+following candidate verification runs no product admission or write enablement;
+every path must already exist with the documented ownership and permissions:
+
+```sh
+(umask 077; stack config --format json > "${REMEDY_RESOLVED_CONFIG:?required}")
+python3 deploy/stack/preflight.py --profile integration \
+  --integration-mode full-write \
+  --artifacts "${REMEDY_CANDIDATE_ARTIFACTS:?required}" \
+  --proof "${REMEDY_PRIVATE_PROOF:?required}" \
+  --integration-proof "${REMEDY_INTEGRATION_PROOF:?required}" \
+  --conductor-target "${REMEDY_CONDUCTOR_TARGET:?required}" \
+  --conductor-artifacts "${REMEDY_CONDUCTOR_ARTIFACTS:?required}" \
+  --compose-config "${REMEDY_RESOLVED_CONFIG:?required}" \
+  --state-root "${REMEDY_STATE_ROOT:?required}" \
+  --mongo-state-root "${REMEDY_MONGO_STATE_ROOT:?required}" \
+  --secret-root "${REMEDY_SECRET_ROOT:?required}" \
+  --tls-root "${REMEDY_TLS_ROOT:?required}" \
+  --nss-seed-root "${REMEDY_NSS_SEED_ROOT:?required}" \
+  --renderer-seccomp "${REMEDY_RENDERER_SECCOMP_FILE:?required}" \
+  --history --bridge-state-root "${REMEDY_BRIDGE_STATE_ROOT:?required}" \
+  --fence-root "${REMEDY_FENCE_ROOT:?required}" \
+  --trust-epoch "${REMEDY_REVIEWER_TRUST_EPOCH:?required}" \
+  --status-issuer "${REMEDY_OPERATION_STATUS_ISSUER:?required}" \
+  --signing-config "${REMEDY_SIGNING_CONFIG_JSON:?required}" \
+  --keyring "${REMEDY_REVIEWER_KEYRING_PATH:?required}" \
+  --signing-key "${REMEDY_REVIEWER_SIGNING_KEY_PATH:?required}"
+```
+
+The signing JSON is a private regular mode 0600 file containing exactly the seven
+existing Conductor setting names listed above, including the in-container key
+file path, never private-key bytes. The final two arguments select their actual
+host files. This CLI checks a consistent configured pair, including an explicitly
+disabled Conductor signer; it does not make that signer active. Review-only uses
+`--integration-mode review-only` and omits all three signing arguments when the
+signed overlay is absent. Omit `--history`, bridge/fence roots, epoch and issuer
+only when the history overlay is absent. `--conductor-target` is exactly
+`staging-67301b35` or `release-2.156.2`. The artifacts directory contains the
+matching `candidate.json`, `build-inputs.json` and three original OCI archives;
+the consumer directory contains its original ZIP and saved archive. Proof paths
+select that same source/run's `result.json` and `full-result.json`.
 
 1. Close external admission and orchestration; retain current containers/stores.
    Drain submitters/Conductor/Scanner while dependencies remain available. Record
@@ -326,3 +408,14 @@ Related maintained entry points: [Bridge README](https://github.com/johnnyrobot/
 [ADAPT Scanner README](https://github.com/johnnyrobot/adapt-a11y-scanner-dev#readme),
 [Conductor patch README](https://github.com/johnnyrobot/conductor-remedy-patch#readme)
 and [pinned Conductor targets/storage prerequisites](https://github.com/johnnyrobot/conductor-remedy-patch/blob/dd152c5eca8e48609bbf7df9a9c8c63cf7b48fd2/docs/integration/pinned-targets.md).
+
+
+### Reviewed key reload
+
+The bundle wrapper forwards `SIGHUP` to the Bridge child in the signed profile.
+A reviewed public-keyring replacement still needs the producer's normal reload
+procedure; changing a file alone does not acknowledge revocation. Failed reload
+keeps writes unavailable. Service-key changes require a drained restart.
+Production `/readyz` remains 503 with `mutate:false` while the vendor hold is open;
+a key reload never clears that hold. Review-only startup needs no keyring and is
+not a signed-key reload target.

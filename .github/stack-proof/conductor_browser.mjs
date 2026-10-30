@@ -52,6 +52,12 @@ try {
     const after=await read(historyPath);assert.equal(after.status,200);
     assert.equal(createHash('sha256').update(JSON.stringify(after.body.records)).digest('hex'),expected,'source change must preserve original review history');
     const report=await read(base+'/conformance');assert.equal(report.status,200);assert.equal(report.body.report.verifiedCriteria,0);
+    // The parent refresh remounts the evaluator after saving a rendered scan,
+    // clearing its local page selection. Re-open the persisted result through
+    // the real browser; do not mistake that empty selection for stale evidence.
+    await page.reload({waitUntil:'domcontentloaded'});
+    await verification.getByRole('heading',{name:'Remediation acceptance and WCAG verification',exact:true}).waitFor();
+    await verification.getByRole('combobox',{name:/^Page to evaluate/}).selectOption(config.sectionID);
     await verification.getByRole('heading',{name:/^1\.1\.1 .*stale/}).waitFor();
     assert.equal(errors.length,0);
     await page.screenshot({path:'/browser-evidence/synthetic-stale.png',fullPage:true});

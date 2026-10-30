@@ -97,3 +97,26 @@ def test_bridge_renderer_credential_refusal_precedes_product_start(tmp_path,dama
     assert not marker.exists()
     assert result.stderr.strip()=='credential_configuration_invalid'
     assert 'synthetic-renderer-token' not in result.stdout+result.stderr
+
+
+def test_bridge_wrapper_forwards_key_reload_without_terminating_product(tmp_path):
+    import signal
+    import time
+    env=bridge_env(tmp_path);env.pop('RENDER_SCANNER_URL')
+    ready=tmp_path/'ready';reloaded=tmp_path/'reloaded'
+    code=("const fs=require('fs');process.on('SIGHUP',()=>fs.writeFileSync("+json.dumps(str(reloaded))+",'reloaded'));"
+          "process.on('SIGTERM',()=>process.exit(0));fs.writeFileSync("+json.dumps(str(ready))+",'ready');"
+          "setTimeout(()=>process.exit(0),2500);")
+    product=subprocess.Popen(['node',str(SCRIPT),'bridge','node','-e',code],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    try:
+        deadline=time.monotonic()+2
+        while not ready.exists() and time.monotonic()<deadline:time.sleep(.01)
+        assert ready.exists()
+        product.send_signal(signal.SIGHUP)
+        deadline=time.monotonic()+1
+        while not reloaded.exists() and time.monotonic()<deadline:time.sleep(.01)
+        assert reloaded.exists(),'configured Bridge key reload must reach the unchanged child'
+        assert product.poll() is None
+    finally:
+        if product.poll() is None:product.terminate()
+        product.communicate(timeout=4)

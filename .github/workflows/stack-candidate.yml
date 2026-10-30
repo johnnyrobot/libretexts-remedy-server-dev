@@ -142,6 +142,20 @@ jobs:
         run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/preflight_proof.py
       - name: Exercise separate synthetic signed outcomes and explicit recovery
         run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/synthetic_signed_proof.py
+      - name: Seal only the exact archives with all matching acceptance receipts
+        run: python3 .github/stack-proof/seal_package.py --tar
+      - name: Retain the versioned candidate handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: remedy-stack-handoff-${{ github.sha }}
+          path: |
+            .stack-package/package.tar
+            .stack-package/manifest.json
+            .stack-package/checksums.sha256
+            .stack-package/seal-receipt.json
+          retention-days: 30
+          compression-level: 0
+          include-hidden-files: true
       - name: Retain sanitized proof separately from images
         if: always()
         uses: actions/upload-artifact@v4

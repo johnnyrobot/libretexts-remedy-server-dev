@@ -382,6 +382,10 @@ try:
                 checked=json.loads(settings_absent);assert checked=={'keyPresent':False,'signerEnv':[]}
 
         def phase(name,local_id=None):
+            signer_observation=json.loads(run('docker','exec',PREFIX+'-conductor','node','-e',
+                "const fs=require('fs');console.log(JSON.stringify({keyPresent:fs.existsSync('/run/signing/private.pem'),signerEnv:Object.keys(process.env).filter(k=>k.startsWith('REMEDY_REVIEWER_')&&k!=='REMEDY_REVIEWER_TRUST_EPOCH')}))"))
+            signer_present=signer_observation['keyPresent'] or bool(signer_observation['signerEnv'])
+            if not signer_present:assert signer_observation=={'keyPresent':False,'signerEnv':[]}
             command=['docker','exec',PREFIX+'-conductor','node','/proof/secret-env.mjs','conductor','node','/proof/dev_client.mjs',name,
                      'http://198.51.100.10:8082',*([local_id] if local_id else [])]
             result=subprocess.run(command,capture_output=True,text=True,timeout=900)
@@ -390,7 +394,7 @@ try:
             assert result.returncode==0,'actual synthetic client phase failed: '+target+'/'+name
             observations=[json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
             assert observations and all(value.get('passed') is True and value.get('phase')==name for value in observations)
-            phases.append({'phase':name,'checkpoints':observations,'external':{key:fixture_state()[key] for key in ('writes','mutations','revision','source_sha256')},'gate':gate_control()})
+            phases.append({'phase':name,'signerPresent':signer_present,'checkpoints':observations,'external':{key:fixture_state()[key] for key in ('writes','mutations','revision','source_sha256')},'gate':gate_control()})
             return observations
 
         def pending_id(observations):

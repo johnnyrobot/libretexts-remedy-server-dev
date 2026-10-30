@@ -247,6 +247,17 @@ try:
             expected='200' if phase=='review' else '503'
             while run('docker','exec',PREFIX+'-server','curl','-sS','-o','/dev/null','-w','%{http_code}','-H','X-Remedy-Service-Key: '+'a1'*32,'http://127.0.0.1:5175/readyz',check=False).strip()!=expected:
                 assert time.monotonic()<deadline,'actual Bridge readiness';time.sleep(.2)
+            if phase=='production-held':
+                run('docker','kill','--signal','HUP',PREFIX+'-bridge')
+                reload_deadline=time.monotonic()+20
+                while run('docker','exec',PREFIX+'-server','curl','-sS','-o','/dev/null','-w','%{http_code}','-H','X-Remedy-Service-Key: '+'a1'*32,'http://127.0.0.1:5175/readyz',check=False).strip()!='503':
+                    assert time.monotonic()<reload_deadline and inspect(PREFIX+'-bridge')['State']['Running'],'actual held Bridge key reload through wrapper'
+                    time.sleep(.1)
+                for _ in range(3):
+                    assert inspect(PREFIX+'-bridge')['State']['Running'],'held Bridge must survive reload'
+                    time.sleep(.1)
+                report['bridgeKeyReloadThroughWrapper']=True
+
             start('conductor',pin['loadedDockerImageID'],['node','/proof/secret-env.mjs','conductor','node','dist/server.js'],envfile('conductor',{**app_env,**signer_env}),[(loader,'/proof/secret-env.mjs',True),(conductor_keys,'/run/secrets',True),(app_fixture,'/fixture',True),(fixture/'ca.pem','/fixtures/ca.pem',True),(source/'conductor_probe.mjs','/proof/conductor_probe.mjs',True),*([(signer/'private.pem','/run/signing/private.pem',True)] if phase!='review' else [])],extra=[*net,'--network-alias','conductor'],uid=1000,limits=(2,'1536m',256,'64m',30))
             wait('conductor',5000,'/health')
             probe=subprocess.run(['docker','exec',PREFIX+'-conductor','node','/proof/secret-env.mjs','conductor','node','/proof/conductor_probe.mjs',phase],capture_output=True,text=True,timeout=180)
