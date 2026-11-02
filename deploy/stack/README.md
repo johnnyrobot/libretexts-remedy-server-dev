@@ -244,6 +244,12 @@ saved images with the final package before expiry. Historical 24-patch candidate
 are not compatible substitutes for these 32-patch deliveries. The metadata-only
 index correction did not rebuild either product image.
 
+The original accepted LT197 whole package is also preserved through the
+[versioned byte-retention and offline consumer path](retained-handoff.md), with
+its original ZIP, seal, provenance and import instructions. New seals still
+refuse expired original acquisition metadata; newer bundles need their own
+complete matching proof.
+
 The separately archived/imported Bridge-owned rendered-page scanner uses
 Bridge source `f39566e` and Playwright 1.63. The deployment filter retains the
 producer profile with one recorded correction: its `chroot` rule matches the

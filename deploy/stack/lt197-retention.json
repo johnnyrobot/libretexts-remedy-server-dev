@@ -1,0 +1,111 @@
+{
+  "classification": "Exact previously accepted LT197 bytes; no rebuild, refreshed bundle or new runtime acceptance.",
+  "globalFlags": {
+    "deploymentReady": false,
+    "liveProvidersVerified": false,
+    "productionSSOVerified": false,
+    "productionWritesEnabled": false,
+    "releaseOwnerAcceptance": false
+  },
+  "original": {
+    "bytes": 2920270389,
+    "sha256": "41522f5132424382e7f701d1f9673536ab7f9ee24c0ac53bb43660df5d1089f9"
+  },
+  "originalArtifact": {
+    "archive_download_url": "https://api.github.com/repos/johnnyrobot/libretexts-remedy-server-dev/actions/artifacts/13000643105/zip",
+    "created_at": "2026-10-30T18:17:51Z",
+    "digest": "sha256:41522f5132424382e7f701d1f9673536ab7f9ee24c0ac53bb43660df5d1089f9",
+    "expired": false,
+    "expires_at": "2026-11-29T18:17:30Z",
+    "id": 13000643105,
+    "name": "remedy-stack-handoff-20a09894895d8c5df69a6d2c2bb1adbbe08f22c2",
+    "node_id": "MDg6QXJ0aWZhY3QxMzAwMDY0MzEwNQ==",
+    "size_in_bytes": 2920270389,
+    "updated_at": "2026-10-30T18:17:51Z",
+    "url": "https://api.github.com/repos/johnnyrobot/libretexts-remedy-server-dev/actions/artifacts/13000643105",
+    "workflow_run": {
+      "head_branch": "feat/lt-197-integration-operations",
+      "head_repository_id": 1243091607,
+      "head_sha": "20a09894895d8c5df69a6d2c2bb1adbbe08f22c2",
+      "id": 41101217910,
+      "repository_id": 1243091607
+    }
+  },
+  "originalConductorArtifacts": [
+    {
+      "archive_download_url": "https://api.github.com/repos/johnnyrobot/conductor-remedy-patch/actions/artifacts/12936304442/zip",
+      "created_at": "2026-10-29T22:13:24Z",
+      "digest": "sha256:8a4949ac70d864d6df172d335cf26de2bcf8d91c2407b0ab09c9a4093256c864",
+      "expired": false,
+      "expires_at": "2026-11-12T22:13:20Z",
+      "id": 12936304442,
+      "name": "conductor-candidate-release-2.156.2-40962740223",
+      "node_id": "MDg6QXJ0aWZhY3QxMjkzNjMwNDQ0Mg==",
+      "size_in_bytes": 195554426,
+      "updated_at": "2026-10-29T22:13:24Z",
+      "url": "https://api.github.com/repos/johnnyrobot/conductor-remedy-patch/actions/artifacts/12936304442",
+      "workflow_run": {
+        "head_branch": "feat/lt-180-terminal-recovery",
+        "head_repository_id": 1337408554,
+        "head_sha": "9bccf4806bf5289dc297796ffa770c1ac50935df",
+        "id": 40962740223,
+        "repository_id": 1337408554
+      }
+    },
+    {
+      "archive_download_url": "https://api.github.com/repos/johnnyrobot/conductor-remedy-patch/actions/artifacts/12936278741/zip",
+      "created_at": "2026-10-29T22:10:28Z",
+      "digest": "sha256:eb684b59b2aaaa217e99c9be4df79082466840981a8dd32b5c155b90cc403a7a",
+      "expired": false,
+      "expires_at": "2026-11-12T22:10:26Z",
+      "id": 12936278741,
+      "name": "conductor-candidate-staging-67301b35-40962740223",
+      "node_id": "MDg6QXJ0aWZhY3QxMjkzNjI3ODc0MQ==",
+      "size_in_bytes": 205860270,
+      "updated_at": "2026-10-29T22:10:28Z",
+      "url": "https://api.github.com/repos/johnnyrobot/conductor-remedy-patch/actions/artifacts/12936278741",
+      "workflow_run": {
+        "head_branch": "feat/lt-180-terminal-recovery",
+        "head_repository_id": 1337408554,
+        "head_sha": "9bccf4806bf5289dc297796ffa770c1ac50935df",
+        "id": 40962740223,
+        "repository_id": 1337408554
+      }
+    }
+  ],
+  "originalSeal": {
+    "checksumsSHA256": "8806c99fc0433452e4dfb6b480b5b4ec6b11cd36d8d7c4161f0fc9f89605c47b",
+    "manifestSHA256": "87800b97582203f28447a8eec7df47df6d86d6562bd3878a3a05ab5c580a266e",
+    "packageTARSHA256": "0947538989965cd649dfc6f96f3b0e380271608f5d53113beb4475112f850d51",
+    "schema": "remedy-stack-seal-receipt-v1"
+  },
+  "originalSealedAtUTC": "2026-10-30T18:17:17.817882+00:00",
+  "parts": [
+    {
+      "bytes": 1073741824,
+      "name": "lt197-handoff.zip.part00",
+      "sha256": "b80af15ce5a9cf09e1be54998098fe5e220bd1042a095cb5156f0f2df5135e35"
+    },
+    {
+      "bytes": 1073741824,
+      "name": "lt197-handoff.zip.part01",
+      "sha256": "304ff02d8518d9dc3cd52f1ac7bf2c69f6ce226ac381953c21a39fb756ae9f1d"
+    },
+    {
+      "bytes": 772786741,
+      "name": "lt197-handoff.zip.part02",
+      "sha256": "34325bde4e40f44c61ba6357b1ee3ea2fd40430a7a4cb68012739753b6f04601"
+    }
+  ],
+  "releaseURL": "https://github.com/johnnyrobot/libretexts-remedy-server-dev/releases/tag/lt197-original-20a0989-retained-v1",
+  "retainedAtUTC": "2026-11-02T05:01:59.746908+00:00",
+  "run": {
+    "attempt": "1",
+    "id": "41101217910",
+    "repository": "johnnyrobot/libretexts-remedy-server-dev",
+    "url": "https://github.com/johnnyrobot/libretexts-remedy-server-dev/actions/runs/41101217910/attempts/1"
+  },
+  "schema": "remedy-retained-handoff-v1",
+  "source": "20a09894895d8c5df69a6d2c2bb1adbbe08f22c2",
+  "trust": "Obtain this record SHA256 from reviewed Server source. Hashes are integrity pins, not signatures. Release assets have no scheduled Actions expiry; deletion/availability is a release-owner responsibility."
+}
