@@ -8,6 +8,14 @@ Conductor targets, images, metadata and matching receipts. It is not a refreshed
 bundle or new runtime proof. Production acceptance and all five global flags
 remain false.
 
+The original source locks pypdf 6.21.2, which has the known security findings
+documented in the [LT220 repair](../../docs/releases/lt-220-pypdf-security.md).
+Current source requires 6.21.4 or newer. Preserve this original for historical
+provenance; do not use it as a recommendation for new deployment. Patched images
+and a refreshed compatible package need their own matching Linux/runtime and
+assembled operational acceptance. Joining the original bytes cannot transfer
+old receipts to a new runtime or clear current release gates.
+
 The [versioned retained release](https://github.com/johnnyrobot/libretexts-remedy-server-dev/releases/tag/lt197-original-20a0989-retained-v1)
 holds three ordered byte parts of the **original GitHub ZIP**, because that ZIP
 exceeds the per-asset size limit. Joining them does not recompress or rebuild it.
