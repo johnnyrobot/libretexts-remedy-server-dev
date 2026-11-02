@@ -140,6 +140,15 @@ async function run() {
     requireFact(health.status === 200 && health.data.profile?.name === 'full-write' && health.data.capabilities?.mutate === true,
       'synthetic_test_bridge_write_readiness_required');
     const scan = await request(page + '/rendered-scan', input);
+    if (scan.status !== 200 || scan.data.wcag_review?.rendered?.state !== 'complete') {
+      const rendered = scan.data.wcag_review?.rendered;
+      const message = typeof rendered?.error === 'string' ? rendered.error : '';
+      console.error(JSON.stringify({phase, passed: false, code: 'actual_rendered_scan_required',
+        httpStatus: scan.status, renderedPresent: Boolean(rendered),
+        renderedState: ['complete', 'partial', 'error'].includes(rendered?.state) ? rendered.state : null,
+        tlsFailure: message.includes('ERR_CERT_AUTHORITY_INVALID') ? 'untrusted-ca' :
+          message.includes('ERR_CERT_COMMON_NAME_INVALID') ? 'wrong-hostname' : null}));
+    }
     requireFact(scan.status === 200 && scan.data.wcag_review?.rendered?.state === 'complete', 'actual_rendered_scan_required');
     const findingIDs = scan.data.findings.filter(f => f.fixable && f.ruleId === 'table-header').map(f => f.id);
     requireFact(findingIDs.length === 1, 'actual_explicit_table_header_finding_required');
