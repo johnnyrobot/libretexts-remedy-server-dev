@@ -172,3 +172,14 @@ def test_changed_source_overlay_refuses_before_stage_mutation(tmp_path,monkeypat
     with pytest.raises(ValueError,match='source overlay changed'):driver.prepare(target)
     assert (target/'deploy/stack/bundle.json').read_bytes()==before
     assert not (target/'UNACCEPTED-LT212.json').exists()
+
+
+def test_source_overlay_isolated_from_parent_git_repository(tmp_path):
+    import subprocess
+    parent=tmp_path/'checkout';parent.mkdir()
+    subprocess.run(['git','init','--quiet',str(parent)],check=True,capture_output=True)
+    target=stage(parent)
+    receipt=module().prepare(target)
+    assert receipt['sourceOverlay']['sha256']==module().OVERLAY_SHA256
+    assert not (parent/'.github').exists()
+    assert not (parent/'.git/index').exists()

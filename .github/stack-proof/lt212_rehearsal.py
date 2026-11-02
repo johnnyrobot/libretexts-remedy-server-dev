@@ -85,10 +85,16 @@ def prepare(stage):
                'deploy/stack/preflight.py', '.github/stack-proof/conductor_artifacts.py', *OVERLAY_FILES)))
     before = {name: digest(stage / name) for name in changed}
     patch = (INPUTS / overlay['path']).resolve()
+    git_environment = os.environ.copy()
+    # --no-index still discovers a surrounding checkout and filters its paths.
+    # Stop discovery at the stage's parent; never use the caller's Git index.
+    git_environment['GIT_CEILING_DIRECTORIES'] = str(stage.parent.resolve())
+    for field in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR'):
+        git_environment.pop(field, None)
     subprocess.run(['git', 'apply', '--no-index', '--unidiff-zero', '--check', str(patch)], cwd=stage, check=True,
-                   capture_output=True, timeout=30)
+                   env=git_environment, capture_output=True, timeout=30)
     subprocess.run(['git', 'apply', '--no-index', '--unidiff-zero', str(patch)], cwd=stage, check=True,
-                   capture_output=True, timeout=30)
+                   env=git_environment, capture_output=True, timeout=30)
     if any(digest(stage / name) != binding['after'] for name, binding in overlay['files'].items()):
         raise ValueError('source overlay output differs')
     replacements = {}

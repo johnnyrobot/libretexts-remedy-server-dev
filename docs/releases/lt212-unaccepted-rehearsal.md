@@ -21,7 +21,8 @@ It refuses accepted/reused stages, changed security locks and unknown baselines.
 It checks and applies the hash-pinned `lt212-inputs/renderer-trust.patch` using
 `git apply --no-index --unidiff-zero`, without requiring a Git repository in the
 source stage. Whole-file hashes are mandatory before and after this zero-context
-patch; it is never applied on an unknown baseline.
+patch; it is never applied on an unknown baseline. A child-only Git discovery
+ceiling isolates the source stage from any parent checkout and caller index.
 The patch changes the six paths above only inside that stage. Its expected
 before/after hashes and original functional-proof source are in `inputs.json`.
 
