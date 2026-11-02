@@ -17,10 +17,10 @@ def module():
 
 def stage(tmp_path):
     destination = tmp_path / '.stack-inputs/server'
-    for name in ('deploy/stack/bundle.json', 'deploy/stack/conductor-candidates.json',
+    for name in dict.fromkeys((*module().OVERLAY_FILES, 'deploy/stack/bundle.json', 'deploy/stack/conductor-candidates.json',
                  'deploy/stack/preflight.py', '.github/stack-proof/conductor_artifacts.py',
                  '.github/stack-proof/seal_package.py', 'uv.lock',
-                 'src/project_remedy/html_tools/package-lock.json'):
+                 'src/project_remedy/html_tools/package-lock.json')):
         target = destination / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / name, target)
@@ -41,7 +41,7 @@ def test_draft_stage_binds_reviewed_producers_without_changing_release_files(tmp
     assert (target / '.github/stack-proof/seal_package.py').read_bytes() == sealer
 
 
-@pytest.mark.parametrize('damage', ['accepted', 'index', 'lock', 'verifier'])
+@pytest.mark.parametrize('damage', ['accepted', 'index', 'lock', 'verifier', 'script'])
 def test_unknown_or_accepted_stage_refuses_before_overlay(tmp_path, damage):
     target = stage(tmp_path)
     if damage == 'accepted':
@@ -52,6 +52,9 @@ def test_unknown_or_accepted_stage_refuses_before_overlay(tmp_path, damage):
         (target / 'deploy/stack/conductor-candidates.json').write_text('{}')
     elif damage == 'lock':
         (target / 'src/project_remedy/html_tools/package-lock.json').write_text('{}')
+    elif damage == 'script':
+        p = target / '.github/stack-proof/full_proof.py'
+        p.write_text(p.read_text() + '\n# changed source\n')
     else:
         p = target / 'deploy/stack/preflight.py'
         p.write_text(p.read_text().replace(module().OLD_INDEX, '0' * 64))
@@ -94,9 +97,11 @@ def test_renderer_policy_mismatch_refuses(tmp_path, monkeypatch):
         renderer_rehearsal.renderer_policy(tmp_path, tmp_path / 'absent-producer')
 
 
-def test_renderer_public_compose_uses_job_local_public_pem_trust():
+def test_renderer_public_compose_uses_job_local_public_pem_trust(tmp_path):
     import yaml
-    renderer = yaml.safe_load((ROOT / 'deploy/stack/compose.integration.yml').read_text())['services']['remedy-renderer']
+    target = stage(tmp_path)
+    module().prepare(target)
+    renderer = yaml.safe_load((target / 'deploy/stack/compose.integration.yml').read_text())['services']['remedy-renderer']
     assert renderer['environment']['RENDER_PUBLIC_CA_FILE'] == '/run/remedy-public-ca/roots.pem'
     assert renderer['entrypoint'] == ['node', '/opt/remedy-bundle/secret-env.mjs', 'renderer']
     assert [item['source'] for item in renderer['configs']] == ['credential-loader']
@@ -137,3 +142,33 @@ def test_public_package_refuses_unfrozen_or_replaced_source(tmp_path, monkeypatc
     work=tmp_path/'work';work.mkdir()
     with pytest.raises(ValueError,match='public package'):
         integration_compose_proof.prepare_package(source,work)
+
+
+@pytest.mark.parametrize('name', ['.github/stack-proof/full_proof.py', '.github/stack-proof/synthetic_signed_proof.py',
+    'deploy/stack/preflight.py', 'deploy/stack/compose.integration.yml', 'deploy/stack/env/renderer.env.example',
+    'deploy/stack/integration-profile.md'])
+def test_retained_canonical_renderer_paths_remain_byte_identical_to_base(name):
+    import hashlib
+    expected = module().inputs()['sourceOverlay']['files'][name]['before']
+    assert hashlib.sha256((ROOT/name).read_bytes()).hexdigest() == expected
+
+
+def test_staged_trust_paths_match_exact_prior_functional_source_bindings(tmp_path):
+    import hashlib
+    target=stage(tmp_path)
+    driver=module();receipt=driver.prepare(target)
+    for name,binding in driver.inputs()['sourceOverlay']['files'].items():
+        assert hashlib.sha256((target/name).read_bytes()).hexdigest()==binding['stagedAfter']
+        assert receipt['overlays'][name]['before']==binding['before']
+        assert receipt['overlays'][name]['after']==binding['stagedAfter']
+
+
+def test_changed_source_overlay_refuses_before_stage_mutation(tmp_path,monkeypatch):
+    driver=module();inputs=tmp_path/'inputs'
+    shutil.copytree(driver.INPUTS,inputs)
+    with (inputs/'renderer-trust.patch').open('ab') as stream:stream.write(b'changed')
+    monkeypatch.setattr(driver,'INPUTS',inputs)
+    target=stage(tmp_path);before=(target/'deploy/stack/bundle.json').read_bytes()
+    with pytest.raises(ValueError,match='source overlay changed'):driver.prepare(target)
+    assert (target/'deploy/stack/bundle.json').read_bytes()==before
+    assert not (target/'UNACCEPTED-LT212.json').exists()

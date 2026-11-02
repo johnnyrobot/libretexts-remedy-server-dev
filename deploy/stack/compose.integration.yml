@@ -71,13 +71,14 @@ services:
     env_file: [./env/renderer.env]
     environment:
       NODE_ENV: production
-      HOME: /tmp
-      RENDER_PUBLIC_CA_FILE: /run/remedy-public-ca/roots.pem
-    entrypoint: [node, /opt/remedy-bundle/secret-env.mjs, renderer]
+      HOME: /tmp/renderer-home
+    entrypoint: [sh, /opt/remedy-bundle/browser-home.sh, node, /opt/remedy-bundle/secret-env.mjs, renderer]
     command: [node, server.mjs]
     configs:
       - source: credential-loader
         target: /opt/remedy-bundle/secret-env.mjs
+      - source: browser-home
+        target: /opt/remedy-bundle/browser-home.sh
     volumes:
       - type: bind
         source: ${REMEDY_SECRET_ROOT:?private per-role credential directories required}/renderer
@@ -85,8 +86,8 @@ services:
         read_only: true
         bind: {create_host_path: false}
       - type: bind
-        source: ${REMEDY_TLS_ROOT:?pre-provisioned per-role TLS files required}/renderer/ca.pem
-        target: /run/remedy-public-ca/roots.pem
+        source: ${REMEDY_NSS_SEED_ROOT:?compatible fresh CA-only public NSS seed required}
+        target: /run/certificates/nss-seed
         read_only: true
         bind: {create_host_path: false}
     dns: [127.0.0.1]

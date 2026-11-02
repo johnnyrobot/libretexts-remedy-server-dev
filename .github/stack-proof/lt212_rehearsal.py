@@ -20,6 +20,10 @@ CONDUCTOR = '617187fd7993714ae4d6fb939b30268fb7be6eee'
 RELEASE_PREFIX = 'https://github.com/johnnyrobot/conductor-remedy-patch/releases/download/lt128-conductor-617187fd7993-run41451937248/'
 FLAGS = ('deploymentReady', 'productionWritesEnabled', 'liveProvidersVerified',
          'productionSSOVerified', 'releaseOwnerAcceptance')
+OVERLAY_SHA256 = '6999a03b72be00abe24324d2de8d1fcdf53a0e1e879ae98756200a91825e7034'
+OVERLAY_FILES = ('.github/stack-proof/full_proof.py', '.github/stack-proof/synthetic_signed_proof.py',
+                 'deploy/stack/preflight.py', 'deploy/stack/compose.integration.yml',
+                 'deploy/stack/env/renderer.env.example', 'deploy/stack/integration-profile.md')
 
 
 def digest(path):
@@ -49,6 +53,10 @@ def inputs():
                                          'sha256':PUBLICATION}
     if value['assets'] != assets or assets['candidate-index.json']['sha256'] != NEW_INDEX:
         raise ValueError('reviewed public byte pins differ')
+    overlay = value['sourceOverlay']
+    if (overlay['path'] != 'renderer-trust.patch' or overlay['sha256'] != OVERLAY_SHA256 or
+            digest(INPUTS / overlay['path']) != OVERLAY_SHA256 or set(overlay['files']) != set(OVERLAY_FILES)):
+        raise ValueError('reviewed source overlay changed')
     return value
 
 
@@ -70,11 +78,21 @@ def prepare(stage):
     bundle = json.loads(bundle_path.read_text())
     if bundle['deploymentReady'] is not False or bundle['productionWritesEnabled'] is not False:
         raise ValueError('accepted source cannot become rehearsal evidence')
-    changed = ('deploy/stack/bundle.json', 'deploy/stack/conductor-candidates.json',
-               'deploy/stack/preflight.py', '.github/stack-proof/conductor_artifacts.py')
+    overlay = value['sourceOverlay']
+    if any(digest(stage / name) != binding['before'] for name, binding in overlay['files'].items()):
+        raise ValueError('canonical overlay baseline changed; new validation required')
+    changed = tuple(dict.fromkeys(('deploy/stack/bundle.json', 'deploy/stack/conductor-candidates.json',
+               'deploy/stack/preflight.py', '.github/stack-proof/conductor_artifacts.py', *OVERLAY_FILES)))
     before = {name: digest(stage / name) for name in changed}
+    patch = (INPUTS / overlay['path']).resolve()
+    subprocess.run(['git', 'apply', '--no-index', '--check', str(patch)], cwd=stage, check=True,
+                   capture_output=True, timeout=30)
+    subprocess.run(['git', 'apply', '--no-index', str(patch)], cwd=stage, check=True,
+                   capture_output=True, timeout=30)
+    if any(digest(stage / name) != binding['after'] for name, binding in overlay['files'].items()):
+        raise ValueError('source overlay output differs')
     replacements = {}
-    for name in changed[2:]:
+    for name in ('deploy/stack/preflight.py', '.github/stack-proof/conductor_artifacts.py'):
         text = (stage / name).read_text()
         if text.count(OLD_INDEX) != 1:
             raise ValueError('unknown verifier source; exact pin overlay refused')
@@ -86,9 +104,12 @@ def prepare(stage):
     shutil.copyfile(INPUTS / 'candidate-index.json', stage / changed[1])
     for name, text in replacements.items():
         (stage / name).write_text(text)
+    if any(digest(stage / name) != binding['stagedAfter'] for name, binding in overlay['files'].items()):
+        raise ValueError('final staged source differs from pinned binding')
     receipt = {'status':'UNACCEPTED', 'securityGate':'LT227_UNMET',
                'bridgeSource':BRIDGE, 'conductorSource':CONDUCTOR,
                'indexSHA256':NEW_INDEX, 'globalFlags':dict.fromkeys(FLAGS, False),
+               'sourceOverlay':overlay,
                'overlays':{name:{'before':before[name], 'after':digest(stage / name)} for name in changed},
                'canonicalInputsModified':False, 'cleanSealPermitted':False}
     with marker.open('x') as stream:

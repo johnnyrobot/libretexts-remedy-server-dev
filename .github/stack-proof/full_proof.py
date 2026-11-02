@@ -13,7 +13,7 @@ import re
 import subprocess
 import time
 import uuid
-from evidence import write_product_log, collect_browser_evidence, runtime_node
+from evidence import write_product_log, collect_browser_evidence
 
 ROOT=Path.cwd();OUT=ROOT/'.stack-proof-evidence'
 if os.environ.get('GITHUB_ACTIONS')!='true' or platform.system()!='Linux' or platform.machine()!='x86_64':
@@ -103,11 +103,6 @@ def start(role,image,command,env=None,mounts=(),extra=(),uid=None,limits=(1,'256
         actual_uid=int(status['Uid'].split()[1]);assert actual_uid>0
         assert int(status['CapEff'].strip(),16)==0 and status['NoNewPrivs'].strip()=='1' and status['Seccomp'].strip()=='2'
         report.setdefault('started',[]).append({'role':role,'imageID':value['Image'],'uid':actual_uid,'capEff':0,'noNewPrivileges':True,'seccomp':2,'cpus':cpu,'memoryBytes':host['Memory'],'pidLimit':pids,'shmBytes':host['ShmSize'],'stopSeconds':stop,'readOnlyRoot':True,'tmpfs':host['Tmpfs'],'init':host['Init'],'seccompProfileSHA256':profile_hash})
-    if role in {'server', 'bridge', 'renderer', 'conductor'}:
-        observed = runtime_node(value['Id'])
-        if role == 'server': assert observed == 'v24.12.0'
-        if role == 'conductor': assert observed.startswith('v22.')
-        report.setdefault('runtimeNodes', []).append({'role':role, 'imageID':value['Image'], 'node':observed})
     return name
 
 def stop(role):
@@ -135,12 +130,10 @@ def stop(role):
     run('docker','rm',container);owned.remove(name)
 
 def address(role):return inspect(PREFIX+'-'+role)['NetworkSettings']['Networks'][network]['IPAddress']
-def request(role,port,path,body=None,key=None,control=False,*,bearer=False):
+def request(role,port,path,body=None,key=None,control=False):
     conn=http.client.HTTPConnection(address(role),port,timeout=150)
     headers={'Content-Type':'application/json'}
-    if key:
-        if bearer: headers['Authorization']='Bearer '+key
-        else: headers['X-Fixture-Control' if control else 'X-API-Key']=key
+    if key:headers['X-Fixture-Control' if control else 'X-API-Key']=key
     try:
         conn.request('POST' if body is not None else 'GET',path,json.dumps(body) if body is not None else None,headers)
         response=conn.getresponse();raw=response.read()
@@ -186,7 +179,6 @@ try:
     tls_fixture=WORK/'frontend-tls';tls_fixture.mkdir(mode=0o755)
     for name in ('key.pem','cert.pem'):
         (tls_fixture/name).write_bytes((fixture/name).read_bytes());os.chown(tls_fixture/name,1000,1000);(tls_fixture/name).chmod(0o400 if name=='key.pem' else 0o444)
-    (fixture/'ca.pem').chmod(0o444)
     (fixture/'key.pem').chmod(0o400);os.chown(fixture/'key.pem',999,999);(fixture/'cert.pem').chmod(0o444)
     # Chromium's NSS trust store uses the local fixture CA. Certificate and
     # hostname verification stay enabled; no browser or Node TLS bypass.
@@ -218,71 +210,8 @@ try:
     wait('scanner',8081,'/control/status','synthetic-control-only',True)
     code,scan=request('scanner',5176,'/v1/adapt/scan',{'mode':'question','id':101},'synthetic-scanner-key');assert code==200 and scan['results'][0]['findings'] and scan['results'][0]['capturedBytes']>0,scan
     report['actualScannerAgainstTLSserver']=True
-    def start_renderer(public_ca):
-        start('renderer','remedy-renderer:stack-candidate',['node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/tmp','RENDER_PUBLIC_CA_FILE':'/run/remedy-public-ca/roots.pem'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(public_ca,'/run/remedy-public-ca/roots.pem',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
-        wait('renderer',5180)
-
-    def trust_scan():
-        status, result = request('renderer',5180,'/scan',
-            {'url':'https://dev.libretexts.org/Sandboxes/johnnyphung/Stack/Synthetic'},
-            'synthetic-renderer-token',bearer=True)
-        assert status == 200,result
-        deadline=time.monotonic()+15
-        while request('renderer',5180,'/healthz')[1].get('busy') is not False:
-            assert time.monotonic()<deadline,'renderer job ownership did not settle'
-            time.sleep(.1)
-        return result
-
-    expected_sha=hashlib.sha256((fixture/'ca.pem').read_bytes()).hexdigest()
-    expected_fingerprint=run('openssl','x509','-in',fixture/'ca.pem','-noout','-sha256','-fingerprint').strip().split('=',1)[1]
-    start_renderer(fixture/'ca.pem')
-    trusted=trust_scan()
-    assert trusted['state']=='complete',trusted
-    assert trusted['publicCATrust']=={'sha256':expected_sha,'fingerprints':[expected_fingerprint]},trusted.get('publicCATrust')
-    report['rendererPublicCA']={**trusted['publicCATrust'],'producerSource':INPUT['rendererSource'],'mode':'job-local','parentNSSMounted':False}
-    report['assembledTLSControls']={'validCA':{'state':trusted['state'],'publicCATrust':trusted['publicCATrust']}}
-    stop('renderer')
-    wrong_ca=WORK/'wrong-public-ca.pem'
-    run('openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=LT212 wrong isolated root',
-        '-addext','basicConstraints=critical,CA:TRUE','-addext','keyUsage=critical,keyCertSign,cRLSign',
-        '-keyout',authority/'wrong-ca.key','-out',wrong_ca)
-    (authority/'wrong-ca.key').chmod(0o400);wrong_ca.chmod(0o444)
-    before=request('cxone',8082,'/control/status',key='synthetic-control-only',control=True)[1]
-    start_renderer(wrong_ca)
-    denied=trust_scan()
-    assert denied['state']=='error' and 'ERR_CERT_AUTHORITY_INVALID' in denied.get('error',''),denied
-    after=request('cxone',8082,'/control/status',key='synthetic-control-only',control=True)[1]
-    assert after['reads']==before['reads'] and after['mutations']==before['mutations']==0
-    report['assembledTLSControls']['wrongCA']={'state':denied['state'],'error':denied['error'],'externalReads':0,'externalMutations':0}
-    stop('renderer')
-    # A correctly trusted chain with the wrong leaf hostname must also fail.
-    wrong_host=WORK/'wrong-host-fixture';wrong_host.mkdir(mode=0o755)
-    (wrong_host/'ca.pem').write_bytes((fixture/'ca.pem').read_bytes());(wrong_host/'ca.pem').chmod(0o444)
-    run('openssl','req','-new','-newkey','rsa:2048','-nodes','-subj','/CN=wrong.invalid',
-        '-keyout',wrong_host/'key.pem','-out',authority/'wrong-host.csr')
-    wrong_ext=authority/'wrong-host.ext'
-    wrong_ext.write_text('basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:wrong.invalid\n')
-    run('openssl','x509','-req','-in',authority/'wrong-host.csr','-CA',fixture/'ca.pem','-CAkey',authority/'ca.key','-CAcreateserial',
-        '-days','1','-sha256','-extfile',wrong_ext,'-out',wrong_host/'cert.pem')
-    (wrong_host/'cert.pem').chmod(0o444);(wrong_host/'key.pem').chmod(0o400);os.chown(wrong_host/'key.pem',999,999)
-    stop('cxone')
-    start('cxone','remedy-server:stack-candidate',['python','/proof/external.py','--kind','cxone','--synthetic-source-controls'],
-        mounts=[(source/'external.py','/proof/external.py',True),(wrong_host,'/fixtures',True)],extra=[*net,'--ip','198.51.100.10','--network-alias','dev.libretexts.org'],uid=999)
-    wait('cxone',8082,'/control/status','synthetic-control-only',True)
-    start_renderer(fixture/'ca.pem')
-    denied=trust_scan()
-    assert denied['state']=='error' and 'ERR_CERT_COMMON_NAME_INVALID' in denied.get('error',''),denied
-    after=request('cxone',8082,'/control/status',key='synthetic-control-only',control=True)[1]
-    assert after['reads']==after['mutations']==0
-    report['assembledTLSControls']['wrongHostname']={'state':denied['state'],'error':denied['error'],'externalReads':0,'externalMutations':0}
-    stop('renderer');stop('cxone')
-    start('cxone','remedy-server:stack-candidate',['python','/proof/external.py','--kind','cxone','--synthetic-source-controls'],
-        mounts=[(source/'external.py','/proof/external.py',True),(fixture,'/fixtures',True)],extra=[*net,'--ip','198.51.100.10','--network-alias','dev.libretexts.org'],uid=999)
-    wait('cxone',8082,'/control/status','synthetic-control-only',True)
-    start_renderer(fixture/'ca.pem')
-    recovered=trust_scan()
-    assert recovered['state']=='complete' and recovered['publicCATrust']==trusted['publicCATrust'],recovered
-    report['assembledTLSControls']['validAfterRestart']={'state':recovered['state'],'publicCATrust':recovered['publicCATrust']}
+    start('renderer','remedy-renderer:stack-candidate',['sh','/proof/nss_home.sh','node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/tmp/renderer-home'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(ROOT/'deploy/stack/browser-home.sh','/proof/nss_home.sh',True),(nss,'/run/certificates/nss-seed',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
+    wait('renderer',5180)
     report['NSSSetup']['runtimePackage']=run('docker','exec',PREFIX+'-renderer','dpkg-query','-W','-f=${Version}','libnss3').strip()
     denied_chroot=subprocess.run(['docker','exec',PREFIX+'-renderer','chroot','/','/bin/true'],capture_output=True,text=True,timeout=10)
     assert denied_chroot.returncode!=0 and 'Operation not permitted' in denied_chroot.stderr,'initial namespace chroot must remain kernel-denied'

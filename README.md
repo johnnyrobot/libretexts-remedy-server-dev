@@ -33,7 +33,7 @@ not transfer.
 
 The active LT212 branch tests newer reviewed Bridge95a54dd and both original
 36-patch Conductor617187f images in an explicitly **UNACCEPTED rehearsal**. It uses
-[per-job public-CA provisioning](deploy/stack/integration-profile.md#overlay-and-mode-selection)
+[staged per-job public-CA provisioning](docs/releases/lt212-unaccepted-rehearsal.md)
 and retains LT227's five moderate npm audit findings as a hard failure. A build
 or component pass does not approve the current integration. The original input
 table below and retained delivery remain historical; no receipts transfer.

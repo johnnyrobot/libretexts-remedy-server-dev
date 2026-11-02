@@ -145,12 +145,10 @@ def stop(role,retain=False):
         run('docker','rm',container);owned.remove(name);container_roles.pop(name,None)
 
 def address(role):return inspect(PREFIX+'-'+role)['NetworkSettings']['Networks'][network]['IPAddress']
-def request(role,port,path,body=None,key=None,control=False,*,bearer=False):
+def request(role,port,path,body=None,key=None,control=False):
     conn=http.client.HTTPConnection(address(role),port,timeout=150)
     headers={'Content-Type':'application/json'}
-    if key:
-        if bearer: headers['Authorization']='Bearer '+key
-        else: headers['X-Fixture-Control' if control else 'X-API-Key']=key
+    if key:headers['X-Fixture-Control' if control else 'X-API-Key']=key
     try:
         conn.request('POST' if body is not None else 'GET',path,json.dumps(body) if body is not None else None,headers)
         response=conn.getresponse();raw=response.read()
@@ -307,9 +305,12 @@ try:
     (fixture/'key.pem').chmod(0o400);os.chown(fixture/'key.pem',999,999);(fixture/'cert.pem').chmod(0o444)
     # Chromium's NSS trust store uses the local fixture CA. Certificate and
     # hostname verification stay enabled; no browser or Node TLS bypass.
-    report['NSSSetup']={'toolSHA256':hashlib.sha256(Path('/usr/bin/certutil').read_bytes()).hexdigest(),'hostToolPackage':run('dpkg-query','-W','-f=${Version}','libnss3-tools').strip(),'hostOS':Path('/etc/os-release').read_text(),'temporaryHome':'private-per-job','temporaryBytes':512*1024*1024}
+    report['NSSSetup']={'toolSHA256':hashlib.sha256(Path('/usr/bin/certutil').read_bytes()).hexdigest(),'hostToolPackage':run('dpkg-query','-W','-f=${Version}','libnss3-tools').strip(),'hostOS':Path('/etc/os-release').read_text(),'temporaryHome':'/tmp/renderer-home','temporaryBytes':512*1024*1024}
+    nss=WORK/'nssdb';nss.mkdir();run('certutil','-N','--empty-password','-d','sql:'+str(nss))
+    run('certutil','-A','-d','sql:'+str(nss),'-n','isolated-cxone-fixture','-t','C,,','-i',fixture/'ca.pem')
     renderer_uid=image_uid(imports['images']['renderer']['loadedDockerImageID'])
     report['rendererUID']=renderer_uid
+    for p in [nss,*nss.iterdir()]:os.chown(p,renderer_uid,renderer_uid);p.chmod(0o700 if p.is_dir() else 0o600)
     state=bounded_state('server',999,INPUT['limits']['server']['stateBytes'])
     server_keys=private('server-keys',999,{'app':'synthetic-server-key','ollama':'synthetic-provider-key','service':'a1'*32})
     bridge_keys=private('bridge-keys',1000,{'key':'synthetic-key','secret':'synthetic-secret','user':'synthetic-user','service':'a1'*32,'renderer':'synthetic-renderer-token'})
@@ -372,21 +373,9 @@ try:
     code,scan=request('scanner',5176,'/v1/adapt/scan',{'mode':'question','id':101},'synthetic-scanner-key');assert code==200 and scan['results'][0]['findings'] and scan['results'][0]['capturedBytes']>0,scan
     report['actualScannerAgainstTLSserver']=True
     def start_renderer():
-        start('renderer','remedy-renderer:stack-candidate',['node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/tmp','RENDER_PUBLIC_CA_FILE':'/run/remedy-public-ca/roots.pem'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(fixture/'ca.pem','/run/remedy-public-ca/roots.pem',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
+        start('renderer','remedy-renderer:stack-candidate',['sh','/proof/nss_home.sh','node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/tmp/renderer-home'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(ROOT/'deploy/stack/browser-home.sh','/proof/nss_home.sh',True),(nss,'/run/certificates/nss-seed',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
         wait('renderer',5180)
     start_renderer()
-    ca_status, ca_scan = request('renderer',5180,'/scan',
-        {'url':'https://dev.libretexts.org/Sandboxes/johnnyphung/Stack/Synthetic'},
-        'synthetic-renderer-token',bearer=True)
-    expected_ca={'sha256':hashlib.sha256((fixture/'ca.pem').read_bytes()).hexdigest(),
-        'fingerprints':[run('openssl','x509','-in',fixture/'ca.pem','-noout','-sha256','-fingerprint').strip().split('=',1)[1]]}
-    assert ca_status==200 and ca_scan.get('state')=='complete','actual synthetic rendered TLS must complete before signed flows'
-    assert ca_scan.get('publicCATrust')==expected_ca,'actual synthetic renderer CA provenance must match'
-    report['rendererPublicCA']={**ca_scan['publicCATrust'],'producerSource':INPUT['rendererSource'],'parentNSSMounted':False}
-    ca_deadline=time.monotonic()+15
-    while request('renderer',5180,'/healthz')[1].get('busy') is not False:
-        assert time.monotonic()<ca_deadline,'synthetic renderer ownership did not settle'
-        time.sleep(.1)
     report['NSSSetup']['runtimePackage']=run('docker','exec',PREFIX+'-renderer','dpkg-query','-W','-f=${Version}','libnss3').strip()
     report['NSSSetup']['runtimeOS']=run('docker','exec',PREFIX+'-renderer','cat','/etc/os-release')
     assert 'VERSION_ID="24.04"' in report['NSSSetup']['runtimeOS'],'matching Ubuntu24 renderer NSS required'

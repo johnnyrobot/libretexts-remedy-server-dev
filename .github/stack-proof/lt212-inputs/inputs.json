@@ -32,5 +32,43 @@
     }
   },
   "serverNodeLockSHA256": "9c59e371b14927609bd2b375c095d4c6e611d5647382f6c55e2c78b8f179f9bd",
-  "serverUVLockSHA256": "cea641c8ff68b073b70ff69d12efebf855f109d05b4a794a405fabbeb18a5c6c"
+  "serverUVLockSHA256": "cea641c8ff68b073b70ff69d12efebf855f109d05b4a794a405fabbeb18a5c6c",
+  "sourceOverlay": {
+    "path": "renderer-trust.patch",
+    "sha256": "6999a03b72be00abe24324d2de8d1fcdf53a0e1e879ae98756200a91825e7034",
+    "baselineSource": "8ca8d17607a3ac5cb48588a3de942fd7e5cb1d76",
+    "functionalProofSource": "7ee60a1d72d9103d25ffde6856dd9774095f19ff",
+    "files": {
+      ".github/stack-proof/full_proof.py": {
+        "before": "c86de291d92d38f76bc21b8682baf7870e41f175488b0dd195f5f67955af9619",
+        "after": "202bbc191844da97a72dd13c78b943e69a4011ba3a7c94af1f9064118bce8e2d",
+        "stagedAfter": "202bbc191844da97a72dd13c78b943e69a4011ba3a7c94af1f9064118bce8e2d"
+      },
+      ".github/stack-proof/synthetic_signed_proof.py": {
+        "before": "1a5900044cd49fba9910d484e2524ba8d3f317e3956bf0a2715993ecf80295f3",
+        "after": "cb3cab21d7aef995d576134379a05a190b34b1d9b8a785490692f8c7fe7d6cd6",
+        "stagedAfter": "cb3cab21d7aef995d576134379a05a190b34b1d9b8a785490692f8c7fe7d6cd6"
+      },
+      "deploy/stack/preflight.py": {
+        "before": "00fa9ad88b01c43fd9e3c38ae2824900a09376cf2984e61fcf2f7a97ccc58aad",
+        "after": "6fb156e2375d80f048a79d0cfe64145abbef0a496d510cf8ce6e021bd0a750a3",
+        "stagedAfter": "4d2597410f07b760da71a11cd70c03f438bf9288b9502e8d5b29b6dd45f7e7fd"
+      },
+      "deploy/stack/compose.integration.yml": {
+        "before": "53e93673c9d550d9e0777b32c39f67e289526468413f155612bc8c8273582b7e",
+        "after": "83ca7c324f00385fb4adabc6267e962a9ea93173efb96fe250674b35eb329f53",
+        "stagedAfter": "83ca7c324f00385fb4adabc6267e962a9ea93173efb96fe250674b35eb329f53"
+      },
+      "deploy/stack/env/renderer.env.example": {
+        "before": "37c63e2939c72506696b3bfe7e5f8f34414851df93c8e531082e6158b9015034",
+        "after": "8c4b3aa7f677c542bc562f43acc0f63c34b6aa0e5e105953ee6a12c7de8a3a5c",
+        "stagedAfter": "8c4b3aa7f677c542bc562f43acc0f63c34b6aa0e5e105953ee6a12c7de8a3a5c"
+      },
+      "deploy/stack/integration-profile.md": {
+        "before": "ace0532d66f5bdc61e7ab07fb0118413d82ac4a5f0c85364543245e859458495",
+        "after": "e6e9cc076f6f2a940e27b8006115ec4c5d82e854d6d799b9f7299aeddb94ab49",
+        "stagedAfter": "e6e9cc076f6f2a940e27b8006115ec4c5d82e854d6d799b9f7299aeddb94ab49"
+      }
+    }
+  }
 }

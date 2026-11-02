@@ -485,7 +485,7 @@ def test_byte_identical_copied_package_configs_are_compatible(preflight, integra
         target = package/filename
         target.write_bytes((ROOT/'deploy/stack'/filename).read_bytes())
         config['configs'][name]['file'] = str(target)
-    assert preflight.validate_compose(config,args,policy,identities,1002,{},configuration_hashes=args.configuration_hashes)['renderer']['/run/remedy-public-ca/roots.pem'] == str(args.tls_root/'renderer/ca.pem')
+    assert preflight.validate_compose(config,args,policy,identities,1002,{},configuration_hashes=args.configuration_hashes)['renderer']['/run/certificates/nss-seed'] == str(args.nss_seed_root)
 
 
 @pytest.fixture
@@ -593,7 +593,8 @@ def test_changed_source_requires_real_browser_staleness_and_immutable_history(pr
 
 
 @pytest.mark.parametrize('mode', [0o400, 0o444, 0o600, 0o644])
-def test_public_ca_preflight_refuses_any_write_bits(preflight, tmp_path, mode):
+def test_public_ca_preflight_refuses_any_write_bits(staged_preflight, tmp_path, mode):
+    preflight = staged_preflight
     import os
     tmp_path.chmod(0o700)
     ca = tmp_path / 'ca.pem'
@@ -607,7 +608,8 @@ def test_public_ca_preflight_refuses_any_write_bits(preflight, tmp_path, mode):
 
 
 @pytest.mark.parametrize('damage', ['empty','oversize','symlink','fifo','key'])
-def test_public_ca_preflight_refuses_unsafe_operator_input(preflight, tmp_path, damage):
+def test_public_ca_preflight_refuses_unsafe_operator_input(staged_preflight, tmp_path, damage):
+    preflight = staged_preflight
     import os
     tmp_path.chmod(0o700)
     ca = tmp_path / 'ca.pem'
@@ -618,3 +620,15 @@ def test_public_ca_preflight_refuses_unsafe_operator_input(preflight, tmp_path, 
         ca.chmod(0o400)
     with pytest.raises((ValueError,FileNotFoundError)):
         preflight.validate_public_ca_file(ca, os.getuid())
+
+
+@pytest.fixture
+def staged_preflight(tmp_path):
+    # Real staged public-CA implementation, separate from retained canonical code.
+    setup = importlib.util.spec_from_file_location('lt212_test_stage', ROOT/'tests/unit/test_lt212_rehearsal.py')
+    rehearsal = importlib.util.module_from_spec(setup);setup.loader.exec_module(rehearsal)
+    target = rehearsal.stage(tmp_path)
+    rehearsal.module().prepare(target)
+    spec = importlib.util.spec_from_file_location('staged_public_ca_preflight', target/'deploy/stack/preflight.py')
+    module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    return module
