@@ -1,4 +1,4 @@
-"""Run the reviewed thirty renderer cases in the exact imported rehearsal image."""
+"""Run the reviewed thirty-nine renderer cases in the exact imported rehearsal image."""
 import hashlib
 import json
 import os
@@ -66,10 +66,10 @@ def main():
             '--pids-limit', '256', '--shm-size', '1g', '--stop-timeout', '30',
             '--tmpfs', '/tmp:rw,nosuid,nodev,size=512m', '-e', 'RUN_BROWSER_TESTS=1',
             '-e', 'NPM_CONFIG_CACHE=/tmp/npm-cache', '--entrypoint', '/bin/sh', loaded['Id'],
-            '-c', 'node --version && python3 --version && exec node --test --test-reporter=tap --test-concurrency=1 *.test.mjs').strip()
+            '-c', 'node --version && python3 --version && sha256sum /usr/bin/certutil && dpkg-query -W libnss3 libnss3-tools && exec node --test --test-reporter=tap --test-concurrency=1 *.test.mjs').strip()
         info = json.loads(run('docker', 'inspect', identity))[0]
         assert info['Image'] == loaded['Id'] and info['Config']['Labels'][label] == owner
-        for file in ('process-guardian.py', 'guardian_channel.py', 'process-owner.mjs', 'job-storage.mjs', 'server.mjs'):
+        for file in ('process-guardian.py', 'guardian_channel.py', 'process-owner.mjs', 'job-storage.mjs', 'server.mjs', 'public-ca.mjs', 'scan-worker.mjs'):
             raw = subprocess.check_output(['docker','cp',identity + ':/app/' + file,'-'], timeout=30)
             with tarfile.open(fileobj=io.BytesIO(raw)) as tar:
                 members = tar.getmembers()
@@ -79,15 +79,20 @@ def main():
             receipt['imageFiles'][file] = actual
         result = subprocess.run(['docker','start','--attach',identity], capture_output=True, text=True, timeout=600)
         log = result.stdout + result.stderr
-        write_product_log(evidence / 'renderer-thirty-tests.log', log)
-        print((evidence / 'renderer-thirty-tests.log').read_text()[-12000:], flush=True)
+        write_product_log(evidence / 'renderer-thirty-nine-tests.log', log)
+        print((evidence / 'renderer-thirty-nine-tests.log').read_text()[-12000:], flush=True)
         receipt['runtimeNode'] = next(line for line in result.stdout.splitlines() if re.fullmatch(r'v\d+\.\d+\.\d+', line))
         receipt['runtimePython'] = next(line for line in result.stdout.splitlines() if line.startswith('Python '))
         assert result.returncode == 0
-        for field, expected in (('tests',30),('pass',30),('fail',0),('skipped',0),('cancelled',0),('todo',0)):
+        for field, expected in (('tests',39),('pass',39),('fail',0),('skipped',0),('cancelled',0),('todo',0)):
             assert re.search(r'^# ' + field + ' ' + str(expected) + r'\s*$', log, re.M), field
         assert json.loads(run('docker','inspect',identity))[0]['State']['ExitCode'] == 0
-        receipt.update(testsPassed=True, tests=30, passed=30, skipped=0)
+        assert '505b13e3087e1abcabec3f1485e0e76b81322667dcae25758341b46bcfc5b62d  /usr/bin/certutil' in log
+        assert 'libnss3\t2:3.98-1ubuntu0.2' in log and 'libnss3-tools\t2:3.98-1ubuntu0.3' in log
+        for phase in ('public_ca_https_success','absent','wrong-ca','wrong-hostname'):
+            assert '"phase":"' + phase + '"' in log, phase
+        receipt['publicCATrustControls'] = {'validCA':True, 'absentCA':True, 'wrongCA':True, 'wrongHostname':True, 'requestCannotChooseTrust':True}
+        receipt.update(testsPassed=True, tests=39, passed=39, skipped=0)
     except Exception as error:
         receipt['errorType'] = type(error).__name__
         raise

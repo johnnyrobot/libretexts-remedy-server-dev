@@ -158,9 +158,6 @@ def probe(image, role, policy, profile, secret_root=None, bridge=False, expressi
         command=['node','--input-type=module','-e','import {chromium} from "playwright"; if(process.getuid()===0)process.exit(1); const b=await chromium.launch({headless:true,chromiumSandbox:true});const p=await b.newPage();await p.setContent("<html><body>Preflight</body></html>");await b.close();console.log("sandbox-launch-closed")']
     if command_override is not None: command=command_override
     if command[0]=='node': command=['node','-e',NODE_GUARD,*command]
-    if role=='renderer':
-        arguments+=['--mount',f'type=bind,src={ROOT}/deploy/stack/browser-home.sh,dst=/proof/browser-home.sh,readonly']
-        command=['sh','/proof/browser-home.sh',*command]
     container=None
     try:
         container=run(*arguments,'--entrypoint',command[0],image,*command[1:])
@@ -456,17 +453,37 @@ def validate_credentials(secret_root, scanner_uid):
         require(digests[left] == digests[right], 'cross_role_credential_bytes_mismatch')
 
 
+def validate_public_ca_file(path, uid):
+    canonical(path)
+    private_directory(path.parent, uid)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(fd)
+        require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and
+                stat.S_IMODE(info.st_mode) in {0o400, 0o444} and
+                (stat.S_IMODE(info.st_mode) == 0o444 or info.st_uid == uid) and
+                0 < info.st_size <= 65536, 'operator_public_ca_file_invalid')
+        raw = os.read(fd, 65537)
+        after = os.fstat(fd)
+        require(len(raw) == info.st_size and (after.st_mtime_ns,after.st_ctime_ns,after.st_size) ==
+                (info.st_mtime_ns,info.st_ctime_ns,info.st_size), 'operator_public_ca_changed')
+        require(b'PRIVATE KEY' not in raw, 'public_certificate_required')
+        return raw
+    finally:
+        os.close(fd)
+
+
 def validate_tls(root, scanner_uid):
     canonical(root)
     ca_digest = None
-    for role in ('server','scanner','bridge','conductor'):
+    for role in ('server','scanner','bridge','conductor','renderer'):
         uid = scanner_uid if role == 'scanner' else ROLE_UID[role]
         directory = root / role
         private_directory(directory, uid)
         names = {'cert.pem','key.pem','ca.pem'} if role == 'server' else {'ca.pem'}
         require({item.name for item in directory.iterdir()} == names, 'unexpected_tls_role_file')
         for name in names:
-            raw = protected_file(directory / name, uid, 1024*1024)
+            raw = validate_public_ca_file(directory / name, uid) if role == 'renderer' else protected_file(directory / name, uid, 1024*1024)
             if name == 'key.pem': require(b'PRIVATE KEY' in raw and b'ENCRYPTED' not in raw, 'noninteractive_tls_private_key_required')
             if name != 'key.pem':
                 require(b'PRIVATE KEY' not in raw and b'-----BEGIN CERTIFICATE-----' in raw, 'public_certificate_required')
@@ -595,8 +612,7 @@ def validate_compose(config, args, policy, identities, scanner_uid, signing, *, 
     require(isinstance(config,dict) and set(config.get('services', {})) == set(SERVICES.values()), 'exact_integration_service_inventory_required')
     require(config.get('networks',{}).get('remedy',{}).get('internal') is True, 'private_internal_network_required')
     # A private package copy may change paths, but never the frozen source bytes.
-    for name,relative in {'credential-loader':'deploy/stack/secret-env.mjs',
-                          'browser-home':'deploy/stack/browser-home.sh'}.items():
+    for name,relative in {'credential-loader':'deploy/stack/secret-env.mjs'}.items():
         source = canonical(Path(config.get('configs',{}).get(name,{}).get('file','')))
         info = source.stat()
         require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and
@@ -669,10 +685,9 @@ def validate_compose(config, args, policy, identities, scanner_uid, signing, *, 
                 require(not any(field+'_FILE' in env for field in set(fields)-set(ROLE_FILES.get(role,{}))), 'cross_role_secret_mount_forbidden')
         if role != 'mongo':
             expected_entrypoint = ['node',loader,role]
-            if role == 'renderer': expected_entrypoint = ['sh','/opt/remedy-bundle/browser-home.sh',*expected_entrypoint]
             require(service.get('entrypoint') == expected_entrypoint, 'unchanged_file_loader_entrypoint_required')
             files = {item['source']:item['target'] for item in service.get('configs',[])}
-            require(set(files) == ({'credential-loader','browser-home'} if role=='renderer' else {'credential-loader'}) and len(files) == len(service.get('configs',[])),
+            require(set(files) == {'credential-loader'} and len(files) == len(service.get('configs',[])),
                     'unexpected_compose_config_mount')
             require(files.get('credential-loader') == loader,
                     'reviewed_credential_loader_config_required')
@@ -704,8 +719,8 @@ def validate_compose(config, args, policy, identities, scanner_uid, signing, *, 
                 require(env.get('REMEDY_ENABLED') == 'true' and env.get('ORG_ID') == env.get('REMEDY_ORG_ID') and bool(env.get('ORG_ID')),
                         'coordinated_conductor_organization_required')
         elif role == 'renderer':
-            require(service.get('command') == ['node','server.mjs'] and env.get('RENDER_ALLOWED_HOSTS') == 'dev.libretexts.org' and env.get('HOME') == '/tmp/renderer-home' and
-                    files.get('browser-home') == '/opt/remedy-bundle/browser-home.sh', 'bounded_renderer_home_initializer_required')
+            require(service.get('command') == ['node','server.mjs'] and env.get('RENDER_ALLOWED_HOSTS') == 'dev.libretexts.org' and env.get('HOME') == '/tmp' and
+                    env.get('RENDER_PUBLIC_CA_FILE') == '/run/remedy-public-ca/roots.pem', 'job_local_public_ca_configuration_required')
         elif role == 'mongo':
             require(service.get('entrypoint') == ['mongod'] and service.get('command') == ['--auth','--bind_ip_all','--wiredTigerCacheSizeGB','0.25'],
                     'authenticated_bounded_mongo_command_required')
@@ -717,7 +732,7 @@ def validate_compose(config, args, policy, identities, scanner_uid, signing, *, 
             expected_mounts.update({'/run/tls/'+name:(args.tls_root/'server'/name, True) for name in ('cert.pem','key.pem','ca.pem')})
         elif role in {'scanner','bridge','conductor'}:
             expected_mounts['/run/tls/ca.pem'] = (args.tls_root/role/'ca.pem', True)
-        elif role == 'renderer': expected_mounts['/run/certificates/nss-seed'] = (args.nss_seed_root, True)
+        elif role == 'renderer': expected_mounts['/run/remedy-public-ca/roots.pem'] = (args.tls_root/'renderer/ca.pem', True)
         elif role == 'mongo': expected_mounts['/data/db'] = (args.mongo_state_root, False)
         if role == 'bridge' and args.history:
             expected_mounts.update({'/ledger':(args.bridge_state_root,False),'/fence':(args.fence_root,False)})
@@ -883,22 +898,26 @@ def integration_check(args, candidate, baseline, policy):
                 'scanner':ROOT/'deploy/stack/scanner-seccomp-amd64.json','renderer':args.renderer_seccomp,
                 'bridge':None,'conductor':None,'mongo':None}
     runtime_checks = {}
-    nss_mount = [(args.nss_seed_root,'/run/certificates/nss-seed')]
+    public_ca_mount = [(args.tls_root/'renderer/ca.pem','/run/remedy-public-ca/roots.pem')]
+    ca_probe = "import {loadPublicCA} from '/app/public-ca.mjs';const c=await loadPublicCA(process.env.RENDER_PUBLIC_CA_FILE);console.log(JSON.stringify({sha256:c.sha256,fingerprints:c.fingerprints}));"
+    expected_ca = hashlib.sha256(validate_public_ca_file(args.tls_root/'renderer/ca.pem',1001)).hexdigest()
+    actual_ca = read_json(probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=public_ca_mount,environment={'RENDER_PUBLIC_CA_FILE':'/run/remedy-public-ca/roots.pem'},command_override=['node','--input-type=module','-e',ca_probe]))
+    require(actual_ca['sha256'] == expected_ca and full.get('rendererPublicCA',{}).get('sha256') == expected_ca and bool(actual_ca['fingerprints']), 'actual_job_local_public_ca_provenance_required')
     for role in ('server','scanner','bridge','renderer','conductor'):
-        mounts = nss_mount if role == 'renderer' else ([(args.tls_root/role/'ca.pem','/run/tls/ca.pem')] if role in {'scanner','bridge','conductor'} else [])
+        mounts = public_ca_mount if role == 'renderer' else ([(args.tls_root/role/'ca.pem','/run/tls/ca.pem')] if role in {'scanner','bridge','conductor'} else [])
         trust_env = {'NODE_EXTRA_CA_CERTS':'/run/tls/ca.pem'} if role in {'scanner','bridge','conductor'} else {}
         probe(identities[role],role,policy,profiles[role],args.secret_root,True,integration=True,mounts=mounts,environment=trust_env,
               uid=scanner_uid if role=='scanner' else ROLE_UID[role])
     for role in ('server','scanner','renderer'):
         runtime_checks[role] = probe(identities[role],role,policy,profiles[role],integration=True,
-                                     mounts=nss_mount if role=='renderer' else [], uid=scanner_uid if role=='scanner' else ROLE_UID[role])
+                                     mounts=public_ca_mount if role=='renderer' else [], uid=scanner_uid if role=='scanner' else ROLE_UID[role])
     require(runtime_checks['server'] == 'pidfd-subreaper-and-sandboxed-renderer-available' and
             runtime_checks['scanner'] == 'sandbox-launch-closed' and runtime_checks['renderer'] == 'sandbox-launch-closed',
             'complete_genuine_runtime_probe_results_required')
-    renderer_denial = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=nss_mount,
+    renderer_denial = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=public_ca_mount,
                            command_override=['sh','-c', 'if chroot / /bin/true >/dev/null 2>&1; then exit 1; fi; printf initial-namespace-chroot-denied'])
     require(renderer_denial == 'initial-namespace-chroot-denied', 'renderer_initial_namespace_chroot_denial_required')
-    nss_version = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=nss_mount,
+    nss_version = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=public_ca_mount,
                         command_override=['dpkg-query','-W','-f=${Version}','libnss3'])
     require(nss_version == full['NSSSetup']['runtimePackage'], 'immutable_renderer_nss_runtime_mismatch')
     runtime_checks['conductor'] = probe(identities['conductor'],'conductor',policy,None,args.secret_root,True,CONDUCTOR_CRYPTO_PROBE,integration=True)

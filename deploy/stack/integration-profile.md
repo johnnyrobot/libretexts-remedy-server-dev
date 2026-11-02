@@ -261,26 +261,39 @@ The single recorded chroot correction preserves sandboxing and kernel denial in
 the initial unprivileged namespace. Never use extra capabilities, unconfined
 seccomp, ignored certificate errors or sandbox-disabling flags.
 
-`REMEDY_NSS_SEED_ROOT` is a read-only **fresh CA-only** public seed containing
-`cert9.db` and `key4.db`, readable only by renderer UID 1001. Deployment owners
-must verify it contains only approved public trust certificates and no private
-keys, client identities or copied user profile. Use the compatible Ubuntu 24.04
-NSS toolchain and retain its version/hash with the exact image's runtime NSS
-package. Actual Linux run `41029837474` on Ubuntu 24.04.5 recorded
-`libnss3-tools=2:3.98-1ubuntu0.3`, tool SHA-256
-`505b13e3087e1abcabec3f1485e0e76b81322667dcae25758341b46bcfc5b62d`, and
-renderer `libnss3=2:3.98-1ubuntu0.2` in its `full-result.json` receipt. That is a
-verified compatibility pair, not permission to replace runtime libraries or
-assume an arbitrary newer tool is compatible. A host NSS 3.117 database failed
-against immutable runtime NSS 3.98 and is unsupported.
+The LT212 branch is an **UNACCEPTED rehearsal**, with LT227's actual production
+npm audit still failing. Its new renderer input is Bridge
+`95a54dd3af850ca8eb5b8bf8be0395f0543c049e`; it must be rebuilt from the exact
+producer Dockerfile. Published original artifacts and their old receipts are
+historical inputs; they do not accept this draft.
 
-The single [browser-home.sh](browser-home.sh) initializer requires nonroot
-`HOME=/tmp/renderer-home`, umask 077, and fresh current and legacy NSS directories.
-It copies **only** `cert9.db`/`key4.db` into `$HOME/.local/share/pki/nssdb` and
-`$HOME/.pki/nssdb`, then execs the unchanged command. It never imports host module
-configuration or offers diagnostic variants. HOME lives inside the renderer's
-512 MiB tmpfs; shm is 1 GiB and stop grace 30 seconds. A failed initializer is a
-stop condition, not permission to reuse arbitrary host browser state.
+The renderer consumes only `${REMEDY_TLS_ROOT}/renderer/ca.pem`, mounted read-only
+at `/run/remedy-public-ca/roots.pem`, selected by `RENDER_PUBLIC_CA_FILE`.
+The operator-controlled directory is mode 0700 owned by UID1001; its public PEM
+file is mode 0400 owned by UID1001 (0444 is also supported). No write bits, final
+symlink, key, client identity, intermediate or leaf certificate is allowed. At
+most 65,536 bytes and eight distinct self-issued, verified CA roots are supported.
+The actual image's producer parser validates this input during preflight and at
+service startup. Changes require a drain/restart. Each admitted job receives its
+own bounded snapshot and NSS database; SHA256/fingerprints describe the public
+input. The renderer never mounts or copies a parent NSS seed. Setup stays inside
+the existing guardian, 120-second deadline, 128 MiB/8,192-entry job thresholds,
+512 MiB tmpfs, 2 GiB memory, 256 PID and 30-second stop budgets. The separate
+completed trust setup is limited to 1 MiB and 32 entries.
+
+The producer image pins Playwright1.63.0 base `eff16c30…`, NSS runtime
+`2:3.98-1ubuntu0.2`, signed Ubuntu snapshot20261031 and certutil
+`2:3.98-1ubuntu0.3`/SHA256
+`505b13e3087e1abcabec3f1485e0e76b81322667dcae25758341b46bcfc5b62d`.
+No host-tool or arbitrary keystore substitution is supported. See the immutable
+[producer operator contract](https://github.com/johnnyrobot/libretexts-remedy-bridge-dev/blob/95a54dd3af850ca8eb5b8bf8be0395f0543c049e/browser-scanner/README.md#operator-public-ca-trust-lt-239).
+
+`REMEDY_NSS_SEED_ROOT` and [browser-home.sh](browser-home.sh) remain solely for
+the isolated proof's separate interactive frontend browser, which does not use
+the renderer service's job worker. They preserve that role's existing fresh
+public-only NSS compatibility checks. They are not mounted on remedy-renderer.
+All release flags remain false until supported security repair and complete new
+matching operational acceptance; this section is not a deployment endorsement.
 
 ## Overlay and mode selection
 

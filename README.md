@@ -31,6 +31,13 @@ deployment after those security findings. A patched compatible package requires
 fresh matching runtime and assembled-service acceptance; original receipts do
 not transfer.
 
+The active LT212 branch tests newer reviewed Bridge95a54dd and both original
+36-patch Conductor617187f images in an explicitly **UNACCEPTED rehearsal**. It uses
+[per-job public-CA provisioning](deploy/stack/integration-profile.md#overlay-and-mode-selection)
+and retains LT227's five moderate npm audit findings as a hard failure. A build
+or component pass does not approve the current integration. The original input
+table below and retained delivery remain historical; no receipts transfer.
+
 The deployment package remains a candidate until the exact archives and pulled
 Scanner digest pass the complete Linux service proof and operational acceptance.
 `deploy/stack/bundle.json` deliberately keeps `deploymentReady` and

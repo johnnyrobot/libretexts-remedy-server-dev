@@ -8,6 +8,14 @@ rollout timing. Review-only is optional; full signed apply/restore/history code 
 retained. Production automatic writes have no bypass toggle and still require
 the LibreTexts-owned vendor, adapter and target-policy validation.
 
+The current LT212 branch is an UNACCEPTED rehearsal of Bridge95a54dd plus original
+36-patch Conductor617187f artifacts. The production npm audit remains failed
+(LT227); no clean seal or acceptance is generated. See the
+[integration trust instructions](integration-profile.md) for the readonly public
+PEM mount and producer-owned per-job NSS setup; the renderer no longer consumes
+the frontend browser's parent NSS seed. The original bundle/index and retained
+historical bytes remain separate from this source-specific test.
+
 ## Immutable artifacts and prerequisites
 
 Use host Python 3.11+ for the standard-library preflight CLI (including

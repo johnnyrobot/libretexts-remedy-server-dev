@@ -13,11 +13,11 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[2]
 INPUTS = Path(__file__).with_name('lt212-inputs')
 OLD_INDEX = '99d70fe71fdf956bc60e34ca55b262cc39747cd5fd30bd386ec7518d3ba58da8'
-NEW_INDEX = '8e85b978fe3c196756c4ca20c059c1a2bf64863e8162f065a3e935de912b1ed8'
-PUBLICATION = '87b0c3f507609be0b2240bd887ee519bb2f9e9b4fad920e71752b6a4ba365d50'
-BRIDGE = '98edbdcd63b76d0bc90ef864841fb39073ea7b6f'
-CONDUCTOR = '973fa92426814c43400a4ee031f3c854a1dc4933'
-RELEASE_PREFIX = 'https://github.com/johnnyrobot/conductor-remedy-patch/releases/download/lt190-conductor-973fa9242681-run41404848931/'
+NEW_INDEX = '2e1297e9c180af7dce1f2e6894c6afffd0aff20ed71c3434dbccd36f14dc6e29'
+PUBLICATION = '6dba464c1554a2c828da5e2419fc772b6cea9342fb93675d221d3a8b3d62d7e8'
+BRIDGE = '95a54dd3af850ca8eb5b8bf8be0395f0543c049e'
+CONDUCTOR = '617187fd7993714ae4d6fb939b30268fb7be6eee'
+RELEASE_PREFIX = 'https://github.com/johnnyrobot/conductor-remedy-patch/releases/download/lt128-conductor-617187fd7993-run41451937248/'
 FLAGS = ('deploymentReady', 'productionWritesEnabled', 'liveProvidersVerified',
          'productionSSOVerified', 'releaseOwnerAcceptance')
 
@@ -40,10 +40,11 @@ def inputs():
             any(index.get(key) is not False for key in FLAGS)):
         raise ValueError('rehearsal acceptance flags must be false')
     publication = json.loads((INPUTS / 'publication-receipt.json').read_text())
-    assets = {item['name']:{'bytes':item['bytes'], 'sha256':item['digest'].removeprefix('sha256:')}
+    assets = {item['name']:{'bytes':item['bytes'], 'sha256':item['sha256']}
               for item in publication['publishedAssets']}
     if any(item['downloadURL'] != RELEASE_PREFIX + item['name'] for item in publication['publishedAssets']):
         raise ValueError('reviewed public location differs')
+    assets['acquisition-receipt.json'] = {'bytes':4055, 'sha256':publication['acquisitionReceiptSHA256']}
     assets['publication-receipt.json'] = {'bytes':(INPUTS / 'publication-receipt.json').stat().st_size,
                                          'sha256':PUBLICATION}
     if value['assets'] != assets or assets['candidate-index.json']['sha256'] != NEW_INDEX:
@@ -147,8 +148,8 @@ def acquire(destination, producer):
     for item in index['candidates']:
         target = item['target']
         manifest = producer / item['deliveryManifestPath']
-        if digest(manifest) != item['deliveryManifestSHA256'] or len(item['patches']) != 35:
-            raise ValueError('reviewed 35-patch delivery required')
+        if digest(manifest) != item['deliveryManifestSHA256'] or len(item['patches']) != 36:
+            raise ValueError('reviewed 36-patch delivery required')
         for patch in item['patches']:
             if digest(manifest.parent / patch['path']) != patch['sha256']:
                 raise ValueError('producer patch changed')

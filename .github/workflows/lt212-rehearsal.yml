@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: johnnyrobot/libretexts-remedy-bridge-dev
-          ref: 98edbdcd63b76d0bc90ef864841fb39073ea7b6f
+          ref: 95a54dd3af850ca8eb5b8bf8be0395f0543c049e
           path: .stack-inputs/bridge
           persist-credentials: false
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
@@ -51,7 +51,7 @@ jobs:
           platforms: linux/amd64
           outputs: type=oci,dest=.stack-artifacts/bridge.oci.tar
           provenance: mode=max
-          labels: org.opencontainers.image.revision=98edbdcd63b76d0bc90ef864841fb39073ea7b6f
+          labels: org.opencontainers.image.revision=95a54dd3af850ca8eb5b8bf8be0395f0543c049e
           cache-from: type=gha,scope=stack-bridge
           cache-to: type=gha,mode=max,scope=stack-bridge
       - name: Archive the actual Bridge rendered-page scanner
@@ -61,7 +61,7 @@ jobs:
           platforms: linux/amd64
           outputs: type=oci,dest=.stack-artifacts/renderer.oci.tar
           provenance: mode=max
-          labels: org.opencontainers.image.revision=98edbdcd63b76d0bc90ef864841fb39073ea7b6f
+          labels: org.opencontainers.image.revision=95a54dd3af850ca8eb5b8bf8be0395f0543c049e
           cache-from: type=gha,scope=stack-renderer
           cache-to: type=gha,mode=max,scope=stack-renderer
       - name: Bind archives and configuration to this source
@@ -71,7 +71,7 @@ jobs:
           from pathlib import Path
           root=Path('.stack-artifacts')
           names=['server.oci.tar','bridge.oci.tar','renderer.oci.tar','build-inputs.json','rehearsal-inputs.json']
-          value={'status':'UNACCEPTED','securityGate':'LT227_UNMET','cleanSealPermitted':False,'sourcePreparation':json.loads((root/'rehearsal-inputs.json').read_text()),'serverSource':os.environ['GITHUB_SHA'],'bridgeSource':'98edbdcd63b76d0bc90ef864841fb39073ea7b6f','deploymentReady':False,'productionWritesEnabled':False,'retentionDays':30,'sha256':{}}
+          value={'status':'UNACCEPTED','securityGate':'LT227_UNMET','cleanSealPermitted':False,'sourcePreparation':json.loads((root/'rehearsal-inputs.json').read_text()),'serverSource':os.environ['GITHUB_SHA'],'bridgeSource':'95a54dd3af850ca8eb5b8bf8be0395f0543c049e','deploymentReady':False,'productionWritesEnabled':False,'retentionDays':30,'sha256':{}}
           for name in names:
               with (root/name).open('rb') as stream: value['sha256'][name]=hashlib.file_digest(stream,'sha256').hexdigest()
           value['configurationSha256']={str(p.relative_to('.stack-inputs/server')):hashlib.sha256(p.read_bytes()).hexdigest() for p in Path('.stack-inputs/server/deploy/stack').rglob('*') if p.is_file() and p.suffix in {'.py','.mjs','.json','.yml','.example','.md','.sh'}}
@@ -97,7 +97,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: johnnyrobot/libretexts-remedy-bridge-dev
-          ref: 98edbdcd63b76d0bc90ef864841fb39073ea7b6f
+          ref: 95a54dd3af850ca8eb5b8bf8be0395f0543c049e
           path: .stack-bridge-producer
           persist-credentials: false
       - uses: actions/download-artifact@v4
@@ -108,7 +108,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends skopeo
-      - name: Import exact rebuilt renderer and run all thirty real cases
+      - name: Import exact rebuilt renderer and run all thirty-nine real cases
         run: |
           skopeo copy --override-os linux --override-arch amd64 oci-archive:.stack-artifacts/renderer.oci.tar docker-daemon:remedy-renderer:stack-candidate
           python3 .github/stack-proof/renderer_rehearsal.py
@@ -204,7 +204,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: johnnyrobot/conductor-remedy-patch
-          ref: 973fa92426814c43400a4ee031f3c854a1dc4933
+          ref: 617187fd7993714ae4d6fb939b30268fb7be6eee
           path: .stack-conductor-producer
           persist-credentials: false
       - name: Stage identical UNACCEPTED inputs
@@ -267,7 +267,7 @@ jobs:
               observed[role]={'reference':reference,**{key:value.get(key) for key in ['Id','Os','Architecture','Variant','RepoDigests']}}
           Path('.stack-proof-evidence/registry-bindings.json').write_text(json.dumps(observed,indent=2)+'\n')
           PY
-      - name: Download and verify exact published thirty-five-patch consumer bytes
+      - name: Download and verify exact published thirty-six-patch consumer bytes
         run: |
           python3 .github/stack-proof/lt212_rehearsal.py acquire .stack-conductor-downloads --producer "$GITHUB_WORKSPACE/.stack-conductor-producer"
           cp .stack-conductor-downloads/download-verification.json .stack-proof-evidence/producer-downloads.json

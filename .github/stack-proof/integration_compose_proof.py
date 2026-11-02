@@ -71,9 +71,10 @@ def prepare_package(root, work):
 def prepare_tls(tls_root, fixture, scanner_uid):
     """Prepare the exact role-owned files consumed by the public preflight."""
     tls_root.mkdir(mode=0o700)
-    for role, uid in (('server', 999), ('scanner', scanner_uid), ('bridge', 1000), ('conductor', 1000)):
+    for role, uid in (('server', 999), ('scanner', scanner_uid), ('bridge', 1000), ('conductor', 1000), ('renderer', 1001)):
         directory = _private_directory(tls_root / role, uid)
         _private_file(directory / 'ca.pem', uid, (fixture / 'ca.pem').read_bytes())
+        if role == 'renderer': (directory / 'ca.pem').chmod(0o400)
         if role == 'server':
             for name in ('cert.pem', 'key.pem'):
                 _private_file(directory / name, uid, (fixture / name).read_bytes())

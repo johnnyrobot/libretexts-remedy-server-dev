@@ -1,34 +1,34 @@
 {
   "status": "UNACCEPTED",
   "securityGate": "LT227_UNMET",
-  "bridgeSource": "98edbdcd63b76d0bc90ef864841fb39073ea7b6f",
-  "conductorSource": "973fa92426814c43400a4ee031f3c854a1dc4933",
-  "indexSHA256": "8e85b978fe3c196756c4ca20c059c1a2bf64863e8162f065a3e935de912b1ed8",
-  "releasePrefix": "https://github.com/johnnyrobot/conductor-remedy-patch/releases/download/lt190-conductor-973fa9242681-run41404848931/",
+  "bridgeSource": "95a54dd3af850ca8eb5b8bf8be0395f0543c049e",
+  "conductorSource": "617187fd7993714ae4d6fb939b30268fb7be6eee",
+  "indexSHA256": "2e1297e9c180af7dce1f2e6894c6afffd0aff20ed71c3434dbccd36f14dc6e29",
+  "releasePrefix": "https://github.com/johnnyrobot/conductor-remedy-patch/releases/download/lt128-conductor-617187fd7993-run41451937248/",
   "assets": {
-    "candidate-index.json": {
-      "bytes": 25232,
-      "sha256": "8e85b978fe3c196756c4ca20c059c1a2bf64863e8162f065a3e935de912b1ed8"
-    },
-    "publication-receipt.json": {
-      "bytes": 3583,
-      "sha256": "87b0c3f507609be0b2240bd887ee519bb2f9e9b4fad920e71752b6a4ba365d50"
-    },
     "acquisition-receipt.json": {
-      "bytes": 5122,
-      "sha256": "c1422be0b482b9b4d5b9e97ddc834e8def702b1330588c51c39db3f0b3fcfaa8"
+      "bytes": 4055,
+      "sha256": "38f3e7fb6ca3fd5897ef33119d9afaade991c98b523c413452eb0e05c90eca76"
+    },
+    "candidate-index.json": {
+      "bytes": 25748,
+      "sha256": "2e1297e9c180af7dce1f2e6894c6afffd0aff20ed71c3434dbccd36f14dc6e29"
     },
     "candidate-records.zip": {
-      "bytes": 28662,
-      "sha256": "e5553be63f4113a6166a9ac2b7ff70e32c6c5662ad9f0dbedb25a059c35e080a"
+      "bytes": 28555,
+      "sha256": "16e0ebb4efe57fb1f35527ed85a8dcdd5ce6f1de16d66e2d9ef535c7e0d6cebc"
     },
-    "staging-67301b35.zip": {
-      "bytes": 205961223,
-      "sha256": "b36b890b9d3f2730f2084d1dc87fe3563b4adc2dbb348d9db818fc1f11156694"
+    "publication-receipt.json": {
+      "bytes": 3691,
+      "sha256": "6dba464c1554a2c828da5e2419fc772b6cea9342fb93675d221d3a8b3d62d7e8"
     },
     "release-2.156.2.zip": {
-      "bytes": 195466213,
-      "sha256": "c3f1ce6d588e860ee2ea200cd58159ede908ac7c35a5ff7dd7a283729b477c65"
+      "bytes": 195622161,
+      "sha256": "bec2c12268ea1c29814abe5ad2aeb91042097b0d00f659768b01be3c7ef46c41"
+    },
+    "staging-67301b35.zip": {
+      "bytes": 206133109,
+      "sha256": "6b46b10494a538fd4476461069ddc55dbab56e54845f61e89291b110ea693032"
     }
   },
   "serverNodeLockSHA256": "9c59e371b14927609bd2b375c095d4c6e611d5647382f6c55e2c78b8f179f9bd",

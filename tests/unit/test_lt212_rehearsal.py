@@ -33,8 +33,8 @@ def test_draft_stage_binds_reviewed_producers_without_changing_release_files(tmp
     sealer = (target / '.github/stack-proof/seal_package.py').read_bytes()
     receipt = module().prepare(target)
     policy = json.loads((target / 'deploy/stack/bundle.json').read_text())
-    assert policy['bridgeSource'] == policy['rendererSource'] == '98edbdcd63b76d0bc90ef864841fb39073ea7b6f'
-    assert policy['conductorCandidateIndexSHA256'] == '8e85b978fe3c196756c4ca20c059c1a2bf64863e8162f065a3e935de912b1ed8'
+    assert policy['bridgeSource'] == policy['rendererSource'] == '95a54dd3af850ca8eb5b8bf8be0395f0543c049e'
+    assert policy['conductorCandidateIndexSHA256'] == '2e1297e9c180af7dce1f2e6894c6afffd0aff20ed71c3434dbccd36f14dc6e29'
     assert receipt['status'] == 'UNACCEPTED' and receipt['securityGate'] == 'LT227_UNMET'
     assert policy['deploymentReady'] is False and policy['productionWritesEnabled'] is False
     assert (ROOT / 'deploy/stack/bundle.json').read_bytes() == before
@@ -92,3 +92,15 @@ def test_renderer_policy_mismatch_refuses(tmp_path, monkeypatch):
     (directory / 'renderer-seccomp-amd64.json').write_text('{}')
     with pytest.raises(ValueError, match='filter changed'):
         renderer_rehearsal.renderer_policy(tmp_path, tmp_path / 'absent-producer')
+
+
+def test_renderer_public_compose_uses_job_local_public_pem_trust():
+    import yaml
+    renderer = yaml.safe_load((ROOT / 'deploy/stack/compose.integration.yml').read_text())['services']['remedy-renderer']
+    assert renderer['environment']['RENDER_PUBLIC_CA_FILE'] == '/run/remedy-public-ca/roots.pem'
+    assert renderer['entrypoint'] == ['node', '/opt/remedy-bundle/secret-env.mjs', 'renderer']
+    assert [item['source'] for item in renderer['configs']] == ['credential-loader']
+    ca = next(item for item in renderer['volumes'] if item['target'] == '/run/remedy-public-ca/roots.pem')
+    assert ca['read_only'] is True and ca['bind']['create_host_path'] is False
+    assert ca['source'].endswith('/renderer/ca.pem')
+    assert not any('nss-seed' in str(item) for item in renderer['volumes'])

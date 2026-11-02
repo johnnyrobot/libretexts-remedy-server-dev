@@ -97,7 +97,8 @@ def test_examples_use_existing_file_credentials_and_no_signer_for_review_startup
         'MAILGUN_API_KEY_FILE': '/run/secrets/mailgun',
     }
     assert not any('REVIEWER' in name for name in conductor)
-    assert renderer['HOME'] == '/tmp/renderer-home'
+    assert renderer['HOME'] == '/tmp'
+    assert renderer['RENDER_PUBLIC_CA_FILE'] == '/run/remedy-public-ca/roots.pem'
     assert renderer['RENDER_SCANNER_TOKEN_FILE'] == '/run/secrets/token'
     assert renderer['RENDER_ALLOWED_HOSTS'] == 'dev.libretexts.org'
     assert renderer['RENDER_SCANNER_PORT'] == '5180'
@@ -171,7 +172,7 @@ def test_bridge_remains_private_and_no_writer_readiness_dependency_is_added():
         assert 'depends_on' not in service
         assert 'network_mode' not in service and 'ports' not in service
     assert integration['remedy-renderer']['entrypoint'] == [
-        'sh', '/opt/remedy-bundle/browser-home.sh', 'node',
+        'node',
         '/opt/remedy-bundle/secret-env.mjs', 'renderer',
     ]
     assert any('renderer-seccomp-amd64.json' in option for option in integration['remedy-renderer']['security_opt'])

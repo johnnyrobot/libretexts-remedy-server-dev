@@ -485,7 +485,7 @@ def test_byte_identical_copied_package_configs_are_compatible(preflight, integra
         target = package/filename
         target.write_bytes((ROOT/'deploy/stack'/filename).read_bytes())
         config['configs'][name]['file'] = str(target)
-    assert preflight.validate_compose(config,args,policy,identities,1002,{},configuration_hashes=args.configuration_hashes)['renderer']['/run/certificates/nss-seed'] == str(args.nss_seed_root)
+    assert preflight.validate_compose(config,args,policy,identities,1002,{},configuration_hashes=args.configuration_hashes)['renderer']['/run/remedy-public-ca/roots.pem'] == str(args.tls_root/'renderer/ca.pem')
 
 
 @pytest.fixture
@@ -590,3 +590,31 @@ def test_changed_source_requires_real_browser_staleness_and_immutable_history(pr
     elif damage == 'boolean-verified': freshness['verifiedCriteria'] = False
     with pytest.raises(ValueError):
         preflight.validate_integration_proof(candidate,baseline,full,'release-2.156.2',policy)
+
+
+@pytest.mark.parametrize('mode', [0o400, 0o444, 0o600, 0o644])
+def test_public_ca_preflight_refuses_any_write_bits(preflight, tmp_path, mode):
+    import os
+    tmp_path.chmod(0o700)
+    ca = tmp_path / 'ca.pem'
+    ca.write_bytes(b'public-only-test-input')
+    ca.chmod(mode)
+    if mode in {0o400, 0o444}:
+        assert preflight.validate_public_ca_file(ca.resolve(), os.getuid()) == ca.read_bytes()
+    else:
+        with pytest.raises(ValueError, match='operator_public_ca_file_invalid'):
+            preflight.validate_public_ca_file(ca.resolve(), os.getuid())
+
+
+@pytest.mark.parametrize('damage', ['empty','oversize','symlink','fifo','key'])
+def test_public_ca_preflight_refuses_unsafe_operator_input(preflight, tmp_path, damage):
+    import os
+    tmp_path.chmod(0o700)
+    ca = tmp_path / 'ca.pem'
+    if damage == 'fifo': os.mkfifo(ca,0o400)
+    elif damage == 'symlink': ca.symlink_to(tmp_path/'absent')
+    else:
+        ca.write_bytes(b'' if damage == 'empty' else b'x'*65537 if damage == 'oversize' else b'-----BEGIN PRIVATE KEY-----')
+        ca.chmod(0o400)
+    with pytest.raises((ValueError,FileNotFoundError)):
+        preflight.validate_public_ca_file(ca, os.getuid())
