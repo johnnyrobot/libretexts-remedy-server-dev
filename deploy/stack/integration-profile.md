@@ -56,6 +56,12 @@ a deployment input.
 
 ## Retaining and checking the handoff
 
+For the original accepted LT197 engineering delivery, the
+[retained original download and offline consumer path](retained-handoff.md)
+preserves checksum-identical bytes beyond Actions download expiry. Its reviewed
+inventory pins the original source/run and whole ZIP; it does not replace the
+original import checks below or authorize a newly sealed delivery after expiry.
+
 The candidate workflow's final `remedy-stack-handoff-<source commit>` artifact is
 created only after all required acceptance receipts match. It contains `package.tar`,
 the identical internal/external `manifest.json`, `checksums.sha256` and the

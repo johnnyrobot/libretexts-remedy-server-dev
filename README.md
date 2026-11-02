@@ -24,6 +24,13 @@ this package does not silently widen it to other libraries.
 
 ## Release status and supported candidate
 
+Current source includes the [LT220 PDF security repair](docs/releases/lt-220-pypdf-security.md),
+requiring pypdf 6.21.4 or newer. The [retained original LT197 package](deploy/stack/retained-handoff.md)
+contains pypdf 6.21.2 and is historical provenance, not a recommendation for new
+deployment after those security findings. A patched compatible package requires
+fresh matching runtime and assembled-service acceptance; original receipts do
+not transfer.
+
 The deployment package remains a candidate until the exact archives and pulled
 Scanner digest pass the complete Linux service proof and operational acceptance.
 `deploy/stack/bundle.json` deliberately keeps `deploymentReady` and
