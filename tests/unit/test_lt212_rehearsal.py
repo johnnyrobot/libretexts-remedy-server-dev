@@ -104,3 +104,36 @@ def test_renderer_public_compose_uses_job_local_public_pem_trust():
     assert ca['read_only'] is True and ca['bind']['create_host_path'] is False
     assert ca['source'].endswith('/renderer/ca.pem')
     assert not any('nss-seed' in str(item) for item in renderer['volumes'])
+
+
+def test_public_package_copy_uses_frozen_inventory_without_git_checkout(tmp_path, monkeypatch):
+    import hashlib
+    monkeypatch.syspath_prepend(str(ROOT / '.github/stack-proof'))
+    import integration_compose_proof
+    source = tmp_path / 'archived-source'
+    shutil.copytree(ROOT / 'deploy/stack', source / 'deploy/stack', ignore=shutil.ignore_patterns('*.env','__pycache__'))
+    hashes = {str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest() for p in (source/'deploy/stack').rglob('*') if p.is_file()}
+    (source/'.stack-artifacts').mkdir()
+    (source/'.stack-artifacts/candidate.json').write_text(json.dumps({'configurationSha256': hashes}))
+    work = tmp_path / 'work'; work.mkdir()
+    package, observed = integration_compose_proof.prepare_package(source, work)
+    assert observed['compose.integration.yml'] == hashes['deploy/stack/compose.integration.yml']
+    assert (package/'env/renderer.env').is_file()
+
+
+@pytest.mark.parametrize('damage', ['corrupt','extra','symlink'])
+def test_public_package_refuses_unfrozen_or_replaced_source(tmp_path, monkeypatch, damage):
+    import hashlib
+    monkeypatch.syspath_prepend(str(ROOT / '.github/stack-proof'))
+    import integration_compose_proof
+    source=tmp_path/'source';(source/'deploy/stack').mkdir(parents=True)
+    file=source/'deploy/stack/README.md';file.write_text('frozen public file')
+    (source/'.stack-artifacts').mkdir()
+    (source/'.stack-artifacts/candidate.json').write_text(json.dumps({'configurationSha256':{'deploy/stack/README.md':hashlib.sha256(file.read_bytes()).hexdigest()}}))
+    if damage=='corrupt': file.write_text('changed')
+    elif damage=='extra': (source/'deploy/stack/extra.env').write_text('must not be copied')
+    else:
+        file.rename(source/'original-public.md');file.symlink_to(source/'original-public.md')
+    work=tmp_path/'work';work.mkdir()
+    with pytest.raises(ValueError,match='public package'):
+        integration_compose_proof.prepare_package(source,work)

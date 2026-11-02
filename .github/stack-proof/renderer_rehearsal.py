@@ -66,7 +66,7 @@ def main():
             '--pids-limit', '256', '--shm-size', '1g', '--stop-timeout', '30',
             '--tmpfs', '/tmp:rw,nosuid,nodev,size=512m', '-e', 'RUN_BROWSER_TESTS=1',
             '-e', 'NPM_CONFIG_CACHE=/tmp/npm-cache', '--entrypoint', '/bin/sh', loaded['Id'],
-            '-c', 'node --version && python3 --version && sha256sum /usr/bin/certutil && dpkg-query -W libnss3 libnss3-tools && exec node --test --test-reporter=tap --test-concurrency=1 *.test.mjs').strip()
+            '-c', 'node --version && python3 --version && sha256sum /usr/bin/certutil && dpkg-query -W -f=\'${Package}\\t${Version}\\n\' libnss3 libnss3-tools && exec node --test --test-reporter=tap --test-concurrency=1 *.test.mjs').strip()
         info = json.loads(run('docker', 'inspect', identity))[0]
         assert info['Image'] == loaded['Id'] and info['Config']['Labels'][label] == owner
         for file in ('process-guardian.py', 'guardian_channel.py', 'process-owner.mjs', 'job-storage.mjs', 'server.mjs', 'public-ca.mjs', 'scan-worker.mjs'):
