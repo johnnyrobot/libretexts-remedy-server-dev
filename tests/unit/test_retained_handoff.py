@@ -93,4 +93,3 @@ def test_cli_restores_using_independently_pinned_record(tmp_path):
         '--parts', str(parts), '--output', str(tmp_path / 'restored')], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert (tmp_path / 'restored/handoff.zip').read_bytes() == b'original ZIP bytes\x00\xff'
-
