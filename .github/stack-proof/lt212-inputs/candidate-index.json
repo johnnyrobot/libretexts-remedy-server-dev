@@ -1,0 +1,493 @@
+{
+  "formatVersion": 1,
+  "purpose": "New source-specific compiled Linux candidates; prior LT-197 delivery acceptance is not inherited",
+  "deploymentReady": false,
+  "productionWritesEnabled": false,
+  "liveProvidersVerified": false,
+  "productionSSOVerified": false,
+  "releaseOwnerAcceptance": false,
+  "execution": {
+    "workflowRun": 41404848931,
+    "workflowURL": "https://github.com/johnnyrobot/conductor-remedy-patch/actions/runs/41404848931",
+    "runAttempt": 1,
+    "workflowHeadCommit": "973fa92426814c43400a4ee031f3c854a1dc4933",
+    "checkoutTree": "d37c722fc2e008202eda5ceb98018241a31bc3ec",
+    "event": "workflow_dispatch",
+    "headBranch": "main",
+    "executionInputs": {
+      ".github/workflows/conductor-candidate.yml": "26459449708e4ec9da66d5464e5d5b189c3c71f74a61926ca5b3f565a5a04878",
+      "tools/validate-target.mjs": "e24ba092757faf45cbc82a77e56eacc7f334bc1065220279555767251e5ed5c3",
+      "tools/apply-series.mjs": "8988620d37015628ee5b89f115e98ea91c3a68efb99aa2b4087a9a0f27481053",
+      "tools/compare-typecheck.mjs": "f6a3ff82bd8e55b5ee0e5b6e43b6c9554885c5b4511185d93fe3f4e50109aca2",
+      "tools/candidate-provenance.mjs": "66aff741e326c0e345a4493e1bd4690f4189dd3c5d53e879140d939aa2c6a4f6",
+      "tools/ci/runtime-pins.json": "e3a1b8df112754cf64f6c4be24e504bb7d940157ea3576d463acc95081accc67",
+      "tools/ci/verify-image.mjs": "8eb14c12cdca357ed161530a1a101ca50d6765e8459a1fc8d8df470d94f5744a",
+      "tools/ci/engine.mjs": "20e3ada1a038d1b96e83cd1e5043336eff06a2a360a2fc1545c27a9e69768043",
+      "tools/ci/assert-runtime.mjs": "5626cb48331f8ce9428a2303344c36bb3e74bd0b0ad7250a31a20327b12751bf",
+      "tools/ci/candidate-policy.mjs": "21170d395367a2bc9091b1ae0cca197dca75c3de136c55f9cc4b068859066b3b",
+      "tools/ci/loopback-only.cjs": "5200f7fdbccb88c1ec10df30779a22d48775a46eb683ba3fd0bb1f6d4fdac2f9",
+      "docs/releases/current-candidates.json": "99d70fe71fdf956bc60e34ca55b262cc39747cd5fd30bd386ec7518d3ba58da8",
+      "series/targets.json": "562ef8a802bf679d1116b183a35b0250c2ca4b43411988a6078b3e9a1f75b739"
+    },
+    "checkoutCommit": "973fa92426814c43400a4ee031f3c854a1dc4933"
+  },
+  "candidates": [
+    {
+      "target": "release-2.156.2",
+      "baseCommit": "352a657ec6de7b317a70ad3f8f744bc6d5054d9d",
+      "upstreamRepository": "https://github.com/LibreTexts/conductor.git",
+      "sourceTree": "babe674d8668969d99fd0bfe48774e2ef9104124",
+      "patches": [
+        {
+          "path": "patches/0001-feat-a11y-carry-CXone-pageID-on-review-sections-extr.patch",
+          "sha256": "e822fdb1557d0a00ed9c06d92d5b0dfb9317f5ae71c7e6e7edf3ffe4d9856e20"
+        },
+        {
+          "path": "patches/0002-feat-a11y-add-Remedy-scan-preview-apply-endpoints-an.patch",
+          "sha256": "abcb840f117f5cea0e3e199fd39c76fd61d5dbbbabcdb9bdb4c1a50777177f09"
+        },
+        {
+          "path": "patches/0003-feat-a11y-add-WCAG-matrix-scoring-and-Remedy-review-.patch",
+          "sha256": "ee19f2a8912220670d12018a161f8c41aa228cfdd6b0827496d59033c34c6cb7"
+        },
+        {
+          "path": "patches/0004-feat-connect-remediation-tasks-to-reviewed-fixes-and.patch",
+          "sha256": "c91149a919ac5a281cd669313ad3b7a8cdc81c8896edaebde6e6ac2474e92418"
+        },
+        {
+          "path": "patches/0005-docs-document-remediation-release-integration-and-va.patch",
+          "sha256": "c8ff4f83058560b22c176de72b6a0b0423318f79ad505cd48c7485472fd9b1af"
+        },
+        {
+          "path": "patches/0006-Refresh-remediation-matrix-and-support-reviewed-comp.patch",
+          "sha256": "c85f3f7e4c4128a96e3ee95d956e17aa8e5d4eb6aabd471e7f1660caa1428d44"
+        },
+        {
+          "path": "patches/0007-Document-book-remediation-acceptance-and-static-scan.patch",
+          "sha256": "741f9c9a41d33cada2735db86fdf7b0bae6880693c408e5045c46e53890262b4"
+        },
+        {
+          "path": "patches/0008-feat-require-reviewer-evidence-for-WCAG-conformance.patch",
+          "sha256": "bd4c23973a9efbb9a5fcc54ac6d02b21ba7f5ef2b799ea191d677f2ff4635147"
+        },
+        {
+          "path": "patches/0009-fix-invalidate-failed-scans-and-serve-authenticated-.patch",
+          "sha256": "7a3acbf98a109dd1284ba34b7bb266ee68a4bd7b7e03626c6331847d0c8f1a02"
+        },
+        {
+          "path": "patches/0010-feat-separate-remediation-handoff-acceptance-from-WC.patch",
+          "sha256": "b272f7550de0edb4b51db1432f45be83ecccd6eae45c28855e293cce1360bf5e"
+        },
+        {
+          "path": "patches/0011-fix-honor-configured-Conductor-browser-origins.patch",
+          "sha256": "b6b4d2ab4561f53a39d353b3ee225ffb9de426648a15aae3190d9a0f288bbdcd"
+        },
+        {
+          "path": "patches/0012-test-a11y-run-RemediationPageActions-under-vitest.patch",
+          "sha256": "6d91faa6efc1aa313e71deff713797a409437c1f2e9fc89cc4e394ddf7540b13"
+        },
+        {
+          "path": "patches/0013-fix-a11y-require-a-reviewed-preview-before-apply-and.patch",
+          "sha256": "999a8b04addb92ca49a5f4edae376579625cd51264d97e01cab9e106fc26eceb"
+        },
+        {
+          "path": "patches/0014-feat-a11y-name-the-Conductor-reviewer-in-bridge-writ.patch",
+          "sha256": "939ea37efbfee6e609dfbc7d3056ab7da4eab7675fa65d69f141140a7bf0353f"
+        },
+        {
+          "path": "patches/0015-fix-a11y-bind-page-actions-and-reviews-to-current-ev.patch",
+          "sha256": "0d078fef152ae0157f396be84cb02f59b1eebc590001a4524c568070b87e571d"
+        },
+        {
+          "path": "patches/0016-fix-a11y-keep-pending-writes-and-reviewer-refresh-fa.patch",
+          "sha256": "7415a9e2f32379c4a078c5dcc268c4f5ef3378201709d186703b25a2397baf20"
+        },
+        {
+          "path": "patches/0017-fix-a11y-preserve-matrix-no-op-and-target-test-cover.patch",
+          "sha256": "baae1a7a62d5c932caca9340f7680cb7ef71154f58bbe0e12b54921eaa5d0462"
+        },
+        {
+          "path": "patches/0018-fix-a11y-reject-stale-TOC-imports-and-refresh-failed.patch",
+          "sha256": "e6669cf13d37e1b2d679dec31f3da63c228f6e8b834610d264af57e2c527c643"
+        },
+        {
+          "path": "patches/0019-feat-a11y-require-explicit-tenant-opt-in-and-engine-.patch",
+          "sha256": "1ba9a52fc300353b88d075e5be8debf4b0caf89a155136bdc4f6497e6cfa2b23"
+        },
+        {
+          "path": "patches/0020-feat-a11y-bind-signed-operations-to-stored-reviewed-.patch",
+          "sha256": "98f3aa048a5075cdcae9ed59342d8a245c462c31771c524db1b5620150706f39"
+        },
+        {
+          "path": "patches/0021-perf-a11y-index-current-conformance-review-selection.patch",
+          "sha256": "3d536ffaaca9ace1dc37f0f601c318b635a788a46c827600cdd8616872d5619b"
+        },
+        {
+          "path": "patches/0022-feat-a11y-bound-reads-and-externalize-immutable-oper.patch",
+          "sha256": "50d4f290efc479de1019ac749818385cdd79fab28921d800b0454c270a030218"
+        },
+        {
+          "path": "patches/0023-feat-a11y-resolve-only-audited-settled-page-claims-w.patch",
+          "sha256": "9744f166c3532d883f9f1bd92f57b67077d63c4d553554293dec168ace659437"
+        },
+        {
+          "path": "patches/0024-build-pin-the-existing-Node22-Linux-recipe-to-an-imm.patch",
+          "sha256": "f26d2a77b0bc4a100857f6ed6771c8caab7ded94b0e7fcb0afaf6acec28a6514"
+        },
+        {
+          "path": "patches/0025-feat-a11y-support-explicit-authenticated-review-only.patch",
+          "sha256": "32d3f64181ddcd0c6d2b3de3e6946cf36d409ec2c9c8a47a86ae5151d4b83ef8"
+        },
+        {
+          "path": "patches/0026-docs-a11y-document-optional-review-rollout-and-retai.patch",
+          "sha256": "a0bb3e1b87d9e027eeb162577bdd09ef9081f22e29b3999521c0083d4485f15a"
+        },
+        {
+          "path": "patches/0027-fix-a11y-permit-explicit-read-recovery-without-enabl.patch",
+          "sha256": "376fcbe100c1a5dc3d387fc87b3a2286d0fd6aa64ff5dc08bee9fdcaaec37e28"
+        },
+        {
+          "path": "patches/0028-fix-a11y-retry-review-reads-through-matrix-and-stand.patch",
+          "sha256": "a96d71852631e55f42cdd8cac8e5b71aca231c396c840dadbe684b27a9d51d87"
+        },
+        {
+          "path": "patches/0029-feat-a11y-recover-pending-writes-from-trusted-termin.patch",
+          "sha256": "95e70684800ebb5e0ac3067604d70589fda7b10d38e9cce6330fbf629a361ba6"
+        },
+        {
+          "path": "patches/0030-fix-a11y-recheck-resolver-authority-at-terminal-proo.patch",
+          "sha256": "5a71eca4c107f98acf6ff0dbc34ddc1440b4845ecb889c26a569ef659c322842"
+        },
+        {
+          "path": "patches/0031-fix-a11y-match-the-producer-opaque-trust-epoch-exact.patch",
+          "sha256": "02c77d669e6e23b9d1c52ede310c80e74e898dc4f73123c65ed93a0e24a3e976"
+        },
+        {
+          "path": "patches/0032-docs-a11y-point-current-recovery-guidance-to-termina.patch",
+          "sha256": "623c32943b390e7d6a83b80ce7e414f692c8ca7c420fcc7307caa45b1a56b672"
+        },
+        {
+          "path": "patches/0033-fix-a11y-accessible-section-controls-and-bounded-health.patch",
+          "sha256": "ca1511f8e630a1f74dddcefc40119a6be907484418fc27225ef5feb3da6df9fd"
+        },
+        {
+          "path": "patches/0034-fix-a11y-preserve-section-control-margin-specificity.patch",
+          "sha256": "94e1919ccbbe22b4d766676437f45f0bc5abfc1285cb52631ef7fb6b9e5b26fe"
+        },
+        {
+          "path": "patches/0035-fix-a11y-share-validated-project-capability-queries.patch",
+          "sha256": "91e265437bd029b129ac4bc81036618ce27c5a458b15beaefb1220b7cac5920c"
+        }
+      ],
+      "sourceFiles": {
+        "Dockerfile": "b942121b8a287d1b4f221cd6ab2c9e1cc13845c4523fae949626d16b584f6d6f",
+        ".dockerignore": "2559b076782f0f9345c1e277d94d750c23a743a2e2831d36b0a65245f083ec04",
+        "client/package.json": "3d4f39f8e49679342c2672f3ee8d806e232695be2e7c7580268c2ea0bf0169b7",
+        "client/package-lock.json": "fa78c1222ca82b84f87f295d8523317fd50fe9e595ae4ea7120a239e32df68fc",
+        "server/package.json": "a0b58f1b36bafe57e0acc54471cd45294802deb4d9b03673a80e87ef6896ac1a",
+        "server/package-lock.json": "e1751a17d2d732bbcde05cd286188946d4349a73aea82d551407ce65dd37a6af"
+      },
+      "deliveryManifestPath": "series/release-2.156.2/manifest-lt190.json",
+      "deliveryManifestSHA256": "4d5df8175afbd3b3ae36434b52a99295f7c8e47e905d282842730b474e00ec8a",
+      "executedManifest": {
+        "path": "receipts/release-2.156.2-manifest.json",
+        "sha256": "4d5df8175afbd3b3ae36434b52a99295f7c8e47e905d282842730b474e00ec8a"
+      },
+      "validationReceipt": {
+        "path": "receipts/release-2.156.2-validation.json",
+        "sha256": "8bbafec3e4bf29ef494f893b5607044a755f78fe2e6caf83d6be6dcfb384c299"
+      },
+      "runtimePinsSHA256": "e3a1b8df112754cf64f6c4be24e504bb7d940157ea3576d463acc95081accc67",
+      "nodeBase": "node:22-alpine3.22@sha256:cd7807368cf24826297cbad5dca1a44972ccfd770647db52a8c7589eb4599ac8",
+      "mongoFixture": "mongo:7.0.14@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6",
+      "compiledProductionPhases": [
+        "off",
+        "enabled",
+        "recover",
+        "review-only",
+        "terminal-write",
+        "terminal-recover"
+      ],
+      "validation": {
+        "workflowRun": 41404848931,
+        "workflowURL": "https://github.com/johnnyrobot/conductor-remedy-patch/actions/runs/41404848931",
+        "artifactID": 13123796072,
+        "artifactURL": "https://github.com/johnnyrobot/conductor-remedy-patch/actions/runs/41404848931/artifacts/13123796072",
+        "artifactDigest": "sha256:c3f1ce6d588e860ee2ea200cd58159ede908ac7c35a5ff7dd7a283729b477c65",
+        "artifactExpiresAt": "2026-11-16T07:22:20Z",
+        "validationManifestSHA256": "4d5df8175afbd3b3ae36434b52a99295f7c8e47e905d282842730b474e00ec8a",
+        "imageID": "sha256:1a0e8472c154df63e9e076ee308f8f71e47c01977cdd69ff6783c57205fbaaa2",
+        "archive": "conductor-candidate-release-2.156.2.tar.gz",
+        "archiveSHA256": "5d2ba73d8e9020cb3954d33e1efdd06eebe3f184cf98b3cdd310c400ce21f2d8",
+        "platform": "linux/amd64",
+        "runtimeNode": "v22.22.3",
+        "runtimeUser": "",
+        "testCounts": {
+          "server-tests": 50,
+          "authenticated-routes": 96,
+          "client-tests": 227
+        },
+        "sourceTree": "babe674d8668969d99fd0bfe48774e2ef9104124",
+        "fullOwnedStackLinuxVerified": false,
+        "productionApproval": false,
+        "runAttempt": 1
+      },
+      "originalArtifactMetadata": {
+        "id": 13123796072,
+        "node_id": "MDg6QXJ0aWZhY3QxMzEyMzc5NjA3Mg==",
+        "name": "conductor-candidate-release-2.156.2-41404848931-1",
+        "size_in_bytes": 195466213,
+        "url": "https://api.github.com/repos/johnnyrobot/conductor-remedy-patch/actions/artifacts/13123796072",
+        "archive_download_url": "https://api.github.com/repos/johnnyrobot/conductor-remedy-patch/actions/artifacts/13123796072/zip",
+        "expired": false,
+        "digest": "sha256:c3f1ce6d588e860ee2ea200cd58159ede908ac7c35a5ff7dd7a283729b477c65",
+        "created_at": "2026-11-02T07:22:23Z",
+        "updated_at": "2026-11-02T07:22:23Z",
+        "expires_at": "2026-11-16T07:22:20Z",
+        "workflow_run": {
+          "id": 41404848931,
+          "repository_id": 1337408554,
+          "head_repository_id": 1337408554,
+          "head_branch": "main",
+          "head_sha": "973fa92426814c43400a4ee031f3c854a1dc4933"
+        }
+      }
+    },
+    {
+      "target": "staging-67301b35",
+      "baseCommit": "67301b35c3784ed73ba1a65011ef5a1d689abca1",
+      "upstreamRepository": "https://github.com/LibreTexts/conductor.git",
+      "sourceTree": "8d8a10f2b7fad7ff9029d37f301a56e93b22ccec",
+      "patches": [
+        {
+          "path": "patches/0001-feat-a11y-carry-CXone-pageID-on-review-sections-extr.patch",
+          "sha256": "86033844a90226bc2766d325a5a457bc693d28225a6d6ace7ff746624220299e"
+        },
+        {
+          "path": "patches/0002-feat-a11y-add-Remedy-scan-preview-apply-endpoints-an.patch",
+          "sha256": "012c20ba54c9ab3e41a008cb7e32bdc4db071eb88ee71b8bda2c5025f2c68262"
+        },
+        {
+          "path": "patches/0003-feat-a11y-add-WCAG-matrix-scoring-and-Remedy-review-.patch",
+          "sha256": "ee19f2a8912220670d12018a161f8c41aa228cfdd6b0827496d59033c34c6cb7"
+        },
+        {
+          "path": "patches/0004-feat-connect-remediation-tasks-to-reviewed-fixes-and.patch",
+          "sha256": "9c589ff18cec9e297fc216451ce3bdf14f5517c0b8dd52c919e2ec6dcb2211d9"
+        },
+        {
+          "path": "patches/0005-docs-document-remediation-release-integration-and-va.patch",
+          "sha256": "c8ff4f83058560b22c176de72b6a0b0423318f79ad505cd48c7485472fd9b1af"
+        },
+        {
+          "path": "patches/0006-Refresh-remediation-matrix-and-support-reviewed-comp.patch",
+          "sha256": "c85f3f7e4c4128a96e3ee95d956e17aa8e5d4eb6aabd471e7f1660caa1428d44"
+        },
+        {
+          "path": "patches/0007-Document-book-remediation-acceptance-and-static-scan.patch",
+          "sha256": "741f9c9a41d33cada2735db86fdf7b0bae6880693c408e5045c46e53890262b4"
+        },
+        {
+          "path": "patches/0008-feat-require-reviewer-evidence-for-WCAG-conformance.patch",
+          "sha256": "e1334686f6998e6f487004fe7dcb5c54504bedbd830c064f34cd93d926912335"
+        },
+        {
+          "path": "patches/0009-fix-invalidate-failed-scans-and-serve-authenticated-.patch",
+          "sha256": "5a0fcd62d385600e0e297a1acb3fe27645dfeba7ef077fb1793807a0ca6a1d44"
+        },
+        {
+          "path": "patches/0010-feat-separate-remediation-handoff-acceptance-from-WC.patch",
+          "sha256": "b272f7550de0edb4b51db1432f45be83ecccd6eae45c28855e293cce1360bf5e"
+        },
+        {
+          "path": "patches/0011-fix-honor-configured-Conductor-browser-origins.patch",
+          "sha256": "3be90c7f7a2f2c0cada831439c820aba91eb7ba54e648838d50cd4ffed31ce8a"
+        },
+        {
+          "path": "patches/0012-test-a11y-run-RemediationPageActions-under-vitest.patch",
+          "sha256": "6d91faa6efc1aa313e71deff713797a409437c1f2e9fc89cc4e394ddf7540b13"
+        },
+        {
+          "path": "patches/0013-fix-a11y-require-a-reviewed-preview-before-apply-and.patch",
+          "sha256": "999a8b04addb92ca49a5f4edae376579625cd51264d97e01cab9e106fc26eceb"
+        },
+        {
+          "path": "patches/0014-feat-a11y-name-the-Conductor-reviewer-in-bridge-writ.patch",
+          "sha256": "939ea37efbfee6e609dfbc7d3056ab7da4eab7675fa65d69f141140a7bf0353f"
+        },
+        {
+          "path": "patches/0015-fix-a11y-bind-page-actions-and-reviews-to-current-ev.patch",
+          "sha256": "8f079f8a6644029b8d73a7e9587b208d5228be6c101ae45e544e94a1d582fabe"
+        },
+        {
+          "path": "patches/0016-fix-a11y-keep-pending-writes-and-reviewer-refresh-fa.patch",
+          "sha256": "7415a9e2f32379c4a078c5dcc268c4f5ef3378201709d186703b25a2397baf20"
+        },
+        {
+          "path": "patches/0017-fix-a11y-preserve-matrix-no-op-and-target-test-cover.patch",
+          "sha256": "9c83d179f0d9588b06c8a8d078c062cd5931be5e49c7392f03bc56e087e19eee"
+        },
+        {
+          "path": "patches/0018-fix-a11y-reject-stale-TOC-imports-and-refresh-failed.patch",
+          "sha256": "736af110463a1de58935a13d9d02448b23bc804a4b89db6b5107f7ad546872d1"
+        },
+        {
+          "path": "patches/0019-feat-a11y-require-explicit-tenant-opt-in-and-engine-.patch",
+          "sha256": "1281720c377b078cf2012fb5cb971f2b141ff4f34dedcdc48b10eb9ea8226ebb"
+        },
+        {
+          "path": "patches/0020-feat-a11y-bind-signed-operations-to-stored-reviewed-.patch",
+          "sha256": "2a4bbdce514abf16f381cf07d20ddf2ecf523cdaf62f469c29918d0902dc172a"
+        },
+        {
+          "path": "patches/0021-perf-a11y-index-current-conformance-review-selection.patch",
+          "sha256": "3795dceaddf2d275657c93ba4594cdf6bbf183430f7c5b0c223fc863e7ac7d72"
+        },
+        {
+          "path": "patches/0022-feat-a11y-bound-reads-and-externalize-immutable-oper.patch",
+          "sha256": "50d4f290efc479de1019ac749818385cdd79fab28921d800b0454c270a030218"
+        },
+        {
+          "path": "patches/0023-feat-a11y-resolve-only-audited-settled-page-claims-w.patch",
+          "sha256": "9744f166c3532d883f9f1bd92f57b67077d63c4d553554293dec168ace659437"
+        },
+        {
+          "path": "patches/0024-build-pin-the-existing-Node22-Linux-recipe-to-an-imm.patch",
+          "sha256": "d351f10c856937db6e50f8ab40a53f89bf1769859d92d28d75ee6c35115023af"
+        },
+        {
+          "path": "patches/0025-feat-a11y-support-explicit-authenticated-review-only.patch",
+          "sha256": "55006707255f4fb09f69515eb50e51cacef8f533d65b54680aa4d5ebe57382f4"
+        },
+        {
+          "path": "patches/0026-docs-a11y-document-optional-review-rollout-and-retai.patch",
+          "sha256": "838c85922fa59a98e70d37ae8b527c1c97353af9e5ae113f5e03e9b5434b6df4"
+        },
+        {
+          "path": "patches/0027-fix-a11y-permit-explicit-read-recovery-without-enabl.patch",
+          "sha256": "fe74f51f10d31278dcbef51964d21485fab738cbc385149e072f9ff586183b12"
+        },
+        {
+          "path": "patches/0028-fix-a11y-retry-review-reads-through-matrix-and-stand.patch",
+          "sha256": "bae9bd331668fe94dd62153143506d97d0daa040473423bf019d5af301d93421"
+        },
+        {
+          "path": "patches/0029-feat-a11y-recover-pending-writes-from-trusted-termin.patch",
+          "sha256": "92ea76c5229b4695cbe5e9dfbf9151b52abe48d83adeed71edcee0f40596ba6e"
+        },
+        {
+          "path": "patches/0030-fix-a11y-recheck-resolver-authority-at-terminal-proo.patch",
+          "sha256": "2067c50e87db2e0196022afdde54a3da1e5a64657e5e481a90582d577dcf10bf"
+        },
+        {
+          "path": "patches/0031-fix-a11y-match-the-producer-opaque-trust-epoch-exact.patch",
+          "sha256": "434053f0973515976290ec1f64e05e6bd1839e1543fd53788ff2ec5eeda5b941"
+        },
+        {
+          "path": "patches/0032-docs-a11y-point-current-recovery-guidance-to-termina.patch",
+          "sha256": "4574f7103946aacf19029547caf307861deb423e7c28b86bbb1906b1c5b16f78"
+        },
+        {
+          "path": "patches/0033-fix-a11y-accessible-section-controls-and-bounded-health.patch",
+          "sha256": "524888bfe9837d4a4dd27f548d45b8f1c24809098a02f8c54d0f5e1ebaa80765"
+        },
+        {
+          "path": "patches/0034-fix-a11y-preserve-section-control-margin-specificity.patch",
+          "sha256": "a67ad294a7d9db6796e6c3d5371295162e068d6167fe4ce4467911dbc7a26b70"
+        },
+        {
+          "path": "patches/0035-fix-a11y-share-validated-project-capability-queries.patch",
+          "sha256": "b22bc7c57325cb1df0ba2ef81af23db119f19f6bb7d83d1626cd7289ee4fc006"
+        }
+      ],
+      "sourceFiles": {
+        "Dockerfile": "b942121b8a287d1b4f221cd6ab2c9e1cc13845c4523fae949626d16b584f6d6f",
+        ".dockerignore": "2559b076782f0f9345c1e277d94d750c23a743a2e2831d36b0a65245f083ec04",
+        "client/package.json": "caccf384c66d8c324c387d8a6c7a9d752df9b380d6a856566c115a92189d1424",
+        "client/package-lock.json": "b10781d968a1c04a64a4c02f71614a4375943dd51d60bcba7525a6955159ae1e",
+        "server/package.json": "5ff71c268bc094436b52b1030b097962b1e2c70d5b3a26ea91b014dcd2951428",
+        "server/package-lock.json": "1a9e162ec960797f164646270cf3ef33375c925494484ece211b498393c7efc7"
+      },
+      "deliveryManifestPath": "series/staging-67301b35/manifest-lt190.json",
+      "deliveryManifestSHA256": "f171f6b4938bd5373852d221fb525d1441f49e50b6cdd1a2ace6bdf53b65ceb1",
+      "executedManifest": {
+        "path": "receipts/staging-67301b35-manifest.json",
+        "sha256": "f171f6b4938bd5373852d221fb525d1441f49e50b6cdd1a2ace6bdf53b65ceb1"
+      },
+      "validationReceipt": {
+        "path": "receipts/staging-67301b35-validation.json",
+        "sha256": "7524ad6f9f17a2380b5873e3ccd2953b467df112dbedd543b13829a1ef9d10d6"
+      },
+      "runtimePinsSHA256": "e3a1b8df112754cf64f6c4be24e504bb7d940157ea3576d463acc95081accc67",
+      "nodeBase": "node:22-alpine3.22@sha256:cd7807368cf24826297cbad5dca1a44972ccfd770647db52a8c7589eb4599ac8",
+      "mongoFixture": "mongo:7.0.14@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6",
+      "compiledProductionPhases": [
+        "off",
+        "enabled",
+        "recover",
+        "review-only",
+        "terminal-write",
+        "terminal-recover"
+      ],
+      "validation": {
+        "workflowRun": 41404848931,
+        "workflowURL": "https://github.com/johnnyrobot/conductor-remedy-patch/actions/runs/41404848931",
+        "artifactID": 13123606351,
+        "artifactURL": "https://github.com/johnnyrobot/conductor-remedy-patch/actions/runs/41404848931/artifacts/13123606351",
+        "artifactDigest": "sha256:b36b890b9d3f2730f2084d1dc87fe3563b4adc2dbb348d9db818fc1f11156694",
+        "artifactExpiresAt": "2026-11-16T07:21:37Z",
+        "validationManifestSHA256": "f171f6b4938bd5373852d221fb525d1441f49e50b6cdd1a2ace6bdf53b65ceb1",
+        "imageID": "sha256:6cf17307221b37617e3cfedcddf0aa3d509907a69ed6edd83ee33f896136c859",
+        "archive": "conductor-candidate-staging-67301b35.tar.gz",
+        "archiveSHA256": "8122848562565ef070067e0ada1fa569da33fb26f9069fbfbee7d71044cb4769",
+        "platform": "linux/amd64",
+        "runtimeNode": "v22.22.3",
+        "runtimeUser": "",
+        "testCounts": {
+          "server-tests": 80,
+          "authenticated-routes": 96,
+          "client-tests": 320
+        },
+        "sourceTree": "8d8a10f2b7fad7ff9029d37f301a56e93b22ccec",
+        "fullOwnedStackLinuxVerified": false,
+        "productionApproval": false,
+        "runAttempt": 1
+      },
+      "originalArtifactMetadata": {
+        "id": 13123606351,
+        "node_id": "MDg6QXJ0aWZhY3QxMzEyMzYwNjM1MQ==",
+        "name": "conductor-candidate-staging-67301b35-41404848931-1",
+        "size_in_bytes": 205961223,
+        "url": "https://api.github.com/repos/johnnyrobot/conductor-remedy-patch/actions/artifacts/13123606351",
+        "archive_download_url": "https://api.github.com/repos/johnnyrobot/conductor-remedy-patch/actions/artifacts/13123606351/zip",
+        "expired": false,
+        "digest": "sha256:b36b890b9d3f2730f2084d1dc87fe3563b4adc2dbb348d9db818fc1f11156694",
+        "created_at": "2026-11-02T07:21:41Z",
+        "updated_at": "2026-11-02T07:21:41Z",
+        "expires_at": "2026-11-16T07:21:37Z",
+        "workflow_run": {
+          "id": 41404848931,
+          "repository_id": 1337408554,
+          "head_repository_id": 1337408554,
+          "head_branch": "main",
+          "head_sha": "973fa92426814c43400a4ee031f3c854a1dc4933"
+        }
+      }
+    }
+  ],
+  "priorAcceptedDelivery": {
+    "sourceCommit": "dd152c5eca8e48609bbf7df9a9c8c63cf7b48fd2",
+    "indexSHA256": "99d70fe71fdf956bc60e34ca55b262cc39747cd5fd30bd386ec7518d3ba58da8",
+    "acceptanceInherited": false,
+    "retainedOriginalReleaseID": 431088454,
+    "retainedOriginalManifestAssetID": 700580146,
+    "retainedOriginalManifestSHA256": "badb334805a39235196bf6fd6ac49e0ef96f1fb86220b1ed1f47acd5c6bb1f0c"
+  },
+  "acquisition": {
+    "atUTC": "2026-11-02T07:23:34.980259+00:00",
+    "kind": "original GitHub Actions ZIP download",
+    "originalExpiryRetained": true,
+    "extendsOriginalExpiry": false,
+    "verifierSHA256": "3db88b1068f57d66585a5e024100c115ec819a8ef364f442205474e77d8a325e"
+  }
+}

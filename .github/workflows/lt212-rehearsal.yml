@@ -1,0 +1,319 @@
+name: LT212 UNACCEPTED rehearsal
+on:
+  push:
+    branches: [feat/lt212-unaccepted-rehearsal]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: unaccepted-lt212-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.repository == 'johnnyrobot/libretexts-remedy-server-dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: johnnyrobot/libretexts-remedy-bridge-dev
+          ref: 98edbdcd63b76d0bc90ef864841fb39073ea7b6f
+          path: .stack-inputs/bridge
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - name: Prepare clean, immutable build inputs
+        run: |
+          mkdir -p .stack-inputs/server .stack-artifacts
+          git archive HEAD | tar -x -C .stack-inputs/server
+          python3 .github/stack-proof/lt212_rehearsal.py prepare .stack-inputs/server
+          cp .stack-inputs/server/UNACCEPTED-LT212.json .stack-artifacts/rehearsal-inputs.json
+          python3 tools/fetch_verapdf_installer.py .stack-inputs/server/verapdf-installer.zip
+          cp -R .stack-inputs/bridge/browser-scanner .stack-inputs/renderer
+          python3 .github/stack-proof/pin-inputs.py
+      - name: Archive full Server runtime
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .stack-inputs/server
+          target: runtime
+          platforms: linux/amd64
+          outputs: type=oci,dest=.stack-artifacts/server.oci.tar
+          provenance: mode=max
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=stack-server
+          cache-to: type=gha,mode=max,scope=stack-server
+      - name: Archive canonical Bridge build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .stack-inputs/bridge
+          platforms: linux/amd64
+          outputs: type=oci,dest=.stack-artifacts/bridge.oci.tar
+          provenance: mode=max
+          labels: org.opencontainers.image.revision=98edbdcd63b76d0bc90ef864841fb39073ea7b6f
+          cache-from: type=gha,scope=stack-bridge
+          cache-to: type=gha,mode=max,scope=stack-bridge
+      - name: Archive the actual Bridge rendered-page scanner
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .stack-inputs/renderer
+          platforms: linux/amd64
+          outputs: type=oci,dest=.stack-artifacts/renderer.oci.tar
+          provenance: mode=max
+          labels: org.opencontainers.image.revision=98edbdcd63b76d0bc90ef864841fb39073ea7b6f
+          cache-from: type=gha,scope=stack-renderer
+          cache-to: type=gha,mode=max,scope=stack-renderer
+      - name: Bind archives and configuration to this source
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path('.stack-artifacts')
+          names=['server.oci.tar','bridge.oci.tar','renderer.oci.tar','build-inputs.json','rehearsal-inputs.json']
+          value={'status':'UNACCEPTED','securityGate':'LT227_UNMET','cleanSealPermitted':False,'sourcePreparation':json.loads((root/'rehearsal-inputs.json').read_text()),'serverSource':os.environ['GITHUB_SHA'],'bridgeSource':'98edbdcd63b76d0bc90ef864841fb39073ea7b6f','deploymentReady':False,'productionWritesEnabled':False,'retentionDays':30,'sha256':{}}
+          for name in names:
+              with (root/name).open('rb') as stream: value['sha256'][name]=hashlib.file_digest(stream,'sha256').hexdigest()
+          value['configurationSha256']={str(p.relative_to('.stack-inputs/server')):hashlib.sha256(p.read_bytes()).hexdigest() for p in Path('.stack-inputs/server/deploy/stack').rglob('*') if p.is_file() and p.suffix in {'.py','.mjs','.json','.yml','.example','.md','.sh'}}
+          for name in ['.github/stack-proof/verify_imports.py','.github/stack-proof/conductor_artifacts.py']:
+              value['configurationSha256'][name]=hashlib.sha256((Path('.stack-inputs/server')/name).read_bytes()).hexdigest()
+          (root/'candidate.json').write_text(json.dumps(value,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lt212-UNACCEPTED-images-${{ github.sha }}
+          path: .stack-artifacts/
+          retention-days: 30
+          compression-level: 0
+          include-hidden-files: true
+  renderer:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: johnnyrobot/libretexts-remedy-bridge-dev
+          ref: 98edbdcd63b76d0bc90ef864841fb39073ea7b6f
+          path: .stack-bridge-producer
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: lt212-UNACCEPTED-images-${{ github.sha }}
+          path: .stack-artifacts
+      - name: Install exact archive reader
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends skopeo
+      - name: Import exact rebuilt renderer and run all thirty real cases
+        run: |
+          skopeo copy --override-os linux --override-arch amd64 oci-archive:.stack-artifacts/renderer.oci.tar docker-daemon:remedy-renderer:stack-candidate
+          python3 .github/stack-proof/renderer_rehearsal.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lt212-UNACCEPTED-renderer-proof-${{ github.sha }}
+          path: .stack-proof-evidence/
+          retention-days: 30
+  shipping:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - name: Stage matching draft source for the shipping test target
+        run: |
+          mkdir -p .stack-inputs/server
+          git archive HEAD | tar -x -C .stack-inputs/server
+          python3 .github/stack-proof/lt212_rehearsal.py prepare .stack-inputs/server
+          python3 tools/fetch_verapdf_installer.py .stack-inputs/server/verapdf-installer.zip
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .stack-inputs/server
+          target: runtime-test
+          push: false
+          load: true
+          tags: remedy-server:rehearsal-runtime
+          cache-from: type=gha,scope=full-runtime
+          cache-to: type=gha,mode=max,scope=full-runtime
+      - run: bash .github/scripts/prove-html-runtime.sh remedy-server:rehearsal-runtime "$RUNNER_TEMP/lt212-shipping"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lt212-UNACCEPTED-shipping-${{ github.sha }}
+          path: ${{ runner.temp }}/lt212-shipping
+          retention-days: 30
+  security-unmet:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.12.0'
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a
+      - name: Audit frozen Python runtime
+        run: |
+          mkdir -p .stack-audit
+          uv export --frozen --no-dev --no-emit-project --no-hashes --no-header > .stack-audit/requirements.txt
+          uvx pip-audit --requirement .stack-audit/requirements.txt --no-deps --disable-pip
+      - name: Keep actual production npm audit failure visible
+        run: |
+          set +e
+          npm audit --prefix src/project_remedy/html_tools --package-lock-only --ignore-scripts --omit=dev --json > .stack-audit/npm-audit.json
+          result=$?
+          python3 - "$result" <<'PYMETA'
+          import json,sys
+          from pathlib import Path
+          Path('.stack-audit/status.json').write_text(json.dumps({'status':'UNACCEPTED','securityGate':'LT227_UNMET','npmAuditExit':int(sys.argv[1]),'cleanSealPermitted':False,'deploymentReady':False,'productionWritesEnabled':False}))
+          PYMETA
+          exit "$result"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lt212-UNACCEPTED-security-${{ github.sha }}
+          path: .stack-audit/
+          retention-days: 30
+  prove:
+    needs: build
+    defaults:
+      run:
+        working-directory: .stack-inputs/server
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: johnnyrobot/conductor-remedy-patch
+          ref: 973fa92426814c43400a4ee031f3c854a1dc4933
+          path: .stack-conductor-producer
+          persist-credentials: false
+      - name: Stage identical UNACCEPTED inputs
+        working-directory: .
+        run: |
+          mkdir -p .stack-inputs/server
+          git archive HEAD | tar -x -C .stack-inputs/server
+          python3 .github/stack-proof/lt212_rehearsal.py prepare .stack-inputs/server
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a
+      - name: Exercise total-byte refusal and actual spool cleanup on Linux
+        env:
+          PYTHON_DOTENV_DISABLED: '1'
+          REMEDY_FULL_RUNTIME_TESTS: '1'
+          OLLAMA_API_KEY: synthetic-provider-key
+          OLLAMA_BASE_URL: https://provider.invalid/v1
+        run: |
+          uv sync --frozen --extra dev
+          mkdir -p .stack-proof-evidence
+          uv run --frozen pytest tests/unit/test_request_envelope.py -v --junitxml=.stack-proof-evidence/request-envelope.xml
+      - uses: actions/download-artifact@v4
+        with:
+          name: lt212-UNACCEPTED-images-${{ github.sha }}
+          path: .stack-inputs/server/.stack-artifacts
+      - name: Install archive reader
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends skopeo tcpdump libnss3-tools
+      - name: Verify and import the exact downloaded OCI archives
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          p=Path('.stack-artifacts');v=json.loads((p/'candidate.json').read_text())
+          assert v['serverSource']==os.environ['GITHUB_SHA'] and not v['deploymentReady'] and not v['productionWritesEnabled']
+          for name,expected in v['sha256'].items():
+              with (p/name).open('rb') as stream: assert hashlib.file_digest(stream,'sha256').hexdigest()==expected,name
+          for name,expected in v['configurationSha256'].items(): assert hashlib.sha256(Path(name).read_bytes()).hexdigest()==expected,name
+          PY
+          skopeo copy --override-os linux --override-arch amd64 oci-archive:.stack-artifacts/server.oci.tar docker-daemon:remedy-server:stack-candidate
+          skopeo copy --override-os linux --override-arch amd64 oci-archive:.stack-artifacts/bridge.oci.tar docker-daemon:remedy-bridge:stack-candidate
+          docker pull ghcr.io/johnnyrobot/adapt-a11y-scanner-dev-candidate@sha256:00ab363669ccc7ae50fe7fc79286508af5923d3326d397f87cff91ee76e379a6
+          docker pull mongo:7.0.14@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6
+          skopeo copy --override-os linux --override-arch amd64 oci-archive:.stack-artifacts/renderer.oci.tar docker-daemon:remedy-renderer:stack-candidate
+          python3 .github/stack-proof/verify_imports.py
+      - name: Verify pinned registry identities before expensive service proof
+        run: |
+          python3 - <<'PY'
+          import importlib.util,json,subprocess
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('registry_preflight',Path('deploy/stack/preflight.py'))
+          preflight=importlib.util.module_from_spec(spec);spec.loader.exec_module(preflight)
+          pins=json.loads(Path('deploy/stack/bundle.json').read_text())
+          observed={}
+          for role,reference in [('scanner',pins['scannerImage']),('mongo',preflight.MONGO)]:
+              value=json.loads(subprocess.check_output(['docker','image','inspect',reference],text=True))[0]
+              preflight.require_registry_manifest(value,reference,role)
+              observed[role]={'reference':reference,**{key:value.get(key) for key in ['Id','Os','Architecture','Variant','RepoDigests']}}
+          Path('.stack-proof-evidence/registry-bindings.json').write_text(json.dumps(observed,indent=2)+'\n')
+          PY
+      - name: Download and verify exact published thirty-five-patch consumer bytes
+        run: |
+          python3 .github/stack-proof/lt212_rehearsal.py acquire .stack-conductor-downloads --producer "$GITHUB_WORKSPACE/.stack-conductor-producer"
+          cp .stack-conductor-downloads/download-verification.json .stack-proof-evidence/producer-downloads.json
+          python3 .github/stack-proof/conductor_artifacts.py --from-package .stack-conductor-downloads/targets
+      - name: Exercise the operator's offline original-image import
+        run: |
+          python3 .github/stack-proof/conductor_artifacts.py --from-package .stack-conductor --output .stack-conductor-local --receipt .stack-proof-evidence/conductor-imports-local.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('.stack-proof-evidence')
+          original=json.loads((p/'conductor-imports.json').read_text())
+          local=json.loads((p/'conductor-imports-local.json').read_text())
+          assert local['verificationComplete'] and local==original
+          PY
+      - name: Check original Conductor kernel and cryptographic prerequisites early
+        run: |
+          sudo python3 - <<'PY'
+          import importlib.util,json
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('early_preflight',Path('deploy/stack/preflight.py'))
+          preflight=importlib.util.module_from_spec(spec);spec.loader.exec_module(preflight)
+          pins=json.loads(Path('deploy/stack/bundle.json').read_text())
+          originals=json.loads(Path('.stack-proof-evidence/conductor-imports.json').read_text())
+          results={}
+          for target,pin in originals['targets'].items():
+              result=preflight.probe(pin['loadedDockerImageID'],'conductor',pins,None,integration=True,
+                  command_override=['node','-e',preflight.CONDUCTOR_CRYPTO_PROBE])
+              assert result=='compiled-node22-crypto-and-file-credentials-available'
+              results[target]={'originalImageID':pin['loadedDockerImageID'],'passed':True,'network':'none'}
+          Path('.stack-proof-evidence/conductor-prerequisites.json').write_text(json.dumps(results,indent=2)+'\n')
+          PY
+      - name: Exercise actual services with only synthetic external systems
+        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/prove.py
+      - name: Exercise actual compiled Conductor against the owned stack
+        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/full_proof.py
+      - name: Exercise the public candidate preflight and retained production holds
+        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/preflight_proof.py
+      - name: Exercise separate synthetic signed outcomes and explicit recovery
+        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/synthetic_signed_proof.py
+      - name: Retain only UNACCEPTED rehearsal identity
+        if: always()
+        run: |
+          python3 - <<'PYMETA'
+          import json,os
+          from pathlib import Path
+          Path('.stack-proof-evidence').mkdir(exist_ok=True)
+          Path('.stack-proof-evidence/UNACCEPTED.json').write_text(json.dumps({'serverSource':os.environ['GITHUB_SHA'],'status':'UNACCEPTED','securityGate':'LT227_UNMET','cleanSealPermitted':False,'deploymentReady':False,'productionWritesEnabled':False}))
+          assert not Path('.stack-package').exists(), 'No clean sealing in this rehearsal'
+          PYMETA
+      - name: Retain sanitized proof separately from images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lt212-UNACCEPTED-stack-proof-${{ github.sha }}
+          path: .stack-inputs/server/.stack-proof-evidence/
+          retention-days: 30
+          include-hidden-files: true

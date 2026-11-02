@@ -1,11 +1,23 @@
 """One sanitization policy for logs from synthetic product rehearsals."""
 from pathlib import Path
+import re
+import subprocess
 
 SYNTHETIC_CREDENTIALS = (
     'synthetic-server-key', 'synthetic-provider-key', 'synthetic-scanner-key',
     'synthetic-adapt-token', 'synthetic-control-only', 'synthetic-secret',
     'synthetic-key', 'synthetic-user', 'a1' * 32,
 )
+
+
+def runtime_node(container: str) -> str:
+    """Read a live owned container's Node version, with a finite metadata deadline."""
+    result = subprocess.run(['docker', 'exec', container, 'node', '--version'],
+                            check=True, capture_output=True, text=True, timeout=15)
+    value = result.stdout.strip()
+    if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', value):
+        raise ValueError('unexpected actual Node runtime version')
+    return value
 
 
 def write_product_log(path: Path, content: str, sensitive_values=()) -> None:

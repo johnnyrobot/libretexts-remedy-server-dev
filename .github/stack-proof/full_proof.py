@@ -13,7 +13,7 @@ import re
 import subprocess
 import time
 import uuid
-from evidence import write_product_log, collect_browser_evidence
+from evidence import write_product_log, collect_browser_evidence, runtime_node
 
 ROOT=Path.cwd();OUT=ROOT/'.stack-proof-evidence'
 if os.environ.get('GITHUB_ACTIONS')!='true' or platform.system()!='Linux' or platform.machine()!='x86_64':
@@ -103,6 +103,11 @@ def start(role,image,command,env=None,mounts=(),extra=(),uid=None,limits=(1,'256
         actual_uid=int(status['Uid'].split()[1]);assert actual_uid>0
         assert int(status['CapEff'].strip(),16)==0 and status['NoNewPrivs'].strip()=='1' and status['Seccomp'].strip()=='2'
         report.setdefault('started',[]).append({'role':role,'imageID':value['Image'],'uid':actual_uid,'capEff':0,'noNewPrivileges':True,'seccomp':2,'cpus':cpu,'memoryBytes':host['Memory'],'pidLimit':pids,'shmBytes':host['ShmSize'],'stopSeconds':stop,'readOnlyRoot':True,'tmpfs':host['Tmpfs'],'init':host['Init'],'seccompProfileSHA256':profile_hash})
+    if role in {'server', 'bridge', 'renderer', 'conductor'}:
+        observed = runtime_node(value['Id'])
+        if role == 'server': assert observed == 'v24.12.0'
+        if role == 'conductor': assert observed.startswith('v22.')
+        report.setdefault('runtimeNodes', []).append({'role':role, 'imageID':value['Image'], 'node':observed})
     return name
 
 def stop(role):

@@ -1,0 +1,71 @@
+{
+  "schema": "conductor-candidate-publication-v1",
+  "source": "973fa92426814c43400a4ee031f3c854a1dc4933",
+  "publishedAtUTC": "2026-11-02T07:35:58Z",
+  "verifiedAtUTC": "2026-11-02T07:37:12.816205+00:00",
+  "releaseID": 431173091,
+  "releaseTag": "lt190-conductor-973fa9242681-run41404848931",
+  "releaseURL": "https://github.com/johnnyrobot/conductor-remedy-patch/releases/tag/lt190-conductor-973fa9242681-run41404848931",
+  "prerelease": true,
+  "immutableObserved": false,
+  "tagCommitVerified": true,
+  "candidateIndexSHA256": "8e85b978fe3c196756c4ca20c059c1a2bf64863e8162f065a3e935de912b1ed8",
+  "acquisitionReceiptAssetID": 700911855,
+  "acquisitionReceiptSHA256": "c1422be0b482b9b4d5b9e97ddc834e8def702b1330588c51c39db3f0b3fcfaa8",
+  "acquisitionDraftSnapshotURLsAreHistorical": true,
+  "publishedAssets": [
+    {
+      "name": "acquisition-receipt.json",
+      "id": 700911855,
+      "bytes": 5122,
+      "digest": "sha256:c1422be0b482b9b4d5b9e97ddc834e8def702b1330588c51c39db3f0b3fcfaa8",
+      "apiURL": "https://api.github.com/repos/johnnyrobot/conductor-remedy-patch/releases/assets/700911855",
+      "downloadURL": "https://github.com/johnnyrobot/conductor-remedy-patch/releases/download/lt190-conductor-973fa9242681-run41404848931/acquisition-receipt.json"
+    },
+    {
+      "name": "candidate-index.json",
+      "id": 700902246,
+      "bytes": 25232,
+      "digest": "sha256:8e85b978fe3c196756c4ca20c059c1a2bf64863e8162f065a3e935de912b1ed8",
+      "apiURL": "https://api.github.com/repos/johnnyrobot/conductor-remedy-patch/releases/assets/700902246",
+      "downloadURL": "https://github.com/johnnyrobot/conductor-remedy-patch/releases/download/lt190-conductor-973fa9242681-run41404848931/candidate-index.json"
+    },
+    {
+      "name": "candidate-records.zip",
+      "id": 700902251,
+      "bytes": 28662,
+      "digest": "sha256:e5553be63f4113a6166a9ac2b7ff70e32c6c5662ad9f0dbedb25a059c35e080a",
+      "apiURL": "https://api.github.com/repos/johnnyrobot/conductor-remedy-patch/releases/assets/700902251",
+      "downloadURL": "https://github.com/johnnyrobot/conductor-remedy-patch/releases/download/lt190-conductor-973fa9242681-run41404848931/candidate-records.zip"
+    },
+    {
+      "name": "release-2.156.2.zip",
+      "id": 700902249,
+      "bytes": 195466213,
+      "digest": "sha256:c3f1ce6d588e860ee2ea200cd58159ede908ac7c35a5ff7dd7a283729b477c65",
+      "apiURL": "https://api.github.com/repos/johnnyrobot/conductor-remedy-patch/releases/assets/700902249",
+      "downloadURL": "https://github.com/johnnyrobot/conductor-remedy-patch/releases/download/lt190-conductor-973fa9242681-run41404848931/release-2.156.2.zip"
+    },
+    {
+      "name": "staging-67301b35.zip",
+      "id": 700902250,
+      "bytes": 205961223,
+      "digest": "sha256:b36b890b9d3f2730f2084d1dc87fe3563b4adc2dbb348d9db818fc1f11156694",
+      "apiURL": "https://api.github.com/repos/johnnyrobot/conductor-remedy-patch/releases/assets/700902250",
+      "downloadURL": "https://github.com/johnnyrobot/conductor-remedy-patch/releases/download/lt190-conductor-973fa9242681-run41404848931/staging-67301b35.zip"
+    }
+  ],
+  "hostedZIPAndImageLayersIndependentlyVerified": true,
+  "recordPayloadChecksumsVerified": 11,
+  "noRebuildOrSubstitution": true,
+  "originalActionsExpiryPreserved": true,
+  "noScheduledActionsExpiryForReleaseAssets": true,
+  "permanentAvailabilityClaimed": false,
+  "globalFlags": {
+    "deploymentReady": false,
+    "productionWritesEnabled": false,
+    "liveProvidersVerified": false,
+    "productionSSOVerified": false,
+    "releaseOwnerAcceptance": false
+  }
+}

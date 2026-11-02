@@ -1,0 +1,36 @@
+{
+  "status": "UNACCEPTED",
+  "securityGate": "LT227_UNMET",
+  "bridgeSource": "98edbdcd63b76d0bc90ef864841fb39073ea7b6f",
+  "conductorSource": "973fa92426814c43400a4ee031f3c854a1dc4933",
+  "indexSHA256": "8e85b978fe3c196756c4ca20c059c1a2bf64863e8162f065a3e935de912b1ed8",
+  "releasePrefix": "https://github.com/johnnyrobot/conductor-remedy-patch/releases/download/lt190-conductor-973fa9242681-run41404848931/",
+  "assets": {
+    "candidate-index.json": {
+      "bytes": 25232,
+      "sha256": "8e85b978fe3c196756c4ca20c059c1a2bf64863e8162f065a3e935de912b1ed8"
+    },
+    "publication-receipt.json": {
+      "bytes": 3583,
+      "sha256": "87b0c3f507609be0b2240bd887ee519bb2f9e9b4fad920e71752b6a4ba365d50"
+    },
+    "acquisition-receipt.json": {
+      "bytes": 5122,
+      "sha256": "c1422be0b482b9b4d5b9e97ddc834e8def702b1330588c51c39db3f0b3fcfaa8"
+    },
+    "candidate-records.zip": {
+      "bytes": 28662,
+      "sha256": "e5553be63f4113a6166a9ac2b7ff70e32c6c5662ad9f0dbedb25a059c35e080a"
+    },
+    "staging-67301b35.zip": {
+      "bytes": 205961223,
+      "sha256": "b36b890b9d3f2730f2084d1dc87fe3563b4adc2dbb348d9db818fc1f11156694"
+    },
+    "release-2.156.2.zip": {
+      "bytes": 195466213,
+      "sha256": "c3f1ce6d588e860ee2ea200cd58159ede908ac7c35a5ff7dd7a283729b477c65"
+    }
+  },
+  "serverNodeLockSHA256": "9c59e371b14927609bd2b375c095d4c6e611d5647382f6c55e2c78b8f179f9bd",
+  "serverUVLockSHA256": "cea641c8ff68b073b70ff69d12efebf855f109d05b4a794a405fabbeb18a5c6c"
+}
