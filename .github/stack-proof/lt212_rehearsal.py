@@ -20,7 +20,7 @@ CONDUCTOR = '617187fd7993714ae4d6fb939b30268fb7be6eee'
 RELEASE_PREFIX = 'https://github.com/johnnyrobot/conductor-remedy-patch/releases/download/lt128-conductor-617187fd7993-run41451937248/'
 FLAGS = ('deploymentReady', 'productionWritesEnabled', 'liveProvidersVerified',
          'productionSSOVerified', 'releaseOwnerAcceptance')
-OVERLAY_SHA256 = '6999a03b72be00abe24324d2de8d1fcdf53a0e1e879ae98756200a91825e7034'
+OVERLAY_SHA256 = '4fce095555951e5d4de59b7616a46c095b2165417b3b9ea5de826aac1c21fe9f'
 OVERLAY_FILES = ('.github/stack-proof/full_proof.py', '.github/stack-proof/synthetic_signed_proof.py',
                  'deploy/stack/preflight.py', 'deploy/stack/compose.integration.yml',
                  'deploy/stack/env/renderer.env.example', 'deploy/stack/integration-profile.md')
@@ -85,9 +85,9 @@ def prepare(stage):
                'deploy/stack/preflight.py', '.github/stack-proof/conductor_artifacts.py', *OVERLAY_FILES)))
     before = {name: digest(stage / name) for name in changed}
     patch = (INPUTS / overlay['path']).resolve()
-    subprocess.run(['git', 'apply', '--no-index', '--check', str(patch)], cwd=stage, check=True,
+    subprocess.run(['git', 'apply', '--no-index', '--unidiff-zero', '--check', str(patch)], cwd=stage, check=True,
                    capture_output=True, timeout=30)
-    subprocess.run(['git', 'apply', '--no-index', str(patch)], cwd=stage, check=True,
+    subprocess.run(['git', 'apply', '--no-index', '--unidiff-zero', str(patch)], cwd=stage, check=True,
                    capture_output=True, timeout=30)
     if any(digest(stage / name) != binding['after'] for name, binding in overlay['files'].items()):
         raise ValueError('source overlay output differs')

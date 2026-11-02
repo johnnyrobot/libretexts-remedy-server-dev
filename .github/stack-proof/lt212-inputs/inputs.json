@@ -35,7 +35,7 @@
   "serverUVLockSHA256": "cea641c8ff68b073b70ff69d12efebf855f109d05b4a794a405fabbeb18a5c6c",
   "sourceOverlay": {
     "path": "renderer-trust.patch",
-    "sha256": "6999a03b72be00abe24324d2de8d1fcdf53a0e1e879ae98756200a91825e7034",
+    "sha256": "4fce095555951e5d4de59b7616a46c095b2165417b3b9ea5de826aac1c21fe9f",
     "baselineSource": "8ca8d17607a3ac5cb48588a3de942fd7e5cb1d76",
     "functionalProofSource": "7ee60a1d72d9103d25ffde6856dd9774095f19ff",
     "files": {

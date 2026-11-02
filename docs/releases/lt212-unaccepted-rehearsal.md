@@ -19,7 +19,9 @@ The separate `.github/workflows/lt212-rehearsal.yml` stages `git archive HEAD`
 under `.stack-inputs/server`, then invokes `lt212_rehearsal.py prepare`.
 It refuses accepted/reused stages, changed security locks and unknown baselines.
 It checks and applies the hash-pinned `lt212-inputs/renderer-trust.patch` using
-`git apply --no-index`, without requiring a Git repository in the source stage.
+`git apply --no-index --unidiff-zero`, without requiring a Git repository in the
+source stage. Whole-file hashes are mandatory before and after this zero-context
+patch; it is never applied on an unknown baseline.
 The patch changes the six paths above only inside that stage. Its expected
 before/after hashes and original functional-proof source are in `inputs.json`.
 
@@ -65,6 +67,9 @@ positive/negative controls, real browser sessions, public profiles/preflights,
 evidence/recovery and cold restore/compatible upgrade/rollback rehearsals passed.
 Review/production-held mutations were0. Separate synthetic development/test
 flows made12 fixture writes, with0 recovery retries. No live service was used.
+
+The [sanitized source/image/artifact receipt](lt212-functional-receipt-7ee60a1.json)
+records the exact identities, hashes, results and finite expiry.
 
 That source's exact uploaded archives and imported identities are retained in the
 [image artifact](https://github.com/johnnyrobot/libretexts-remedy-server-dev/actions/runs/41464793233/artifacts/13149529362)

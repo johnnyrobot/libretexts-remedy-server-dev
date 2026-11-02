@@ -1,0 +1,247 @@
+{
+  "status": "UNACCEPTED",
+  "functionalProofSource": "7ee60a1d72d9103d25ffde6856dd9774095f19ff",
+  "run": 41464793233,
+  "workflowURL": "https://github.com/johnnyrobot/libretexts-remedy-server-dev/actions/runs/41464793233",
+  "workflowConclusion": "failure",
+  "acceptanceInheritedByLaterSources": false,
+  "globalFlags": {
+    "deploymentReady": false,
+    "productionWritesEnabled": false,
+    "liveProvidersVerified": false,
+    "productionSSOVerified": false,
+    "releaseOwnerAcceptance": false
+  },
+  "securityGate": {
+    "issue": "LT-227",
+    "npmAuditExit": 1,
+    "counts": {
+      "info": 0,
+      "low": 0,
+      "moderate": 5,
+      "high": 0,
+      "critical": 0,
+      "total": 5
+    },
+    "pythonAudit": "success"
+  },
+  "jobs": {
+    "unit": "success",
+    "build": "success",
+    "shipping": "success",
+    "security-unmet": "failure",
+    "renderer": "success",
+    "prove": "success"
+  },
+  "LinuxUnit": {
+    "tests": 823,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 42,
+    "passed": 781
+  },
+  "shipping": {
+    "passed": 273,
+    "skipped": 0
+  },
+  "renderer": {
+    "passed": 39,
+    "skipped": 0
+  },
+  "producerInputs": {
+    "bridgeSource": "95a54dd3af850ca8eb5b8bf8be0395f0543c049e",
+    "conductorSource": "617187fd7993714ae4d6fb939b30268fb7be6eee",
+    "conductorIndexSHA256": "2e1297e9c180af7dce1f2e6894c6afffd0aff20ed71c3434dbccd36f14dc6e29",
+    "scannerRegistryManifest": "sha256:00ab363669ccc7ae50fe7fc79286508af5923d3326d397f87cff91ee76e379a6"
+  },
+  "images": {
+    "server": {
+      "sourceRevision": "7ee60a1d72d9103d25ffde6856dd9774095f19ff",
+      "OCIArchiveSHA256": "5d01453b0d9dfe40b5ac6b686ccb5786aa39ff2e26b7767aa45eeedbe7ec71c6",
+      "OCIConfigDigest": "sha256:26f1c990dded224e4bbde35dc35147efd612684fab1b9f5536c8f65075e66416",
+      "loadedDockerImageID": "sha256:26f1c990dded224e4bbde35dc35147efd612684fab1b9f5536c8f65075e66416",
+      "filesystemDiffIDs": [
+        "sha256:44a87794b739d471ec360bec56cc0ceac640d06bbf579ee7d9061a0b88d09818",
+        "sha256:b06a5b1a9275f6ebda79d70a0fbe0a3800928d33c95b78893a4e1ab8e324cfaa",
+        "sha256:ce67d611a4fc6fe7be94f3b8040a92ae510f8839838a54b5d6bdc3bd8afef0fc",
+        "sha256:22edd123e053adb55a4ebd663d2d70d19f950d0df0fd3e7e20b5d52627f3739c",
+        "sha256:315caa959d0c00a73c08caa107f37194dc1b7a8f0f6f78f0752323cddc849589",
+        "sha256:f81f90ce2f1ff3a9d078a06566b21ac88b9eb8f254b719cf9af62dfcfbbbb5e1",
+        "sha256:ec85aaba816dec7e7d4763effe96a6c30d3d15ac0f4d52708b01a20831b81561",
+        "sha256:fce525ca261465349c0957bc87e8feefefa02b511fdf1e2bff6a8e6a8d132abe",
+        "sha256:3e8ea23b9514b90457c69342e5b0165884c493f81ae9035af38e5cd2458e30b1",
+        "sha256:49c31f8705486840ca873f0202f659485cea8bc88dfcb56f9d8646b3e264f721",
+        "sha256:d1df6c61f306e11d73816051768a1869722d7cfc37f306049c78156a71702536",
+        "sha256:da198577e2bf47006d57ff66d5300a18f5fd099fccd0666342b08c9b58cffe90",
+        "sha256:3b303d4a4b8dcc4b5909a6597d35f81e092534e4393ea56647f8ab9025bd23f2",
+        "sha256:f956d5a7637886ebc973461c4b948d1a063544b39bdc732044d78108afd96d4b",
+        "sha256:a84603b4aa309185e6dc0b46410e02ce9090d203590555dd7b0dd34b3a9602f1",
+        "sha256:44b9a39ad9996c7f813fd765011f104fbc7c9458dd9f21b1c27bbb437e7594cc",
+        "sha256:af18054295651845cc7f61cf3958a9fee86235c309886799e740d62e542fecb0",
+        "sha256:1c597a66666822d2ae47b72f863c8fd65a02b2684da08f024e4e4c5e610d0e8a",
+        "sha256:045be8a69e984392df001e35ae8d5ec5c289d7e47239d4a145bc60f4cab8977a",
+        "sha256:a41bc62e55cd41f19e767e41918cd6bbef0ad3c92f3efd54ffb2119b385c9601",
+        "sha256:6e8a83d5c62b5a0edf8f904d80eb019d000460b287fa70a1687841ea8751dd56",
+        "sha256:a8fccd30f64c497ea08073ba6e0a0c6715d1c352ce6c5d64b2c3a8665cd00df9"
+      ],
+      "runtimeConfigurationSHA256": "0f3e5ab0a5a357111a1862eb004521577d61c21862e15ba9e3626fc34e4d2cf6",
+      "OCIBlobsVerified": 28
+    },
+    "bridge": {
+      "sourceRevision": "95a54dd3af850ca8eb5b8bf8be0395f0543c049e",
+      "OCIArchiveSHA256": "0e0f4f2517441349c5a312429f3707b0f62d16b919629fdd450481c5f9fd74b4",
+      "OCIConfigDigest": "sha256:17ac527a9c6c5a4c420144fe3976f40290536ea94125d33a245174421443311b",
+      "loadedDockerImageID": "sha256:17ac527a9c6c5a4c420144fe3976f40290536ea94125d33a245174421443311b",
+      "filesystemDiffIDs": [
+        "sha256:44a87794b739d471ec360bec56cc0ceac640d06bbf579ee7d9061a0b88d09818",
+        "sha256:09282d8f6dc3f140ce030eb4e3846b30c465220b50fd0962514f40dfc5122fd4",
+        "sha256:985fa6649f64124b2ab93baeb7a549ac3877147f438dd5931a2c5179aa83eef3",
+        "sha256:d8d64e272e1628c506685a6d413e953de1128072f8d9f58e9f781e0ad6fdee9f",
+        "sha256:6b6d01cb4b38660434f1ec5ef231fd25b6585c18893e02231eb10d38f36b29c3",
+        "sha256:aa0db3f03d7b15a0e2afec1d6ba590cef76e1c569f8f199fff844c8c356974de",
+        "sha256:c01ff3cf26c36cad28c4e0d11836e61fa552492476fdb0fe96154aebabcde170",
+        "sha256:7cfa9f45ac3baeab13d3ff69169069074b199a7988d44e4a62fdebcf3b2e87d4",
+        "sha256:e8bd387b48428432849945f55f3c672f26467062db706f564a29bd64339f3d61",
+        "sha256:166783864fc6085324f4125b85ba58c731c5959a96e1ddb726ffe8d357749663",
+        "sha256:cba67f8f341aacb752efdee5fdf351cac730f02ab2c48538c4e6493334d8496c",
+        "sha256:261805bf33aa6b512ffb5c49e473878b85c69d44ababfb3c69526e3f1ad634ac",
+        "sha256:08967ea4f7a56a4f26f8a4afd16b9e0109af9bdbb8b6625f00aa64296e5e9433",
+        "sha256:b024b46ad6f4bfc174bfd77e715db259972afc1ef14940ad416274faaf8a7a91",
+        "sha256:2e150c68d8c7fe4e684c8022ca71f762d8a27d931a90592fca1f6d1a15605b99"
+      ],
+      "runtimeConfigurationSHA256": "bdd38fa52b61014b06f976682c038799e55f74c574f97ebaf14209811d2b3206",
+      "OCIBlobsVerified": 21
+    },
+    "renderer": {
+      "sourceRevision": "95a54dd3af850ca8eb5b8bf8be0395f0543c049e",
+      "OCIArchiveSHA256": "b66598405c41fb0159a14e78d176e6ef2edaa6d5028bc7069cf40cd56bf8ab15",
+      "OCIConfigDigest": "sha256:e6291bedb37dbe4a17a872ad90b97413f03559ee7d58d81fbed19193a2df62f3",
+      "loadedDockerImageID": "sha256:e6291bedb37dbe4a17a872ad90b97413f03559ee7d58d81fbed19193a2df62f3",
+      "filesystemDiffIDs": [
+        "sha256:b9a65b3c65ab22d490085bd0bf5490e2409da8748b406870f2463bdc41cd6795",
+        "sha256:05b61f708389aecf2a9b2e058f554db6d84eb17811415f3b34768feebe0bea14",
+        "sha256:73a48c91864c16f507959610c8534667ab25537630e84399f31d968661ed94f9",
+        "sha256:cd7e6e338465408114835eb137df15785b6ac45c2b8046f78773557fe7c0a51c",
+        "sha256:67c5b2ab4bb8dd6c3ece663ece744316ccae0552a54bc2b27e811611cf366472",
+        "sha256:cd321a6dc023a72bba4dc6b34cef9892a2112c17860f4225691daa6a333aa005",
+        "sha256:656afaafaa812f188da425142df4d594b7639d8918fd42490523da6f151b11a8",
+        "sha256:e56d937bcb187710ce9371e4af5d849e8e6989557042bd47cd85ea8cae4cec09",
+        "sha256:aacc328dbb61d6a8e1b16013b028f866934bd0ce677f518583cbf48ce9e6a3f1",
+        "sha256:06c62405bed055b605d18031fcc96354ad9eb2a1fdd9812902eb74bd42b6abb5",
+        "sha256:5536ab932516ca0547d16d658838acc8ae0d705ca740c450926939d20de629d4",
+        "sha256:48d0fddafaa1e4c5cee3e32c9a532a133b23dc23511a02360e4fec357bb5a1e0"
+      ],
+      "runtimeConfigurationSHA256": "263633bea4a2dcd49e54ed02cf5bd9871b82a6aac2134a18c76a59595ac71baf",
+      "OCIBlobsVerified": 18
+    }
+  },
+  "runtimeNodes": [
+    [
+      "bridge",
+      "v22.23.4"
+    ],
+    [
+      "conductor",
+      "v22.22.3"
+    ],
+    [
+      "renderer",
+      "v24.20.0"
+    ],
+    [
+      "server",
+      "v24.12.0"
+    ]
+  ],
+  "evidence": {
+    "mainVerificationComplete": true,
+    "reviewAndProductionHeldMutations": 0,
+    "publicProfiles": {
+      "release-2.156.2": {
+        "review": true,
+        "history": true,
+        "production-held": true
+      },
+      "staging-67301b35": {
+        "review": true,
+        "history": true,
+        "production-held": true
+      }
+    },
+    "publicStartupPreflightCases": 12,
+    "separateSyntheticSignedVerificationComplete": true,
+    "syntheticTestWrites": 12,
+    "syntheticTargets": {
+      "release-2.156.2": {
+        "complete": true,
+        "phases": 14,
+        "coldStages": 3,
+        "recoveryMutationRetries": 0,
+        "currentFenceUnchangedDuringColdTransitions": true,
+        "unresolvedUnknownPreserved": true
+      },
+      "staging-67301b35": {
+        "complete": true,
+        "phases": 14,
+        "coldStages": 3,
+        "recoveryMutationRetries": 0,
+        "currentFenceUnchangedDuringColdTransitions": true,
+        "unresolvedUnknownPreserved": true
+      }
+    },
+    "operationalAcceptanceComplete": false
+  },
+  "artifacts": [
+    {
+      "id": 13154387928,
+      "name": "lt212-UNACCEPTED-stack-proof-7ee60a1d72d9103d25ffde6856dd9774095f19ff",
+      "APIRecordedZIPDigest": "sha256:5ae88a8fd7b76372b23eb4f9aaa5a679bdfa0328213975e244b39b070ca9b903",
+      "outerZIPDigestVerifiedLocally": false,
+      "expiresAtUTC": "2026-12-02T15:15:37Z",
+      "url": "https://github.com/johnnyrobot/libretexts-remedy-server-dev/actions/runs/41464793233/artifacts/13154387928"
+    },
+    {
+      "id": 13153500284,
+      "name": "lt212-UNACCEPTED-shipping-7ee60a1d72d9103d25ffde6856dd9774095f19ff",
+      "APIRecordedZIPDigest": "sha256:df0f8a9ad4c778fe92295a1816ac841e8c295d9641a9678744a8e0e512497997",
+      "outerZIPDigestVerifiedLocally": false,
+      "expiresAtUTC": "2026-12-02T14:53:57Z",
+      "url": "https://github.com/johnnyrobot/libretexts-remedy-server-dev/actions/runs/41464793233/artifacts/13153500284"
+    },
+    {
+      "id": 13153095103,
+      "name": "lt212-UNACCEPTED-unit-7ee60a1d72d9103d25ffde6856dd9774095f19ff",
+      "APIRecordedZIPDigest": "sha256:e10965e2e55912e288f78c6b02f5a01a6569f66f9e5d5d67aa6418756fa21791",
+      "outerZIPDigestVerifiedLocally": false,
+      "expiresAtUTC": "2026-12-02T14:49:45Z",
+      "url": "https://github.com/johnnyrobot/libretexts-remedy-server-dev/actions/runs/41464793233/artifacts/13153095103"
+    },
+    {
+      "id": 13152025201,
+      "name": "lt212-UNACCEPTED-renderer-proof-7ee60a1d72d9103d25ffde6856dd9774095f19ff",
+      "APIRecordedZIPDigest": "sha256:be182da05a9aa0360450a301a714d26ec08a7a038f1d7a0b9d05f42dabf418b9",
+      "outerZIPDigestVerifiedLocally": false,
+      "expiresAtUTC": "2026-12-02T14:52:09Z",
+      "url": "https://github.com/johnnyrobot/libretexts-remedy-server-dev/actions/runs/41464793233/artifacts/13152025201"
+    },
+    {
+      "id": 13149639356,
+      "name": "lt212-UNACCEPTED-security-7ee60a1d72d9103d25ffde6856dd9774095f19ff",
+      "APIRecordedZIPDigest": "sha256:95cb68dff4c1a901b14bffe60a59e4eeeab7f2095d25be833ff0a336108b73a9",
+      "outerZIPDigestVerifiedLocally": false,
+      "expiresAtUTC": "2026-12-02T14:44:41Z",
+      "url": "https://github.com/johnnyrobot/libretexts-remedy-server-dev/actions/runs/41464793233/artifacts/13149639356"
+    },
+    {
+      "id": 13149529362,
+      "name": "lt212-UNACCEPTED-images-7ee60a1d72d9103d25ffde6856dd9774095f19ff",
+      "APIRecordedZIPDigest": "sha256:68011d529f744bd50b71f0e6a35d08a9a115b435dfb45f6e814ffffe62d31005",
+      "outerZIPDigestVerifiedLocally": false,
+      "expiresAtUTC": "2026-12-02T14:45:51Z",
+      "url": "https://github.com/johnnyrobot/libretexts-remedy-server-dev/actions/runs/41464793233/artifacts/13149529362"
+    }
+  ],
+  "localDownloadedOCIPayloadAndBlobVerificationComplete": true,
+  "OCIBlobsVerified": 67,
+  "originalRetentionManifestSHA256": "badb334805a39235196bf6fd6ac49e0ef96f1fb86220b1ed1f47acd5c6bb1f0c"
+}
