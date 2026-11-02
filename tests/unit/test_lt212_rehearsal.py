@@ -69,3 +69,26 @@ def test_canonical_checkout_and_reused_stage_refuse(tmp_path):
     module().prepare(target)
     with pytest.raises(ValueError, match='existing'):
         module().prepare(target)
+
+
+def test_renderer_uses_selected_stack_filter_with_distinct_producer_profile(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / '.github/stack-proof'))
+    import renderer_rehearsal
+    producer = tmp_path / 'producer/browser-scanner'
+    producer.mkdir(parents=True)
+    (producer / 'seccomp_profile.json').write_text('{"syntheticDistinctProducer":true}')
+    selected, provenance = renderer_rehearsal.renderer_policy(ROOT, producer.parent)
+    assert selected == ROOT / 'deploy/stack/renderer-seccomp-amd64.json'
+    assert provenance['selectedSHA256'] == 'fcecf1a0ae6f84effa439b44d5f0e51bc25b4a975a7025c71e6f9ee0490ca7b0'
+    assert provenance['producerSHA256'] != provenance['selectedSHA256']
+
+
+def test_renderer_policy_mismatch_refuses(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / '.github/stack-proof'))
+    import renderer_rehearsal
+    directory = tmp_path / 'deploy/stack'
+    directory.mkdir(parents=True)
+    shutil.copyfile(ROOT / 'deploy/stack/bundle.json', directory / 'bundle.json')
+    (directory / 'renderer-seccomp-amd64.json').write_text('{}')
+    with pytest.raises(ValueError, match='filter changed'):
+        renderer_rehearsal.renderer_policy(tmp_path, tmp_path / 'absent-producer')

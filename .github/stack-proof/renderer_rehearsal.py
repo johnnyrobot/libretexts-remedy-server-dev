@@ -17,6 +17,16 @@ def run(*args, timeout=120):
     return subprocess.check_output(list(map(str, args)), text=True, timeout=timeout)
 
 
+def renderer_policy(root, producer):
+    """Use the selected Server role's filter; record distinct producer provenance."""
+    profile = root / 'deploy/stack/renderer-seccomp-amd64.json'
+    policy = json.loads((root / 'deploy/stack/bundle.json').read_text())
+    if digest(profile) != policy['rendererSeccompSHA256']:
+        raise ValueError('selected renderer filter changed')
+    return profile, {'selectedSHA256':digest(profile),
+                     'producerSHA256':digest(producer / 'browser-scanner/seccomp_profile.json')}
+
+
 def main():
     if os.environ.get('GITHUB_ACTIONS') != 'true' or platform.system() != 'Linux' or platform.machine() != 'x86_64':
         raise RuntimeError('isolated authorized GitHub Linux amd64 runner required')
@@ -39,12 +49,11 @@ def main():
     owner = os.environ['GITHUB_RUN_ID'] + '-' + os.environ['GITHUB_RUN_ATTEMPT']
     name = 'lt212-renderer-' + owner
     label = 'org.libretexts.lt212-owner'
-    profile = producer / 'browser-scanner/seccomp_profile.json'
-    assert digest(profile) == json.loads((root / 'deploy/stack/bundle.json').read_text())['rendererSeccompSHA256']
+    profile, profiles = renderer_policy(root, producer)
     receipt = {'status':'UNACCEPTED', 'source':BRIDGE, 'serverSource':os.environ['GITHUB_SHA'],
                'imageID':loaded['Id'], 'OCIConfigDigest':'sha256:' + config_digest,
                'OCIArchiveSHA256':digest(archive), 'OCIBlobsVerified':blobs,
-               'verificationComplete':False, 'shutdownConfirmed':False, 'imageFiles':{}}
+               'verificationComplete':False, 'shutdownConfirmed':False, 'imageFiles':{}, 'seccompProfiles':profiles}
     identity = None
     try:
         identity = run('docker', 'create', '--name', name, '--label', label + '=' + owner,
@@ -94,4 +103,13 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception as error:
+        path = Path('.stack-proof-evidence/renderer-rebuilt-result.json')
+        path.parent.mkdir(exist_ok=True)
+        if not path.exists():
+            with path.open('x') as stream:
+                stream.write(json.dumps({'status':'UNACCEPTED','verificationComplete':False,
+                                         'errorType':type(error).__name__}) + '\n')
+        raise

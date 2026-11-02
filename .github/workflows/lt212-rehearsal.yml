@@ -153,11 +153,16 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        id: source
         with:
           persist-credentials: false
       - uses: actions/setup-node@v4
+        id: node
         with:
           node-version: '24.12.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
       - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a
       - name: Audit frozen Python runtime
         run: |
@@ -165,6 +170,7 @@ jobs:
           uv export --frozen --no-dev --no-emit-project --no-hashes --no-header > .stack-audit/requirements.txt
           uvx pip-audit --requirement .stack-audit/requirements.txt --no-deps --disable-pip
       - name: Keep actual production npm audit failure visible
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.node.outcome == 'success' }}
         run: |
           set +e
           npm audit --prefix src/project_remedy/html_tools --package-lock-only --ignore-scripts --omit=dev --json > .stack-audit/npm-audit.json
