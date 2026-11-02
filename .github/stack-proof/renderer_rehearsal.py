@@ -11,6 +11,7 @@ import io
 
 from lt212_rehearsal import BRIDGE, digest
 from verify_imports import read_oci, runtime_configuration
+from evidence import write_product_log
 
 
 def run(*args, timeout=120):
@@ -46,6 +47,8 @@ def main():
     assert loaded['Config']['Labels']['org.opencontainers.image.revision'] == BRIDGE
     producer = Path(os.environ['GITHUB_WORKSPACE']) / '.stack-bridge-producer'
     assert run('git', '-C', producer, 'rev-parse', 'HEAD').strip() == BRIDGE
+    package = json.loads((producer / 'browser-scanner/package.json').read_text())
+    assert package['scripts']['test'] == 'node --test --test-concurrency=1 *.test.mjs'
     owner = os.environ['GITHUB_RUN_ID'] + '-' + os.environ['GITHUB_RUN_ATTEMPT']
     name = 'lt212-renderer-' + owner
     label = 'org.libretexts.lt212-owner'
@@ -63,7 +66,7 @@ def main():
             '--pids-limit', '256', '--shm-size', '1g', '--stop-timeout', '30',
             '--tmpfs', '/tmp:rw,nosuid,nodev,size=512m', '-e', 'RUN_BROWSER_TESTS=1',
             '-e', 'NPM_CONFIG_CACHE=/tmp/npm-cache', '--entrypoint', '/bin/sh', loaded['Id'],
-            '-c', 'node --version && python3 --version && exec npm test').strip()
+            '-c', 'node --version && python3 --version && exec node --test --test-reporter=tap --test-concurrency=1 *.test.mjs').strip()
         info = json.loads(run('docker', 'inspect', identity))[0]
         assert info['Image'] == loaded['Id'] and info['Config']['Labels'][label] == owner
         for file in ('process-guardian.py', 'guardian_channel.py', 'process-owner.mjs', 'job-storage.mjs', 'server.mjs'):
@@ -76,11 +79,12 @@ def main():
             receipt['imageFiles'][file] = actual
         result = subprocess.run(['docker','start','--attach',identity], capture_output=True, text=True, timeout=600)
         log = result.stdout + result.stderr
-        (evidence / 'renderer-thirty-tests.log').write_text(log)
+        write_product_log(evidence / 'renderer-thirty-tests.log', log)
+        print((evidence / 'renderer-thirty-tests.log').read_text()[-12000:], flush=True)
         receipt['runtimeNode'] = next(line for line in result.stdout.splitlines() if re.fullmatch(r'v\d+\.\d+\.\d+', line))
         receipt['runtimePython'] = next(line for line in result.stdout.splitlines() if line.startswith('Python '))
         assert result.returncode == 0
-        for field, expected in (('tests',30),('pass',30),('fail',0),('skipped',0)):
+        for field, expected in (('tests',30),('pass',30),('fail',0),('skipped',0),('cancelled',0),('todo',0)):
             assert re.search(r'^# ' + field + ' ' + str(expected) + r'\s*$', log, re.M), field
         assert json.loads(run('docker','inspect',identity))[0]['State']['ExitCode'] == 0
         receipt.update(testsPassed=True, tests=30, passed=30, skipped=0)
@@ -100,6 +104,7 @@ def main():
         finally:
             receipt['verificationComplete'] = receipt.get('testsPassed') is True and receipt['shutdownConfirmed'] is True
             (evidence / 'renderer-rebuilt-result.json').write_text(json.dumps(receipt,indent=2) + '\n')
+            print(json.dumps(receipt, sort_keys=True), flush=True)
 
 
 if __name__ == '__main__':

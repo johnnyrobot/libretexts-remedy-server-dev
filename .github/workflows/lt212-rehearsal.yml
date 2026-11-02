@@ -118,6 +118,7 @@ jobs:
           name: lt212-UNACCEPTED-renderer-proof-${{ github.sha }}
           path: .stack-proof-evidence/
           retention-days: 30
+          include-hidden-files: true
   shipping:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -179,6 +180,7 @@ jobs:
           import json,sys
           from pathlib import Path
           Path('.stack-audit/status.json').write_text(json.dumps({'status':'UNACCEPTED','securityGate':'LT227_UNMET','npmAuditExit':int(sys.argv[1]),'cleanSealPermitted':False,'deploymentReady':False,'productionWritesEnabled':False}))
+          print(json.dumps({'npmAuditExit':int(sys.argv[1]),'counts':json.loads(Path('.stack-audit/npm-audit.json').read_text()).get('metadata',{}).get('vulnerabilities')}))
           PYMETA
           exit "$result"
       - uses: actions/upload-artifact@v4
@@ -187,6 +189,7 @@ jobs:
           name: lt212-UNACCEPTED-security-${{ github.sha }}
           path: .stack-audit/
           retention-days: 30
+          include-hidden-files: true
   prove:
     needs: build
     defaults:
