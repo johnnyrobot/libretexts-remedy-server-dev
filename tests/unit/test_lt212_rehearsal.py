@@ -35,7 +35,7 @@ def test_draft_stage_binds_reviewed_producers_without_changing_release_files(tmp
     policy = json.loads((target / 'deploy/stack/bundle.json').read_text())
     assert policy['bridgeSource'] == policy['rendererSource'] == '95a54dd3af850ca8eb5b8bf8be0395f0543c049e'
     assert policy['conductorCandidateIndexSHA256'] == '2e1297e9c180af7dce1f2e6894c6afffd0aff20ed71c3434dbccd36f14dc6e29'
-    assert receipt['status'] == 'UNACCEPTED' and receipt['securityGate'] == 'LT227_UNMET'
+    assert receipt['status'] == 'UNACCEPTED' and receipt['securityGate'] == 'CLEAN_LOCKED_AUDITS_REQUIRED'
     assert policy['deploymentReady'] is False and policy['productionWritesEnabled'] is False
     assert (ROOT / 'deploy/stack/bundle.json').read_bytes() == before
     assert (target / '.github/stack-proof/seal_package.py').read_bytes() == sealer
@@ -153,7 +153,7 @@ def test_retained_canonical_renderer_paths_remain_byte_identical_to_base(name):
     assert hashlib.sha256((ROOT/name).read_bytes()).hexdigest() == expected
 
 
-def test_staged_trust_paths_match_exact_prior_functional_source_bindings(tmp_path):
+def test_staged_trust_paths_match_exact_reviewed_recipe_bindings(tmp_path):
     import hashlib
     target=stage(tmp_path)
     driver=module();receipt=driver.prepare(target)
@@ -183,3 +183,28 @@ def test_source_overlay_isolated_from_parent_git_repository(tmp_path):
     assert receipt['sourceOverlay']['sha256']==module().OVERLAY_SHA256
     assert not (parent/'.github').exists()
     assert not (parent/'.git/index').exists()
+
+
+def test_recorded_build_source_is_materialized_without_registry_lookup(tmp_path):
+    import hashlib
+    source='FROM fixture:base AS base\nFROM base AS runtime\n'
+    resolved='FROM fixture:base@sha256:'+'a'*64+' AS base\nFROM base AS runtime\n'
+    (tmp_path/'Dockerfile').write_text(source)
+    record={'original_dockerfile_sha256':hashlib.sha256(source.encode()).hexdigest(),
+            'input_sha256':{'Dockerfile':hashlib.sha256(resolved.encode()).hexdigest()},
+            'bases':{'fixture:base':'sha256:'+'a'*64}}
+    result=module().materialize_recorded_build(tmp_path,record)
+    assert (tmp_path/'Dockerfile').read_text()==resolved
+    assert result=={'before':record['original_dockerfile_sha256'],'after':record['input_sha256']['Dockerfile']}
+
+
+@pytest.mark.parametrize('damage',['source','base','result'])
+def test_unknown_recorded_build_source_refuses(tmp_path,damage):
+    import hashlib
+    source='FROM fixture:base\n';(tmp_path/'Dockerfile').write_text(source)
+    record={'original_dockerfile_sha256':hashlib.sha256(source.encode()).hexdigest(),
+            'input_sha256':{'Dockerfile':'b'*64},'bases':{'fixture:base':'sha256:'+'a'*64}}
+    if damage=='source':record['original_dockerfile_sha256']='0'*64
+    elif damage=='base':record['bases']={}
+    with pytest.raises(ValueError):module().materialize_recorded_build(tmp_path,record)
+    assert (tmp_path/'Dockerfile').read_text()==source

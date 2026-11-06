@@ -1,7 +1,9 @@
-# LT212: UNACCEPTED, security-blocked rehearsal
+# LT212: UNACCEPTED current integration candidate
 
 This is a reviewable draft, not a released configuration or deployment approval.
-LT227's actual production npm audit still fails with five moderate findings.
+LT227 is repaired in reviewed main`e7e86801ef95098358d6ef8e25887f23e597c457`;
+main CI42173247382 passed clean exact installed Node22/24 and Python audits.
+A new package using that lock still requires all matching proofs and review.
 All five release/write/provider/SSO/owner flags remain false; there is no clean
 package seal or production-write bypass. LibreTexts owns rollout timing and the
 vendor conditional-write, adapter and target-policy validation before writes.
@@ -9,7 +11,9 @@ One maintained full integration retains optional review-only operation.
 
 ## Source selection and staging
 
-The canonical bundle, Conductor index and sealer remain on their retained inputs.
+The canonical bundle and Conductor index retain their previous selections.
+The shared sealer preserves its default32-patch behavior and adds an explicit,
+reviewed staged-candidate mode for the selected36-patch input; no default is promoted.
 The canonical full proof, signed proof, public Compose, renderer env, preflight
 and integration guide remain byte-identical to base
 `8ca8d17607a3ac5cb48588a3de942fd7e5cb1d76`; they retain the older renderer's NSS
@@ -25,6 +29,12 @@ patch; it is never applied on an unknown baseline. A child-only Git discovery
 ceiling isolates the source stage from any parent checkout and caller index.
 The patch changes the six paths above only inside that stage. Its expected
 before/after hashes and original functional-proof source are in `inputs.json`.
+
+The repaired Node lock is pinned to SHA256
+`86c63beacdf9019db77ade11c00441a248e8910a7a018b0d442cd5fd7bddfcf1`.
+The stage records `CLEAN_LOCKED_AUDITS_REQUIRED`; this is a requirement, not an
+audit result. The candidate must include both source/lock-bound installed audit
+records and actual proof of their success.
 
 The same operation then overlays the exact bundle producer pins and Conductor
 index, and replaces the old index constant in the staged preflight/importer.
@@ -79,10 +89,71 @@ with finite retention through December2,2026 UTC. Current isolation changes must
 be assessed separately: matching patch-output bytes demonstrate source
 equivalence for those paths, not new image acceptance or a rebuilt source hash.
 
-LT227 still requires a supported parent dependency fix without override,
-downgrade or audit ignore, followed by affected runtime and a fresh exact package
-validation. Normal PR/native/external gates, retained final artifacts and
-release-owner/production-host/provider/SSO/vendor acceptance remain pending.
-The original20a retained delivery is historical provenance, not endorsement of
-its old vulnerable runtime. See the root and stack READMEs for the preserved
-canonical instructions; this staged rehearsal does not promote their pins.
+LT227's supported repair is complete; the records above remain historical and
+are not accepted proof for the new lock or package. The refreshed candidate
+workflow requires all unit/shipping/renderer/audit jobs before assembled proof,
+then validates the real signed/recovery/cold-state receipts and creates one
+UNACCEPTED `remedy-stack-handoff-v1` candidate. All five flags stay false.
+
+## Current candidate archive and operator verification
+
+The explicit `seal_package.py --staged-checkout` mode checks the canonical
+checkout/HEAD, the recorded before/after source recipe, exact36-patch producer
+index, actual OCI/config/layer/import bindings, all required functional receipts
+and clean Node22/24/Python audit records bound to the same source and locks.
+It archives both `canonical-source.tar` and actual tested `source.tar`, with
+`source.layout=canonical-git-archive-with-recorded-staging-overlays` and complete
+per-file hashes. The build's resolved Dockerfile is reconstructed from its
+recorded base digests, without another registry resolution; that overlay is
+recorded too. No unrecorded source difference is accepted. Original Conductor
+ZIP/archive/expiry guards and all existing receipt/image validators remain.
+
+The workflow uploads only `package.tar`, `manifest.json`, `checksums.sha256` and
+`seal-receipt.json` as `lt212-UNACCEPTED-candidate-<source>`, avoiding duplicate
+loose payloads. The fresh readback job gets the trusted manifest and TAR hashes
+from the producing job's outputs, downloads that exact wrapper, verifies every
+member, expands into a new private directory and rechecks sources/OCI/original
+consumer archives/receipts/audits. It imports the same archives and runs genuine
+no-network kernel/crypto/browser prerequisite probes; Scanner/Mongo are pulled
+only at their fixed registry digests. Its receipt is source-specific and never
+authorizes deployment, store admission, cleanup or production writes.
+
+Use Python3.11+ for file verification. Obtain both expected hashes from the
+reviewed immutable source/run and trusted handoff record, independently of the
+untrusted files being checked. Run from the reviewed repository source, without
+executing downloaded source or image content before verification:
+
+```sh
+python3 .github/stack-proof/seal_package.py \
+  --unpack "${REMEDY_DOWNLOADED_WRAPPER:?required}" \
+  --output "${REMEDY_NEW_VERIFIED_DIRECTORY:?must not exist}" \
+  --expected-manifest-sha "${REMEDY_EXPECTED_MANIFEST_SHA256:?trusted receipt required}" \
+  --expected-tar-sha "${REMEDY_EXPECTED_TAR_SHA256:?trusted receipt required}"
+python3 .github/stack-proof/seal_package.py \
+  --verify "${REMEDY_NEW_VERIFIED_DIRECTORY:?required}" \
+  --expected-manifest-sha "${REMEDY_EXPECTED_MANIFEST_SHA256:?trusted receipt required}"
+```
+
+No existing output is overwritten, links/traversal/extra or mismatched members
+refuse, and a completed manifest is published last. Integrity hashes are not
+signatures or independent authenticity. New artifacts have30day retention; the
+candidate manifest records original consumer expiry separately. Retain exact
+bytes and trusted receipts before expiry. The original20a retained release
+remains separate historical provenance and is never overwritten.
+
+Extract only the verified `source.tar` into a new private source directory;
+its paths and hashes must match the manifest. Follow its staged
+`deploy/stack/integration-profile.md` for supported Linuxamd64 DockerEngine/
+Composev2/Skopeo, exact imports, private TLS and namespace, readonly per-role
+credential FILE mounts/UID permissions, finite quotas, drain/start/health,
+backup/compatible upgrade/rollback and target-host preflight. The source snapshot
+is deliberately modified by documented overlays; checking out the canonical
+commit alone does not reproduce those files. All fixed producer/image/lock/
+policy identities come from the matching manifest and import receipts.
+
+Required final native/external gates, new complete exact-package proof and
+Chief review remain mandatory. All global flags stay false until the appropriate
+owner accepts evidence; no deployment or approved release is published here.
+Actual production host/provider/SSO and LibreTexts-owned vendor conditional-write,
+adapter/allowlist/target-policy validation remain separate. Production writes
+have no bypass toggle; review-only remains optional in one maintained full stack.

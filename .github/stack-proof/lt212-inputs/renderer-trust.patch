@@ -1,27 +1,25 @@
-diff --git a/.github/stack-proof/full_proof.py b/.github/stack-proof/full_proof.py
-index e325f38..1c96a21 100644
 --- a/.github/stack-proof/full_proof.py
 +++ b/.github/stack-proof/full_proof.py
-@@ -16 +16 @@ import uuid
+@@ -16 +16 @@
 -from evidence import write_product_log, collect_browser_evidence
 +from evidence import write_product_log, collect_browser_evidence, runtime_node
-@@ -105,0 +106,5 @@ def start(role,image,command,env=None,mounts=(),extra=(),uid=None,limits=(1,'256
+@@ -105,0 +106,5 @@
 +    if role in {'server', 'bridge', 'renderer', 'conductor'}:
 +        observed = runtime_node(value['Id'])
 +        if role == 'server': assert observed == 'v24.12.0'
 +        if role == 'conductor': assert observed.startswith('v22.')
 +        report.setdefault('runtimeNodes', []).append({'role':role, 'imageID':value['Image'], 'node':observed})
-@@ -133 +138 @@ def address(role):return inspect(PREFIX+'-'+role)['NetworkSettings']['Networks']
+@@ -133 +138 @@
 -def request(role,port,path,body=None,key=None,control=False):
 +def request(role,port,path,body=None,key=None,control=False,*,bearer=False):
-@@ -136 +141,3 @@ def request(role,port,path,body=None,key=None,control=False):
+@@ -136 +141,3 @@
 -    if key:headers['X-Fixture-Control' if control else 'X-API-Key']=key
 +    if key:
 +        if bearer: headers['Authorization']='Bearer '+key
 +        else: headers['X-Fixture-Control' if control else 'X-API-Key']=key
-@@ -181,0 +189 @@ try:
+@@ -181,0 +189 @@
 +    (fixture/'ca.pem').chmod(0o444)
-@@ -213,2 +221,65 @@ try:
+@@ -213,2 +221,65 @@
 -    start('renderer','remedy-renderer:stack-candidate',['sh','/proof/nss_home.sh','node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/tmp/renderer-home'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(ROOT/'deploy/stack/browser-home.sh','/proof/nss_home.sh',True),(nss,'/run/certificates/nss-seed',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
 -    wait('renderer',5180)
 +    def start_renderer(public_ca):
@@ -89,29 +87,27 @@ index e325f38..1c96a21 100644
 +    recovered=trust_scan()
 +    assert recovered['state']=='complete' and recovered['publicCATrust']==trusted['publicCATrust'],recovered
 +    report['assembledTLSControls']['validAfterRestart']={'state':recovered['state'],'publicCATrust':recovered['publicCATrust']}
-diff --git a/.github/stack-proof/synthetic_signed_proof.py b/.github/stack-proof/synthetic_signed_proof.py
-index 3d05600..c7139cd 100644
 --- a/.github/stack-proof/synthetic_signed_proof.py
 +++ b/.github/stack-proof/synthetic_signed_proof.py
-@@ -148 +148 @@ def address(role):return inspect(PREFIX+'-'+role)['NetworkSettings']['Networks']
+@@ -148 +148 @@
 -def request(role,port,path,body=None,key=None,control=False):
 +def request(role,port,path,body=None,key=None,control=False,*,bearer=False):
-@@ -151 +151,3 @@ def request(role,port,path,body=None,key=None,control=False):
+@@ -151 +151,3 @@
 -    if key:headers['X-Fixture-Control' if control else 'X-API-Key']=key
 +    if key:
 +        if bearer: headers['Authorization']='Bearer '+key
 +        else: headers['X-Fixture-Control' if control else 'X-API-Key']=key
-@@ -308,3 +310 @@ try:
+@@ -308,3 +310 @@
 -    report['NSSSetup']={'toolSHA256':hashlib.sha256(Path('/usr/bin/certutil').read_bytes()).hexdigest(),'hostToolPackage':run('dpkg-query','-W','-f=${Version}','libnss3-tools').strip(),'hostOS':Path('/etc/os-release').read_text(),'temporaryHome':'/tmp/renderer-home','temporaryBytes':512*1024*1024}
 -    nss=WORK/'nssdb';nss.mkdir();run('certutil','-N','--empty-password','-d','sql:'+str(nss))
 -    run('certutil','-A','-d','sql:'+str(nss),'-n','isolated-cxone-fixture','-t','C,,','-i',fixture/'ca.pem')
 +    report['NSSSetup']={'toolSHA256':hashlib.sha256(Path('/usr/bin/certutil').read_bytes()).hexdigest(),'hostToolPackage':run('dpkg-query','-W','-f=${Version}','libnss3-tools').strip(),'hostOS':Path('/etc/os-release').read_text(),'temporaryHome':'private-per-job','temporaryBytes':512*1024*1024}
-@@ -313 +312,0 @@ try:
+@@ -313 +312,0 @@
 -    for p in [nss,*nss.iterdir()]:os.chown(p,renderer_uid,renderer_uid);p.chmod(0o700 if p.is_dir() else 0o600)
-@@ -376 +375 @@ try:
+@@ -376 +375 @@
 -        start('renderer','remedy-renderer:stack-candidate',['sh','/proof/nss_home.sh','node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/tmp/renderer-home'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(ROOT/'deploy/stack/browser-home.sh','/proof/nss_home.sh',True),(nss,'/run/certificates/nss-seed',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
 +        start('renderer','remedy-renderer:stack-candidate',['node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/tmp','RENDER_PUBLIC_CA_FILE':'/run/remedy-public-ca/roots.pem'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(fixture/'ca.pem','/run/remedy-public-ca/roots.pem',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
-@@ -378,0 +378,12 @@ try:
+@@ -378,0 +378,12 @@
 +    ca_status, ca_scan = request('renderer',5180,'/scan',
 +        {'url':'https://dev.libretexts.org/Sandboxes/johnnyphung/Stack/Synthetic'},
 +        'synthetic-renderer-token',bearer=True)
@@ -124,40 +120,137 @@ index 3d05600..c7139cd 100644
 +    while request('renderer',5180,'/healthz')[1].get('busy') is not False:
 +        assert time.monotonic()<ca_deadline,'synthetic renderer ownership did not settle'
 +        time.sleep(.1)
-diff --git a/deploy/stack/compose.integration.yml b/deploy/stack/compose.integration.yml
-index de441b0..1f925f1 100644
+--- a/deploy/stack/preflight.py
++++ b/deploy/stack/preflight.py
+@@ -161,3 +160,0 @@
+-    if role=='renderer':
+-        arguments+=['--mount',f'type=bind,src={ROOT}/deploy/stack/browser-home.sh,dst=/proof/browser-home.sh,readonly']
+-        command=['sh','/proof/browser-home.sh',*command]
+@@ -458,0 +456,20 @@
++def validate_public_ca_file(path, uid):
++    canonical(path)
++    private_directory(path.parent, uid)
++    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
++    try:
++        info = os.fstat(fd)
++        require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and
++                stat.S_IMODE(info.st_mode) in {0o400, 0o444} and
++                (stat.S_IMODE(info.st_mode) == 0o444 or info.st_uid == uid) and
++                0 < info.st_size <= 65536, 'operator_public_ca_file_invalid')
++        raw = os.read(fd, 65537)
++        after = os.fstat(fd)
++        require(len(raw) == info.st_size and (after.st_mtime_ns,after.st_ctime_ns,after.st_size) ==
++                (info.st_mtime_ns,info.st_ctime_ns,info.st_size), 'operator_public_ca_changed')
++        require(b'PRIVATE KEY' not in raw, 'public_certificate_required')
++        return raw
++    finally:
++        os.close(fd)
++
++
+@@ -462 +479 @@
+-    for role in ('server','scanner','bridge','conductor'):
++    for role in ('server','scanner','bridge','conductor','renderer'):
+@@ -469 +486 @@
+-            raw = protected_file(directory / name, uid, 1024*1024)
++            raw = validate_public_ca_file(directory / name, uid) if role == 'renderer' else protected_file(directory / name, uid, 1024*1024)
+@@ -598,2 +615 @@
+-    for name,relative in {'credential-loader':'deploy/stack/secret-env.mjs',
+-                          'browser-home':'deploy/stack/browser-home.sh'}.items():
++    for name,relative in {'credential-loader':'deploy/stack/secret-env.mjs'}.items():
+@@ -672 +687,0 @@
+-            if role == 'renderer': expected_entrypoint = ['sh','/opt/remedy-bundle/browser-home.sh',*expected_entrypoint]
+@@ -675 +690 @@
+-            require(set(files) == ({'credential-loader','browser-home'} if role=='renderer' else {'credential-loader'}) and len(files) == len(service.get('configs',[])),
++            require(set(files) == {'credential-loader'} and len(files) == len(service.get('configs',[])),
+@@ -707,2 +722,2 @@
+-            require(service.get('command') == ['node','server.mjs'] and env.get('RENDER_ALLOWED_HOSTS') == 'dev.libretexts.org' and env.get('HOME') == '/tmp/renderer-home' and
+-                    files.get('browser-home') == '/opt/remedy-bundle/browser-home.sh', 'bounded_renderer_home_initializer_required')
++            require(service.get('command') == ['node','server.mjs'] and env.get('RENDER_ALLOWED_HOSTS') == 'dev.libretexts.org' and env.get('HOME') == '/tmp' and
++                    env.get('RENDER_PUBLIC_CA_FILE') == '/run/remedy-public-ca/roots.pem', 'job_local_public_ca_configuration_required')
+@@ -720 +735 @@
+-        elif role == 'renderer': expected_mounts['/run/certificates/nss-seed'] = (args.nss_seed_root, True)
++        elif role == 'renderer': expected_mounts['/run/remedy-public-ca/roots.pem'] = (args.tls_root/'renderer/ca.pem', True)
+@@ -886 +901,5 @@
+-    nss_mount = [(args.nss_seed_root,'/run/certificates/nss-seed')]
++    public_ca_mount = [(args.tls_root/'renderer/ca.pem','/run/remedy-public-ca/roots.pem')]
++    ca_probe = "import {loadPublicCA} from '/app/public-ca.mjs';const c=await loadPublicCA(process.env.RENDER_PUBLIC_CA_FILE);console.log(JSON.stringify({sha256:c.sha256,fingerprints:c.fingerprints}));"
++    expected_ca = hashlib.sha256(validate_public_ca_file(args.tls_root/'renderer/ca.pem',1001)).hexdigest()
++    actual_ca = read_json(probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=public_ca_mount,environment={'RENDER_PUBLIC_CA_FILE':'/run/remedy-public-ca/roots.pem'},command_override=['node','--input-type=module','-e',ca_probe]))
++    require(actual_ca['sha256'] == expected_ca and full.get('rendererPublicCA',{}).get('sha256') == expected_ca and bool(actual_ca['fingerprints']), 'actual_job_local_public_ca_provenance_required')
+@@ -888 +907 @@
+-        mounts = nss_mount if role == 'renderer' else ([(args.tls_root/role/'ca.pem','/run/tls/ca.pem')] if role in {'scanner','bridge','conductor'} else [])
++        mounts = public_ca_mount if role == 'renderer' else ([(args.tls_root/role/'ca.pem','/run/tls/ca.pem')] if role in {'scanner','bridge','conductor'} else [])
+@@ -894 +913 @@
+-                                     mounts=nss_mount if role=='renderer' else [], uid=scanner_uid if role=='scanner' else ROLE_UID[role])
++                                     mounts=public_ca_mount if role=='renderer' else [], uid=scanner_uid if role=='scanner' else ROLE_UID[role])
+@@ -898 +917 @@
+-    renderer_denial = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=nss_mount,
++    renderer_denial = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=public_ca_mount,
+@@ -901 +920 @@
+-    nss_version = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=nss_mount,
++    nss_version = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=public_ca_mount,
 --- a/deploy/stack/compose.integration.yml
 +++ b/deploy/stack/compose.integration.yml
-@@ -74,2 +74,3 @@ services:
+@@ -74,2 +74,3 @@
 -      HOME: /tmp/renderer-home
 -    entrypoint: [sh, /opt/remedy-bundle/browser-home.sh, node, /opt/remedy-bundle/secret-env.mjs, renderer]
 +      HOME: /tmp
 +      RENDER_PUBLIC_CA_FILE: /run/remedy-public-ca/roots.pem
 +    entrypoint: [node, /opt/remedy-bundle/secret-env.mjs, renderer]
-@@ -80,2 +80,0 @@ services:
+@@ -80,2 +80,0 @@
 -      - source: browser-home
 -        target: /opt/remedy-bundle/browser-home.sh
-@@ -89,2 +88,2 @@ services:
+@@ -89,2 +88,2 @@
 -        source: ${REMEDY_NSS_SEED_ROOT:?compatible fresh CA-only public NSS seed required}
 -        target: /run/certificates/nss-seed
 +        source: ${REMEDY_TLS_ROOT:?pre-provisioned per-role TLS files required}/renderer/ca.pem
 +        target: /run/remedy-public-ca/roots.pem
-diff --git a/deploy/stack/env/renderer.env.example b/deploy/stack/env/renderer.env.example
-index ea631aa..cbcbcfe 100644
 --- a/deploy/stack/env/renderer.env.example
 +++ b/deploy/stack/env/renderer.env.example
 @@ -2 +2 @@
 -# Public CA-only NSS seed is mounted read-only and copied into private tmpfs HOME.
 +# Operator public root PEM is read-only; producer provisions a fresh per-job NSS DB.
-@@ -4 +4,2 @@ NODE_ENV=production
+@@ -4 +4,2 @@
 -HOME=/tmp/renderer-home
 +HOME=/tmp
 +RENDER_PUBLIC_CA_FILE=/run/remedy-public-ca/roots.pem
-diff --git a/deploy/stack/integration-profile.md b/deploy/stack/integration-profile.md
-index c30b8f1..d2610bc 100644
 --- a/deploy/stack/integration-profile.md
 +++ b/deploy/stack/integration-profile.md
-@@ -264,20 +264,33 @@ seccomp, ignored certificate errors or sandbox-disabling flags.
+@@ -22,3 +22,3 @@
+-32-patch index is from Conductor patch source
+-`dd152c5eca8e48609bbf7df9a9c8c63cf7b48fd2`, SHA-256
+-`99d70fe71fdf956bc60e34ca55b262cc39747cd5fd30bd386ec7518d3ba58da8`.
++36-patch index is from Conductor patch source
++`617187fd7993714ae4d6fb939b30268fb7be6eee`, SHA-256
++`2e1297e9c180af7dce1f2e6894c6afffd0aff20ed71c3434dbccd36f14dc6e29`.
+@@ -30,4 +30,4 @@
+-| Release 2.156.2 | `352a657ec6de7b317a70ad3f8f744bc6d5054d9d` | `363b016ed5177187159afbf3db13fab2bf124e78e0561b2659f5b59e09d08781` |
+-| Staging | `67301b35c3784ed73ba1a65011ef5a1d689abca1` | `fd65b40b251b9e0326e361fbe9422939702a796ce055d08fe885109fe29f99f9` |
+-
+-The original artifacts expire November 12, 2026 (exact UTC times and artifact
++| Release 2.156.2 | `352a657ec6de7b317a70ad3f8f744bc6d5054d9d` | `7783142ff1c0cc96574f1b16a79d7d57b4ae0d2913860651c4369391fddfeb88` |
++| Staging | `67301b35c3784ed73ba1a65011ef5a1d689abca1` | `c082192dd95e1c849e3a907dae17e5b01d29f4090b2983393087534272b70347` |
++
++The original artifacts expire November 16, 2026 (exact UTC times and artifact
+@@ -41 +41 @@
+-`f39566e0fa6413ed17e7a5c2a11fefc540ed5233`, with `cxone-review-v1` and
++`95a54dd3af850ca8eb5b8bf8be0395f0543c049e`, with `cxone-review-v1` and
+@@ -65 +65 @@
+-The candidate workflow's final `remedy-stack-handoff-<source commit>` artifact is
++The candidate workflow's final `lt212-UNACCEPTED-candidate-<source commit>` artifact is
+@@ -68 +68,2 @@
+-external `seal-receipt.json`. The TAR contains the exact tracked source archive,
++external `seal-receipt.json`. The TAR contains the exact tested staged source archive plus a separate
++canonical Git source archive and explicit before/after overlays,
+@@ -99,2 +100,3 @@
+-Use the authorized root operator and a new checkout/extracted `source.tar` at
+-the package's exact source commit. Install the supported Docker Engine/Compose
++Use the authorized root operator and the verified extracted `source.tar`.
++This is the tested staged snapshot, bound to the canonical Git commit and
++recorded overlays; it is not an unmodified checkout of that commit. Install the supported Docker Engine/Compose
+@@ -115,0 +118 @@
++cp "${REMEDY_VERIFIED_PACKAGE:?required}/metadata/staging.json" .stack-artifacts/rehearsal-inputs.json
+@@ -264,20 +267,33 @@
 -`REMEDY_NSS_SEED_ROOT` is a read-only **fresh CA-only** public seed containing
 -`cert9.db` and `key4.db`, readable only by renderer UID 1001. Deployment owners
 -must verify it contains only approved public trust certificates and no private
@@ -178,8 +271,8 @@ index c30b8f1..d2610bc 100644
 -configuration or offers diagnostic variants. HOME lives inside the renderer's
 -512 MiB tmpfs; shm is 1 GiB and stop grace 30 seconds. A failed initializer is a
 -stop condition, not permission to reuse arbitrary host browser state.
-+The LT212 branch is an **UNACCEPTED rehearsal**, with LT227's actual production
-+npm audit still failing. Its new renderer input is Bridge
++The LT212 branch is an **UNACCEPTED candidate** using the merged LT227 repair.
++Clean exact locked audits and new complete package proof are required. Its new renderer input is Bridge
 +`95a54dd3af850ca8eb5b8bf8be0395f0543c049e`; it must be rebuilt from the exact
 +producer Dockerfile. Published original artifacts and their old receipts are
 +historical inputs; they do not accept this draft.
@@ -211,74 +304,9 @@ index c30b8f1..d2610bc 100644
 +public-only NSS compatibility checks. They are not mounted on remedy-renderer.
 +All release flags remain false until supported security repair and complete new
 +matching operational acceptance; this section is not a deployment endorsement.
-diff --git a/deploy/stack/preflight.py b/deploy/stack/preflight.py
-index b242f21..05acdde 100644
---- a/deploy/stack/preflight.py
-+++ b/deploy/stack/preflight.py
-@@ -161,3 +160,0 @@ def probe(image, role, policy, profile, secret_root=None, bridge=False, expressi
--    if role=='renderer':
--        arguments+=['--mount',f'type=bind,src={ROOT}/deploy/stack/browser-home.sh,dst=/proof/browser-home.sh,readonly']
--        command=['sh','/proof/browser-home.sh',*command]
-@@ -458,0 +456,20 @@ def validate_credentials(secret_root, scanner_uid):
-+def validate_public_ca_file(path, uid):
-+    canonical(path)
-+    private_directory(path.parent, uid)
-+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-+    try:
-+        info = os.fstat(fd)
-+        require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and
-+                stat.S_IMODE(info.st_mode) in {0o400, 0o444} and
-+                (stat.S_IMODE(info.st_mode) == 0o444 or info.st_uid == uid) and
-+                0 < info.st_size <= 65536, 'operator_public_ca_file_invalid')
-+        raw = os.read(fd, 65537)
-+        after = os.fstat(fd)
-+        require(len(raw) == info.st_size and (after.st_mtime_ns,after.st_ctime_ns,after.st_size) ==
-+                (info.st_mtime_ns,info.st_ctime_ns,info.st_size), 'operator_public_ca_changed')
-+        require(b'PRIVATE KEY' not in raw, 'public_certificate_required')
-+        return raw
-+    finally:
-+        os.close(fd)
-+
-+
-@@ -462 +479 @@ def validate_tls(root, scanner_uid):
--    for role in ('server','scanner','bridge','conductor'):
-+    for role in ('server','scanner','bridge','conductor','renderer'):
-@@ -469 +486 @@ def validate_tls(root, scanner_uid):
--            raw = protected_file(directory / name, uid, 1024*1024)
-+            raw = validate_public_ca_file(directory / name, uid) if role == 'renderer' else protected_file(directory / name, uid, 1024*1024)
-@@ -598,2 +615 @@ def validate_compose(config, args, policy, identities, scanner_uid, signing, *,
--    for name,relative in {'credential-loader':'deploy/stack/secret-env.mjs',
--                          'browser-home':'deploy/stack/browser-home.sh'}.items():
-+    for name,relative in {'credential-loader':'deploy/stack/secret-env.mjs'}.items():
-@@ -672 +687,0 @@ def validate_compose(config, args, policy, identities, scanner_uid, signing, *,
--            if role == 'renderer': expected_entrypoint = ['sh','/opt/remedy-bundle/browser-home.sh',*expected_entrypoint]
-@@ -675 +690 @@ def validate_compose(config, args, policy, identities, scanner_uid, signing, *,
--            require(set(files) == ({'credential-loader','browser-home'} if role=='renderer' else {'credential-loader'}) and len(files) == len(service.get('configs',[])),
-+            require(set(files) == {'credential-loader'} and len(files) == len(service.get('configs',[])),
-@@ -707,2 +722,2 @@ def validate_compose(config, args, policy, identities, scanner_uid, signing, *,
--            require(service.get('command') == ['node','server.mjs'] and env.get('RENDER_ALLOWED_HOSTS') == 'dev.libretexts.org' and env.get('HOME') == '/tmp/renderer-home' and
--                    files.get('browser-home') == '/opt/remedy-bundle/browser-home.sh', 'bounded_renderer_home_initializer_required')
-+            require(service.get('command') == ['node','server.mjs'] and env.get('RENDER_ALLOWED_HOSTS') == 'dev.libretexts.org' and env.get('HOME') == '/tmp' and
-+                    env.get('RENDER_PUBLIC_CA_FILE') == '/run/remedy-public-ca/roots.pem', 'job_local_public_ca_configuration_required')
-@@ -720 +735 @@ def validate_compose(config, args, policy, identities, scanner_uid, signing, *,
--        elif role == 'renderer': expected_mounts['/run/certificates/nss-seed'] = (args.nss_seed_root, True)
-+        elif role == 'renderer': expected_mounts['/run/remedy-public-ca/roots.pem'] = (args.tls_root/'renderer/ca.pem', True)
-@@ -886 +901,5 @@ def integration_check(args, candidate, baseline, policy):
--    nss_mount = [(args.nss_seed_root,'/run/certificates/nss-seed')]
-+    public_ca_mount = [(args.tls_root/'renderer/ca.pem','/run/remedy-public-ca/roots.pem')]
-+    ca_probe = "import {loadPublicCA} from '/app/public-ca.mjs';const c=await loadPublicCA(process.env.RENDER_PUBLIC_CA_FILE);console.log(JSON.stringify({sha256:c.sha256,fingerprints:c.fingerprints}));"
-+    expected_ca = hashlib.sha256(validate_public_ca_file(args.tls_root/'renderer/ca.pem',1001)).hexdigest()
-+    actual_ca = read_json(probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=public_ca_mount,environment={'RENDER_PUBLIC_CA_FILE':'/run/remedy-public-ca/roots.pem'},command_override=['node','--input-type=module','-e',ca_probe]))
-+    require(actual_ca['sha256'] == expected_ca and full.get('rendererPublicCA',{}).get('sha256') == expected_ca and bool(actual_ca['fingerprints']), 'actual_job_local_public_ca_provenance_required')
-@@ -888 +907 @@ def integration_check(args, candidate, baseline, policy):
--        mounts = nss_mount if role == 'renderer' else ([(args.tls_root/role/'ca.pem','/run/tls/ca.pem')] if role in {'scanner','bridge','conductor'} else [])
-+        mounts = public_ca_mount if role == 'renderer' else ([(args.tls_root/role/'ca.pem','/run/tls/ca.pem')] if role in {'scanner','bridge','conductor'} else [])
-@@ -894 +913 @@ def integration_check(args, candidate, baseline, policy):
--                                     mounts=nss_mount if role=='renderer' else [], uid=scanner_uid if role=='scanner' else ROLE_UID[role])
-+                                     mounts=public_ca_mount if role=='renderer' else [], uid=scanner_uid if role=='scanner' else ROLE_UID[role])
-@@ -898 +917 @@ def integration_check(args, candidate, baseline, policy):
--    renderer_denial = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=nss_mount,
-+    renderer_denial = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=public_ca_mount,
-@@ -901 +920 @@ def integration_check(args, candidate, baseline, policy):
--    nss_version = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=nss_mount,
-+    nss_version = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=public_ca_mount,
+@@ -476 +492 @@
+-[renderer README](https://github.com/johnnyrobot/libretexts-remedy-bridge-dev/tree/f39566e0fa6413ed17e7a5c2a11fefc540ed5233/browser-scanner),
++[renderer README](https://github.com/johnnyrobot/libretexts-remedy-bridge-dev/tree/95a54dd3af850ca8eb5b8bf8be0395f0543c049e/browser-scanner),
+@@ -479 +495 @@
+-and [pinned Conductor targets/storage prerequisites](https://github.com/johnnyrobot/conductor-remedy-patch/blob/dd152c5eca8e48609bbf7df9a9c8c63cf7b48fd2/docs/integration/pinned-targets.md).
++and [pinned Conductor targets/storage prerequisites](https://github.com/johnnyrobot/conductor-remedy-patch/blob/617187fd7993714ae4d6fb939b30268fb7be6eee/docs/integration/pinned-targets.md).

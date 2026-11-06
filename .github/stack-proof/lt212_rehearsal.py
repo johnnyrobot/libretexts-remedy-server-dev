@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -16,11 +17,12 @@ OLD_INDEX = '99d70fe71fdf956bc60e34ca55b262cc39747cd5fd30bd386ec7518d3ba58da8'
 NEW_INDEX = '2e1297e9c180af7dce1f2e6894c6afffd0aff20ed71c3434dbccd36f14dc6e29'
 PUBLICATION = '6dba464c1554a2c828da5e2419fc772b6cea9342fb93675d221d3a8b3d62d7e8'
 BRIDGE = '95a54dd3af850ca8eb5b8bf8be0395f0543c049e'
+SECURITY_GATE = 'CLEAN_LOCKED_AUDITS_REQUIRED'
 CONDUCTOR = '617187fd7993714ae4d6fb939b30268fb7be6eee'
 RELEASE_PREFIX = 'https://github.com/johnnyrobot/conductor-remedy-patch/releases/download/lt128-conductor-617187fd7993-run41451937248/'
 FLAGS = ('deploymentReady', 'productionWritesEnabled', 'liveProvidersVerified',
          'productionSSOVerified', 'releaseOwnerAcceptance')
-OVERLAY_SHA256 = '4fce095555951e5d4de59b7616a46c095b2165417b3b9ea5de826aac1c21fe9f'
+OVERLAY_SHA256 = '7e198bf9d7b4922c4b5220c8350106bd6bcebab6f37b664e0c1a2001a4a4f809'
 OVERLAY_FILES = ('.github/stack-proof/full_proof.py', '.github/stack-proof/synthetic_signed_proof.py',
                  'deploy/stack/preflight.py', 'deploy/stack/compose.integration.yml',
                  'deploy/stack/env/renderer.env.example', 'deploy/stack/integration-profile.md')
@@ -31,9 +33,36 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
+def materialize_recorded_build(stage, record):
+    """Reproduce the built Dockerfile from recorded bases, without re-resolving."""
+    path = Path(stage) / 'Dockerfile'
+    before = digest(path)
+    if before != record['original_dockerfile_sha256']:
+        raise ValueError('build source baseline changed')
+    stages, lines = set(), []
+    for line in path.read_text().splitlines():
+        match = re.fullmatch(r'FROM\s+(?:(--platform=\S+)\s+)?(\S+)(?:\s+AS\s+(\S+))?',line,re.I)
+        if match:
+            platform, image, name = match.groups()
+            if image.lower() not in stages:
+                identity = record['bases'].get(image)
+                if not isinstance(identity,str) or not re.fullmatch(r'sha256:[a-f0-9]{64}',identity):
+                    raise ValueError('recorded build base missing')
+                image = image.split('@')[0] + '@' + identity
+            line = 'FROM ' + (platform + ' ' if platform else '') + image + (' AS ' + name if name else '')
+            if name: stages.add(name.lower())
+        lines.append(line)
+    raw = ('\n'.join(lines) + '\n').encode()
+    after = hashlib.sha256(raw).hexdigest()
+    if after != record['input_sha256']['Dockerfile']:
+        raise ValueError('recorded build source output differs')
+    path.write_bytes(raw)
+    return {'before':before,'after':after}
+
+
 def inputs():
     value = json.loads((INPUTS / 'inputs.json').read_text())
-    if (value['status'] != 'UNACCEPTED' or value['securityGate'] != 'LT227_UNMET' or
+    if (value['status'] != 'UNACCEPTED' or value['securityGate'] != SECURITY_GATE or
             value['bridgeSource'] != BRIDGE or value['conductorSource'] != CONDUCTOR or
             digest(INPUTS / 'candidate-index.json') != NEW_INDEX or
             digest(INPUTS / 'publication-receipt.json') != PUBLICATION):
@@ -73,7 +102,7 @@ def prepare(stage):
     if (digest(stage / 'deploy/stack/conductor-candidates.json') != OLD_INDEX or
             digest(stage / 'uv.lock') != value['serverUVLockSHA256'] or
             digest(stage / 'src/project_remedy/html_tools/package-lock.json') != value['serverNodeLockSHA256']):
-        raise ValueError('baseline or security-blocked locks changed; new validation required')
+        raise ValueError('baseline or reviewed locks changed; new validation required')
     bundle_path = stage / 'deploy/stack/bundle.json'
     bundle = json.loads(bundle_path.read_text())
     if bundle['deploymentReady'] is not False or bundle['productionWritesEnabled'] is not False:
@@ -105,14 +134,14 @@ def prepare(stage):
         replacements[name] = text.replace(OLD_INDEX, NEW_INDEX)
     bundle.update(bridgeSource=BRIDGE, rendererSource=BRIDGE, conductorMetadataSource=CONDUCTOR,
                   conductorCandidateIndexSHA256=NEW_INDEX,
-                  acceptance='UNACCEPTED rehearsal; LT227 audit remains unmet; no release or clean seal')
+                  acceptance=value['acceptanceLabel'])
     bundle_path.write_text(json.dumps(bundle, indent=2) + '\n')
     shutil.copyfile(INPUTS / 'candidate-index.json', stage / changed[1])
     for name, text in replacements.items():
         (stage / name).write_text(text)
     if any(digest(stage / name) != binding['stagedAfter'] for name, binding in overlay['files'].items()):
         raise ValueError('final staged source differs from pinned binding')
-    receipt = {'status':'UNACCEPTED', 'securityGate':'LT227_UNMET',
+    receipt = {'status':'UNACCEPTED', 'securityGate':SECURITY_GATE,
                'bridgeSource':BRIDGE, 'conductorSource':CONDUCTOR,
                'indexSHA256':NEW_INDEX, 'globalFlags':dict.fromkeys(FLAGS, False),
                'sourceOverlay':overlay,
@@ -185,7 +214,7 @@ def acquire(destination, producer):
         target_dir = destination / 'targets' / target
         target_dir.mkdir(parents=True)
         os.link(artifact, target_dir / 'original-artifact.zip')
-    receipt = {'status':'UNACCEPTED', 'securityGate':'LT227_UNMET', 'source':CONDUCTOR,
+    receipt = {'status':'UNACCEPTED', 'securityGate':SECURITY_GATE, 'source':CONDUCTOR,
                'indexSHA256':NEW_INDEX, 'recordPayloadsVerified':11, 'targets':results,
                'assets':value['assets'], 'producerVerifierSHA256':digest(verifier_path),
                'globalFlags':dict.fromkeys(FLAGS, False)}

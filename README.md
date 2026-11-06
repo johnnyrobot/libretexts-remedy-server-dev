@@ -31,12 +31,21 @@ deployment after those security findings. A patched compatible package requires
 fresh matching runtime and assembled-service acceptance; original receipts do
 not transfer.
 
-The active LT212 branch tests newer reviewed Bridge95a54dd and both original
-36-patch Conductor617187f images in an explicitly **UNACCEPTED rehearsal**. It uses
-[staged per-job public-CA provisioning](docs/releases/lt212-unaccepted-rehearsal.md)
-and retains LT227's five moderate npm audit findings as a hard failure. A build
-or component pass does not approve the current integration. The original input
-table below and retained delivery remain historical; no receipts transfer.
+The [LT227 HTML dependency repair](docs/releases/lt-227-html-dependencies.md)
+keeps the pinned axe/pa11y/Lighthouse interfaces and updates their supported
+Sentry dependency branch. Exact installed production audits and public API
+checks run on Node22.20.0 and shipping Node24.12.0; the full Linux runtime job
+covers real offline checkers, rendering and execution limits. A new lock requires
+new matching assembled-package acceptance; historical receipts do not transfer.
+
+The active LT212 continuation selects reviewed Bridge95a54dd and both original
+36-patch Conductor617187f images only through its explicit
+[staged candidate recipe](docs/releases/lt212-unaccepted-rehearsal.md).
+The repaired dependency lock must pass the complete new package proof before
+handoff acceptance. Prior failing and passing receipts remain source-specific.
+All release/write flags remain false pending review; the original input table
+and retained delivery remain historical baseline references.
+
 
 The deployment package remains a candidate until the exact archives and pulled
 Scanner digest pass the complete Linux service proof and operational acceptance.
@@ -57,7 +66,16 @@ The [stack guide](deploy/stack/README.md) is the next entry point;
 [full integration configuration](deploy/stack/integration-profile.md) describes
 the original Conductor targets, private TLS and optional history/signing overlays. It describes
 artifact verification, exact configuration/credential **file names**, private
-transport, modes, mounts, limits and operator checks. Current fixed inputs are:
+transport, modes, mounts, limits and operator checks. The current staged candidate
+uses Bridge/renderer95a54dd, original36-patch Conductor617187f/index2e1297e9,
+the repaired HTML lock86c63bea and the exact Scanner digest below. Its immutable
+manifest records the canonical commit plus tested source overlays. Full signed
+implementation and optional review-only rollout share that package; production
+writes remain held. See the [candidate contract](docs/releases/lt212-unaccepted-rehearsal.md)
+for exact pins, artifact verification, limits and remaining acceptance.
+
+The retained canonical baseline below is preserved separately; it is not silently
+selected as the new candidate:
 
 | Input | Exact reference |
 |---|---|

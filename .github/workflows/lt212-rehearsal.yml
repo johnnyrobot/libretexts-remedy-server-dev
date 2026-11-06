@@ -71,7 +71,7 @@ jobs:
           from pathlib import Path
           root=Path('.stack-artifacts')
           names=['server.oci.tar','bridge.oci.tar','renderer.oci.tar','build-inputs.json','rehearsal-inputs.json']
-          value={'status':'UNACCEPTED','securityGate':'LT227_UNMET','cleanSealPermitted':False,'sourcePreparation':json.loads((root/'rehearsal-inputs.json').read_text()),'serverSource':os.environ['GITHUB_SHA'],'bridgeSource':'95a54dd3af850ca8eb5b8bf8be0395f0543c049e','deploymentReady':False,'productionWritesEnabled':False,'retentionDays':30,'sha256':{}}
+          value={'status':'UNACCEPTED','securityGate':'CLEAN_LOCKED_AUDITS_REQUIRED','cleanSealPermitted':False,'sourcePreparation':json.loads((root/'rehearsal-inputs.json').read_text()),'serverSource':os.environ['GITHUB_SHA'],'bridgeSource':'95a54dd3af850ca8eb5b8bf8be0395f0543c049e','deploymentReady':False,'productionWritesEnabled':False,'retentionDays':30,'sha256':{}}
           for name in names:
               with (root/name).open('rb') as stream: value['sha256'][name]=hashlib.file_digest(stream,'sha256').hexdigest()
           value['configurationSha256']={str(p.relative_to('.stack-inputs/server')):hashlib.sha256(p.read_bytes()).hexdigest() for p in Path('.stack-inputs/server/deploy/stack').rglob('*') if p.is_file() and p.suffix in {'.py','.mjs','.json','.yml','.example','.md','.sh'}}
@@ -175,49 +175,61 @@ jobs:
           name: lt212-UNACCEPTED-shipping-${{ github.sha }}
           path: ${{ runner.temp }}/lt212-shipping
           retention-days: 30
-  security-unmet:
+  security:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {role: node22, node: '22.20.0'}
+          - {role: node24, node: '24.12.0'}
     steps:
       - uses: actions/checkout@v4
-        id: source
         with:
           persist-credentials: false
       - uses: actions/setup-node@v4
-        id: node
         with:
-          node-version: '24.12.0'
+          node-version: ${{ matrix.node }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
       - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a
-      - name: Audit frozen Python runtime
+      - name: Verify installed production dependencies and exact locked audits
+        env:
+          AUDIT_ROLE: ${{ matrix.role }}
         run: |
+          set -e
           mkdir -p .stack-audit
           uv export --frozen --no-dev --no-emit-project --no-hashes --no-header > .stack-audit/requirements.txt
-          uvx pip-audit --requirement .stack-audit/requirements.txt --no-deps --disable-pip
-      - name: Keep actual production npm audit failure visible
-        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.node.outcome == 'success' }}
-        run: |
-          set +e
-          npm audit --prefix src/project_remedy/html_tools --package-lock-only --ignore-scripts --omit=dev --json > .stack-audit/npm-audit.json
-          result=$?
-          python3 - "$result" <<'PYMETA'
-          import json,sys
+          uvx pip-audit --requirement .stack-audit/requirements.txt --no-deps --disable-pip > .stack-audit/python-audit.txt 2>&1
+          npm ci --prefix src/project_remedy/html_tools --ignore-scripts --omit=dev --engine-strict
+          npm ls --prefix src/project_remedy/html_tools --omit=dev --all --json > .stack-audit/installed.json
+          npm audit --prefix src/project_remedy/html_tools --ignore-scripts --omit=dev --json > .stack-audit/npm-audit.json
+          timeout 15s node tools/prove_html_dependency_runtime.mjs src/project_remedy/html_tools > .stack-audit/public-api.json
+          git diff --exit-code -- src/project_remedy/html_tools/package.json src/project_remedy/html_tools/package-lock.json uv.lock
+          python3 - <<'PYMETA'
+          import hashlib,json,os
           from pathlib import Path
-          Path('.stack-audit/status.json').write_text(json.dumps({'status':'UNACCEPTED','securityGate':'LT227_UNMET','npmAuditExit':int(sys.argv[1]),'cleanSealPermitted':False,'deploymentReady':False,'productionWritesEnabled':False}))
-          print(json.dumps({'npmAuditExit':int(sys.argv[1]),'counts':json.loads(Path('.stack-audit/npm-audit.json').read_text()).get('metadata',{}).get('vulnerabilities')}))
+          p=Path('.stack-audit');sha=lambda path:hashlib.sha256(path.read_bytes()).hexdigest()
+          api=json.loads((p/'public-api.json').read_text());audit=json.loads((p/'npm-audit.json').read_text())
+          assert audit['metadata']['vulnerabilities']['total']==0
+          names=['requirements.txt','python-audit.txt','installed.json','npm-audit.json','public-api.json']
+          status={'serverSource':os.environ['GITHUB_SHA'],'nodeVersion':api['node'],'verificationComplete':True,'npmAuditExit':0,'pythonAuditExit':0,'nodeLockSHA256':sha(Path('src/project_remedy/html_tools/package-lock.json')),'pythonLockSHA256':sha(Path('uv.lock')),'files':{name:sha(p/name) for name in names}}
+          (p/'status.json').write_text(json.dumps(status,indent=2)+'\n')
           PYMETA
-          exit "$result"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: lt212-UNACCEPTED-security-${{ github.sha }}
+          name: lt212-UNACCEPTED-audits-${{ matrix.role }}-${{ github.sha }}
           path: .stack-audit/
           retention-days: 30
           include-hidden-files: true
   prove:
-    needs: build
+    needs: [build, security, renderer, shipping, unit]
+    outputs:
+      candidate-manifest-sha: ${{ steps.candidate.outputs.manifest_sha }}
+      candidate-tar-sha: ${{ steps.candidate.outputs.tar_sha }}
     defaults:
       run:
         working-directory: .stack-inputs/server
@@ -271,6 +283,11 @@ jobs:
           for name,expected in v['sha256'].items():
               with (p/name).open('rb') as stream: assert hashlib.file_digest(stream,'sha256').hexdigest()==expected,name
           for name,expected in v['configurationSha256'].items(): assert hashlib.sha256(Path(name).read_bytes()).hexdigest()==expected,name
+          import sys
+          sys.path.insert(0,'.github/stack-proof')
+          from lt212_rehearsal import materialize_recorded_build
+          binding=materialize_recorded_build(Path.cwd(),json.loads((p/'build-inputs.json').read_text())['server'])
+          Path('.stack-proof-evidence/build-source-binding.json').write_text(json.dumps(binding,indent=2)+'\n')
           PY
           skopeo copy --override-os linux --override-arch amd64 oci-archive:.stack-artifacts/server.oci.tar docker-daemon:remedy-server:stack-candidate
           skopeo copy --override-os linux --override-arch amd64 oci-archive:.stack-artifacts/bridge.oci.tar docker-daemon:remedy-bridge:stack-candidate
@@ -278,6 +295,14 @@ jobs:
           docker pull mongo:7.0.14@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6
           skopeo copy --override-os linux --override-arch amd64 oci-archive:.stack-artifacts/renderer.oci.tar docker-daemon:remedy-renderer:stack-candidate
           python3 .github/stack-proof/verify_imports.py
+      - uses: actions/download-artifact@v4
+        with:
+          name: lt212-UNACCEPTED-audits-node22-${{ github.sha }}
+          path: .stack-inputs/server/.stack-proof-evidence/locked-audits/node22
+      - uses: actions/download-artifact@v4
+        with:
+          name: lt212-UNACCEPTED-audits-node24-${{ github.sha }}
+          path: .stack-inputs/server/.stack-proof-evidence/locked-audits/node24
       - name: Verify pinned registry identities before expensive service proof
         run: |
           python3 - <<'PY'
@@ -334,6 +359,27 @@ jobs:
         run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/preflight_proof.py
       - name: Exercise separate synthetic signed outcomes and explicit recovery
         run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,GITHUB_SHA python3 .github/stack-proof/synthetic_signed_proof.py
+      - name: Archive the exact unaccepted staged candidate
+        id: candidate
+        run: |
+          python3 .github/stack-proof/seal_package.py --root "$PWD" --staged-checkout "$GITHUB_WORKSPACE" --output "$PWD/.stack-package-unaccepted" --tar
+          candidate_manifest_sha=$(python3 -c 'import json;print(json.load(open(".stack-package-unaccepted/seal-receipt.json"))["manifestSHA256"])')
+          python3 .github/stack-proof/seal_package.py --verify .stack-package-unaccepted --expected-manifest-sha "$candidate_manifest_sha" > .stack-proof-evidence/candidate-readback.json
+          echo "manifest_sha=$candidate_manifest_sha" >> "$GITHUB_OUTPUT"
+          candidate_tar_sha=$(python3 -c 'import json;print(json.load(open(".stack-package-unaccepted/seal-receipt.json"))["packageTARSHA256"])')
+          echo "tar_sha=$candidate_tar_sha" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        if: ${{ steps.candidate.outcome == 'success' }}
+        with:
+          name: lt212-UNACCEPTED-candidate-${{ github.sha }}
+          path: |
+            .stack-inputs/server/.stack-package-unaccepted/package.tar
+            .stack-inputs/server/.stack-package-unaccepted/manifest.json
+            .stack-inputs/server/.stack-package-unaccepted/checksums.sha256
+            .stack-inputs/server/.stack-package-unaccepted/seal-receipt.json
+          retention-days: 30
+          compression-level: 0
+          include-hidden-files: true
       - name: Retain only UNACCEPTED rehearsal identity
         if: always()
         run: |
@@ -341,7 +387,7 @@ jobs:
           import json,os
           from pathlib import Path
           Path('.stack-proof-evidence').mkdir(exist_ok=True)
-          Path('.stack-proof-evidence/UNACCEPTED.json').write_text(json.dumps({'serverSource':os.environ['GITHUB_SHA'],'status':'UNACCEPTED','securityGate':'LT227_UNMET','cleanSealPermitted':False,'deploymentReady':False,'productionWritesEnabled':False}))
+          Path('.stack-proof-evidence/UNACCEPTED.json').write_text(json.dumps({'serverSource':os.environ['GITHUB_SHA'],'status':'UNACCEPTED','securityGate':'CLEAN_LOCKED_AUDITS_REQUIRED','cleanSealPermitted':False,'deploymentReady':False,'productionWritesEnabled':False}))
           assert not Path('.stack-package').exists(), 'No clean sealing in this rehearsal'
           PYMETA
       - name: Retain sanitized proof separately from images
@@ -350,5 +396,37 @@ jobs:
         with:
           name: lt212-UNACCEPTED-stack-proof-${{ github.sha }}
           path: .stack-inputs/server/.stack-proof-evidence/
+          retention-days: 30
+          include-hidden-files: true
+
+  candidate-readback:
+    needs: prove
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          name: lt212-UNACCEPTED-candidate-${{ github.sha }}
+          path: .stack-downloaded-candidate
+      - name: Install the supported archive reader
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends skopeo
+      - name: Verify and import the same downloaded candidate
+        env:
+          EXPECTED_CANDIDATE_MANIFEST: ${{ needs.prove.outputs.candidate-manifest-sha }}
+          EXPECTED_CANDIDATE_TAR: ${{ needs.prove.outputs.candidate-tar-sha }}
+        run: python3 .github/stack-proof/package_readback.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lt212-UNACCEPTED-package-readback-${{ github.sha }}
+          path: .stack-package-readback/
           retention-days: 30
           include-hidden-files: true
