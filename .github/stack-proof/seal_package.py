@@ -283,15 +283,96 @@ def verify_receipts(receipts, source, index, imports):
         matches(actual['offlineResolution'], {'originalOutcome': 'unknown_write', 'reconciliation': 'resolved', 'exclusiveStoppedWriter': True, 'originalFieldsPreserved': True, 'remoteWrites': 0, 'currentIndependentFencePreserved': True, 'actualHelperImageID': imports['images']['bridge']['loadedDockerImageID']}, 'actual offline unknown resolution/' + target)
 
 
-def seal(root, output=None, make_tar=False):
+def verify_staged_audits(root, source, *, evidence_prefix='.stack-proof-evidence/locked-audits/', lock_hashes=None):
+    """Require both clean installed-graph audits bound to this source and lock."""
+    records = {}
+    if lock_hashes is None:
+        lock_hashes = {'nodeLockSHA256':digest(input_file(root,'src/project_remedy/html_tools/package-lock.json')),
+                       'pythonLockSHA256':digest(input_file(root,'uv.lock'))}
+    names = {'npm-audit.json','installed.json','public-api.json','requirements.txt','python-audit.txt'}
+    def bounded_json(name):
+        path = input_file(root,name)
+        require(0 < path.stat().st_size <= 16 * 1024**2, 'invalid audit metadata size')
+        value = json.loads(path.read_bytes())
+        require(isinstance(value,dict), 'audit metadata object required')
+        return value
+    for role, node in (('node22','v22.20.0'),('node24','v24.12.0')):
+        prefix = evidence_prefix + role + '/'
+        status = bounded_json(prefix + 'status.json')
+        matches(status, {'serverSource':source,'nodeVersion':node,'verificationComplete':True,
+                         'npmAuditExit':0,'pythonAuditExit':0,
+                         **lock_hashes}, 'locked audits/' + role)
+        require(set(status['files']) == names, 'exact audit evidence inventory required/' + role)
+        for name, expected in status['files'].items():
+            path = input_file(root,prefix + name)
+            require(path.stat().st_size <= 16 * 1024**2 and isinstance(expected,str) and HEX.fullmatch(expected) and
+                    digest(path) == expected, 'audit payload mismatch/' + role + '/' + name)
+        audit = bounded_json(prefix + 'npm-audit.json')
+        require('error' not in audit, 'npm audit unavailable/' + role)
+        matches(audit['metadata']['vulnerabilities'], dict.fromkeys(('info','low','moderate','high','critical','total'),0),
+                'npm audit must be clean/' + role)
+        api = bounded_json(prefix + 'public-api.json')
+        matches(api, {'node':node,**dict.fromkeys(('assetIntegrity','finiteWalk','ordinaryPatterns',
+                     'abortedWalkRejected','subsequentWalk'),True)}, 'actual dependency API/' + role)
+        records[role] = status
+    return records
+
+
+def staged_source_archive(canonical, root, overlays, server_build):
+    """Archive the tested stage, binding every change to its canonical bytes."""
+    require(len(canonical) <= 64 * 1024**2, 'canonical source archive too large')
+    require(isinstance(overlays, dict), 'staged file overlays required')
+    changes = dict(overlays)
+    require('Dockerfile' not in changes, 'Dockerfile must use resolved build binding')
+    changes['Dockerfile'] = {'before': server_build['original_dockerfile_sha256'],
+                             'after': server_build['input_sha256']['Dockerfile']}
+    for name, binding in changes.items():
+        require(safe_name(name) and isinstance(binding, dict) and set(binding) == {'before','after'} and
+                all(isinstance(value,str) and HEX.fullmatch(value) for value in binding.values()),
+                'invalid staged source binding')
+    stream, hashes, before, used = io.BytesIO(), {}, {}, set()
+    with tarfile.open(fileobj=io.BytesIO(canonical), mode='r:') as original, tarfile.open(fileobj=stream, mode='w:') as result:
+        names = set()
+        for member in original:
+            name = member.name.rstrip('/')
+            require(safe_name(name) and name not in names and (member.isdir() or member.isfile()), 'unsafe canonical source member')
+            names.add(name)
+            if member.isdir():
+                header = tarfile.TarInfo(name);header.type = tarfile.DIRTYPE;header.mode = member.mode
+                result.addfile(header)
+                continue
+            require(member.size <= 16 * 1024**2, 'canonical source file too large')
+            old = original.extractfile(member).read()
+            old_hash = hashlib.sha256(old).hexdigest()
+            path = input_file(root, name)
+            require(path.stat().st_size <= 16 * 1024**2, 'staged source file too large')
+            raw = path.read_bytes(); new_hash = hashlib.sha256(raw).hexdigest()
+            if name in changes:
+                require(changes[name] == {'before':old_hash,'after':new_hash}, 'staged source overlay mismatch: ' + name)
+                used.add(name)
+            else:
+                require(new_hash == old_hash, 'unrecorded staged source change: ' + name)
+            hashes[name], before[name] = new_hash, old_hash
+            header = tarfile.TarInfo(name);header.mode = member.mode;header.size = len(raw)
+            result.addfile(header, io.BytesIO(raw))
+    require(used == set(changes), 'source overlay is not a canonical tracked file')
+    raw = stream.getvalue()
+    require(len(raw) <= 64 * 1024**2, 'staged source archive too large')
+    return raw, hashes, {'layout':'canonical-git-archive-with-recorded-staging-overlays',
+                         'canonicalArchiveSHA256':hashlib.sha256(canonical).hexdigest(),
+                         'canonicalFileSHA256':before, 'fileOverlays':changes}
+
+
+def seal(root, output=None, make_tar=False, *, staged_checkout=None):
     """Validate all inputs, then create one private, non-overwriting handoff."""
     try:
-        return _seal(Path(root).resolve(), output, make_tar)
+        return _seal(Path(root).resolve(), output, make_tar,
+                     Path(staged_checkout).resolve() if staged_checkout is not None else None)
     except (KeyError, TypeError, AssertionError, json.JSONDecodeError, tarfile.TarError, zipfile.BadZipFile) as error:
         raise ValueError('invalid or missing candidate gate: ' + str(error)) from error
 
 
-def _seal(root, output, make_tar):
+def _seal(root, output, make_tar, staged_checkout):
     receipts = {}
     files = {}
     def add(name, destination):
@@ -307,8 +388,9 @@ def _seal(root, output, make_tar):
         output = root / output
     require(output.parent == root and output.name.startswith('.stack-package'), 'output must be a new .stack-package directory directly inside checkout')
     require(not output.exists() and not output.is_symlink(), 'output already exists; overwrite refused')
+    checkout = staged_checkout if staged_checkout is not None else root
     def git(*args):
-        return subprocess.check_output(['git', '-C', str(root), *args])
+        return subprocess.check_output(['git', '-C', str(checkout), *args])
     source = git('rev-parse', 'HEAD').decode().strip()
     require(re.fullmatch(r'[a-f0-9]{40}', source) and os.environ.get('GITHUB_SHA') == source, 'GITHUB_SHA must match exact HEAD')
     require(not git('status', '--porcelain', '--untracked-files=no').strip(), 'tracked source differs from HEAD')
@@ -340,6 +422,36 @@ def _seal(root, output, make_tar):
         require(bool(record['input_sha256']) and all(HEX.fullmatch(value) for value in record['input_sha256'].values()) and HEX.fullmatch(record['original_dockerfile_sha256']), 'invalid build input hashes/' + role)
         lock_name = 'uv.lock' if role == 'server' else 'package-lock.json'
         require(any(PurePosixPath(name).name == lock_name for name in record['input_sha256']), 'lock hashes missing/' + role)
+    staging = None
+    locked_audits = None
+    if staged_checkout is not None:
+        require(root == checkout / '.stack-inputs/server', 'explicit staged checkout layout required')
+        require(INDEX_SHA256 == '2e1297e9c180af7dce1f2e6894c6afffd0aff20ed71c3434dbccd36f14dc6e29', 'reviewed 36-patch staged index required')
+        matches(bundle, {'bridgeSource':'95a54dd3af850ca8eb5b8bf8be0395f0543c049e',
+                         'rendererSource':'95a54dd3af850ca8eb5b8bf8be0395f0543c049e',
+                         'conductorMetadataSource':'617187fd7993714ae4d6fb939b30268fb7be6eee'}, 'reviewed staged producer recipe')
+        staging_path = add('UNACCEPTED-LT212.json', 'metadata/staging.json')
+        staging = json.loads(staging_path.read_bytes())
+        matches(staging, {'status':'UNACCEPTED','cleanSealPermitted':False,'canonicalInputsModified':False,
+                          'indexSHA256':INDEX_SHA256,'bridgeSource':bundle['bridgeSource'],
+                          'conductorSource':bundle['conductorMetadataSource']}, 'explicit staged source')
+        flags = staging.get('globalFlags')
+        require(isinstance(flags,dict) and set(flags) == set(FLAGS) and all(value is False for value in flags.values()),
+                'staged release flags must remain false')
+        recipe = get_json(checkout,'.github/stack-proof/lt212-inputs/inputs.json')
+        require(staging.get('sourceOverlay') == recipe['sourceOverlay'], 'source overlay recipe differs from reviewed checkout')
+        expected_names = set(recipe['sourceOverlay']['files']) | {'deploy/stack/bundle.json',
+            'deploy/stack/conductor-candidates.json','.github/stack-proof/conductor_artifacts.py'}
+        require(set(staging['overlays']) == expected_names, 'exact staged source overlay inventory required')
+        for name, binding in recipe['sourceOverlay']['files'].items():
+            require(staging['overlays'][name] == {'before':binding['before'],'after':binding['stagedAfter']},
+                    'staged source recipe binding differs: ' + name)
+        require(digest(staging_path) == candidate['sha256']['rehearsal-inputs.json'], 'staging receipt differs from built source')
+        locked_audits = verify_staged_audits(root, source)
+        for role, status in locked_audits.items():
+            for name in ('status.json', *sorted(status['files'])):
+                add('.stack-proof-evidence/locked-audits/' + role + '/' + name,
+                    'evidence/locked-audits/' + role + '/' + name)
     imports = receipts['imports.json']
     require(set(imports['images']) == {'server', 'bridge', 'renderer'}, 'all imported owned images required')
     for role in ('server', 'bridge', 'renderer'):
@@ -357,7 +469,8 @@ def _seal(root, output, make_tar):
     pins = {pin['target']: pin for pin in index['candidates']}
     require(len(pins) == 2 and set(pins) == set(consumers['targets']), 'both frozen Conductor targets required')
     for target, pin in pins.items():
-        require(safe_name(target) and len(PurePosixPath(target).parts) == 1 and len(pin['patches']) == 32, 'only original 32-patch Conductor targets supported')
+        count = 36 if staging is not None else 32
+        require(safe_name(target) and len(PurePosixPath(target).parts) == 1 and len(pin['patches']) == count, 'unsupported original Conductor patch count')
         validation = pin['validation']
         expiry = datetime.fromisoformat(validation['artifactExpiresAt'].replace('Z', '+00:00'))
         require(expiry.tzinfo is not None and expiry > datetime.now(timezone.utc), 'original Conductor artifact expired before sealing/' + target)
@@ -387,6 +500,12 @@ def _seal(root, output, make_tar):
             if entry.isfile():
                 source_hashes[entry.name] = hashlib.sha256(archive.extractfile(entry).read()).hexdigest()
     require(set(source_hashes) == set(tracked), 'git archive omitted tracked source')
+    source_provenance = {}
+    canonical_bytes = None
+    if staging is not None:
+        canonical_bytes = source_bytes
+        source_bytes, source_hashes, source_provenance = staged_source_archive(
+            canonical_bytes, root, staging['overlays'], build['server'])
     # Optional saved registry archives use explicit names only. Absence retains
     # digest references; presence must independently bind to those same refs.
     registry = {'scanner': {'reference': SCANNER, 'source': bundle['scannerSource']}, 'mongo': {'reference': MONGO}}
@@ -405,7 +524,7 @@ def _seal(root, output, make_tar):
                 'scopeVerified': {'privateActualProfile': True, 'exactCompiledTargetsAndUIFreshness': True, 'publicComposeAndColdOperations': True, 'publicIntegrationPreflight': True, 'syntheticSignedTestAndExplicitRecovery': True},
                 'unverified': ['vendor revision-atomic conditional writes', 'production SSO', 'live external providers', 'actual target host/storage/network', 'production rollout', 'release owner acceptance'],
                 'trust': 'SHA256 checks integrity, not signatures or independent authenticity; trust the reviewed source and GitHub run.',
-                'source': {'commit': source, 'archive': 'source.tar', 'fileSHA256': source_hashes},
+                'source': {'commit': source, 'archive': 'source.tar', 'fileSHA256': source_hashes, **source_provenance},
                 'run': {'repository': repository, 'id': run_id, 'attempt': attempt, 'url': 'https://github.com/' + repository + '/actions/runs/' + run_id + '/attempts/' + attempt},
                 'retention': {'newArtifactsDays': 30, 'sealedAt': now.isoformat(), 'newArtifactsExpireAt': (now + timedelta(days=30)).isoformat(), 'originalConductor': {target: pin['validation']['artifactExpiresAt'] for target, pin in pins.items()}, 'policy': 'Retain this complete package with its hashes before workflow artifact expiry; never rebuild/substitute missing original archives.'},
                 'buildInputs': build, 'configurationSHA256': candidate['configurationSha256'],
@@ -416,6 +535,11 @@ def _seal(root, output, make_tar):
                 'fullRuntimeMeasurementsReceipt': 'evidence/full-result.json',
                 'payloadSHA256': {name: expected for name, (_, expected) in files.items()}}
     manifest['payloadSHA256']['source.tar'] = hashlib.sha256(source_bytes).hexdigest()
+    if canonical_bytes is not None:
+        manifest.update(status='UNACCEPTED', stagedSource=True)
+        manifest['lockedAudits'] = locked_audits
+        manifest['source']['canonicalArchive'] = 'canonical-source.tar'
+        manifest['payloadSHA256']['canonical-source.tar'] = hashlib.sha256(canonical_bytes).hexdigest()
     manifest_raw = json_bytes(manifest)
     output.mkdir(mode=0o700)
     for destination, (path, expected) in sorted(files.items()):
@@ -425,6 +549,8 @@ def _seal(root, output, make_tar):
             shutil.copyfileobj(incoming, outgoing)
         require(digest(target) == expected, 'input changed while sealing: ' + destination)
     (output / 'source.tar').write_bytes(source_bytes)
+    if canonical_bytes is not None:
+        (output / 'canonical-source.tar').write_bytes(canonical_bytes)
     checksum_raw = ''.join(value + '  ' + name + '\n' for name, value in sorted(manifest['payloadSHA256'].items())).encode()
     (output / 'checksums.sha256').write_bytes(checksum_raw)
     receipt = {'schema': 'remedy-stack-seal-receipt-v1', 'manifestSHA256': hashlib.sha256(manifest_raw).hexdigest(), 'checksumsSHA256': hashlib.sha256(checksum_raw).hexdigest()}
@@ -449,15 +575,181 @@ def _seal(root, output, make_tar):
     return output
 
 
+def verify_package(directory, expected_manifest_sha256):
+    """Read-only candidate integrity verification; grants no runtime authority."""
+    root = Path(directory).resolve()
+    require(isinstance(expected_manifest_sha256,str) and HEX.fullmatch(expected_manifest_sha256), 'trusted manifest SHA256 required')
+    manifest_path = input_file(root,'manifest.json')
+    require(manifest_path.stat().st_size <= 16 * 1024**2 and digest(manifest_path) == expected_manifest_sha256,
+            'manifest differs from trusted receipt')
+    manifest = get_json(root,'manifest.json')
+    require(manifest.get('schema') == 'remedy-stack-handoff-v1', 'unsupported package schema')
+    matches(manifest, dict.fromkeys(FLAGS,False), 'unaccepted candidate flags')
+    payloads = manifest['payloadSHA256']
+    require(isinstance(payloads,dict) and 0 < len(payloads) <= 10000, 'bounded package inventory required')
+    total = 0
+    for name, expected in payloads.items():
+        path = input_file(root,name)
+        total += path.stat().st_size
+        require(total <= 8 * 1024**3 and isinstance(expected,str) and HEX.fullmatch(expected) and digest(path) == expected,
+                'package payload mismatch: ' + name)
+    checksums = ''.join(value + '  ' + name + '\n' for name,value in sorted(payloads.items())).encode()
+    require(input_file(root,'checksums.sha256').read_bytes() == checksums, 'package checksums inventory differs')
+    seal_receipt = get_json(root,'seal-receipt.json')
+    matches(seal_receipt, {'schema':'remedy-stack-seal-receipt-v1', 'manifestSHA256':expected_manifest_sha256,
+                          'checksumsSHA256':hashlib.sha256(checksums).hexdigest()}, 'seal receipt')
+    source = manifest['source']
+    def source_hashes(name):
+        path = input_file(root,name)
+        require(path.stat().st_size <= 64 * 1024**2, 'source archive too large')
+        hashes, names = {}, set()
+        with tarfile.open(path,mode='r:') as tar:
+            for member in tar:
+                name = member.name.rstrip('/')
+                require(safe_name(name) and name not in names and len(names) < 10000 and
+                        (member.isfile() or member.isdir()), 'unsafe source member')
+                require(not any(part in {'.git','.scratch','.env'} or part.startswith('.stack-') for part in PurePosixPath(name).parts),
+                        'private source member refused')
+                names.add(name)
+                if member.isfile():
+                    require(member.size <= 16 * 1024**2, 'source member too large')
+                    hashes[name] = hashlib.file_digest(tar.extractfile(member),'sha256').hexdigest()
+        return hashes
+    actual_source = source_hashes(source['archive'])
+    require(actual_source == source['fileSHA256'], 'source file inventory mismatch')
+    if manifest.get('stagedSource') is True:
+        matches(manifest, {'status':'UNACCEPTED'}, 'staged candidate status')
+        require(source.get('layout') == 'canonical-git-archive-with-recorded-staging-overlays', 'explicit staged source layout required')
+        before = source_hashes(source['canonicalArchive'])
+        require(before == source['canonicalFileSHA256'] and set(before) == set(actual_source), 'canonical source inventory differs')
+        require(digest(input_file(root,source['canonicalArchive'])) == source['canonicalArchiveSHA256'], 'canonical archive binding differs')
+        changes = source['fileOverlays']
+        require(isinstance(changes,dict) and set(changes) <= set(before), 'source overlay inventory invalid')
+        for name in before:
+            if name in changes:
+                require(changes[name] == {'before':before[name],'after':actual_source[name]}, 'source overlay binding mismatch')
+            else:
+                require(before[name] == actual_source[name], 'unrecorded source overlay')
+        audited = verify_staged_audits(root,source['commit'],evidence_prefix='evidence/locked-audits/',
+            lock_hashes={'nodeLockSHA256':actual_source['src/project_remedy/html_tools/package-lock.json'],
+                         'pythonLockSHA256':actual_source['uv.lock']})
+        require(manifest.get('lockedAudits') == audited, 'packaged audit bindings differ')
+    receipts = {name:get_json(root,'evidence/' + name) for name in RECEIPTS}
+    imports = manifest['imports']
+    verify_receipts(receipts,source['commit'],manifest['conductorIndexSHA256'],imports)
+    for role in ('server','bridge','renderer'):
+        path = input_file(root,'images/' + role + '.oci.tar')
+        config_digest, config, count = verify_oci(path)
+        runtime_hash = hashlib.sha256(json.dumps(runtime_configuration(config['config']),sort_keys=True,separators=(',',':')).encode()).hexdigest()
+        binding = imports['images'][role]
+        require(config['config']['Labels']['org.opencontainers.image.revision'] == binding['sourceRevision'], 'packaged image source mismatch')
+        matches(binding, {'OCIArchiveSHA256':digest(path),'OCIConfigDigest':'sha256:' + config_digest,
+                         'filesystemDiffIDs':config['rootfs']['diff_ids'],'runtimeConfigurationSHA256':runtime_hash,
+                         'OCIBlobsVerified':count}, 'packaged OCI binding/' + role)
+    for target, record in manifest['conductor'].items():
+        pin = record['index'];validation = pin['validation']
+        archive = input_file(root,'conductor/' + target + '/' + validation['archive'])
+        zipped = input_file(root,'conductor/' + target + '/original-artifact.zip')
+        require(digest(archive) == validation['archiveSHA256'] and 'sha256:' + digest(zipped) == validation['artifactDigest'], 'packaged original Conductor bytes differ')
+        original = verify_saved_image(archive,validation['imageID'])
+        actual = record['import']
+        require(original['runtimeConfiguration']['Labels']['org.opencontainers.image.revision'] == pin['sourceTree'], 'packaged Conductor source differs')
+        matches(actual, original, 'packaged Conductor import mapping')
+    tar_verified = False
+    if (root/'package.tar').exists() or (root/'package.tar').is_symlink():
+        path = input_file(root,'package.tar')
+        require(path.stat().st_size <= 8 * 1024**3 and digest(path) == seal_receipt.get('packageTARSHA256'), 'package TAR hash mismatch')
+        expected = {**payloads,'manifest.json':expected_manifest_sha256,'checksums.sha256':hashlib.sha256(checksums).hexdigest()}
+        seen = set()
+        with tarfile.open(path,mode='r:') as tar:
+            for member in tar:
+                require(member.isfile() and member.name in expected and member.name not in seen and
+                        member.size == input_file(root,member.name).stat().st_size, 'package TAR inventory differs')
+                require(hashlib.file_digest(tar.extractfile(member),'sha256').hexdigest() == expected[member.name], 'package TAR payload differs')
+                seen.add(member.name)
+        require(seen == set(expected), 'package TAR incomplete')
+        tar_verified = True
+    return {'verificationComplete':True,'manifestSHA256':expected_manifest_sha256,'source':source['commit'],
+            'packageTarVerified':tar_verified, **dict.fromkeys(FLAGS,False)}
+
+
+def unpack_candidate(directory, destination, expected_manifest_sha256, expected_tar_sha256):
+    """Verify the uploaded wrapper, then expand into a new private directory."""
+    root, destination = Path(directory).resolve(), Path(destination).absolute()
+    require(not destination.exists() and not destination.is_symlink(), 'unpack destination already exists')
+    require(isinstance(expected_manifest_sha256,str) and HEX.fullmatch(expected_manifest_sha256) and
+            isinstance(expected_tar_sha256,str) and HEX.fullmatch(expected_tar_sha256), 'trusted candidate digests required')
+    manifest_path, archive = input_file(root,'manifest.json'), input_file(root,'package.tar')
+    require(manifest_path.stat().st_size <= 16 * 1024**2 and digest(manifest_path) == expected_manifest_sha256,
+            'unpack manifest binding differs')
+    require(archive.stat().st_size <= 8 * 1024**3 and digest(archive) == expected_tar_sha256, 'unpack TAR binding differs')
+    raw_manifest = manifest_path.read_bytes();manifest = json.loads(raw_manifest)
+    require(manifest.get('schema') == 'remedy-stack-handoff-v1', 'unsupported unpack schema')
+    matches(manifest,dict.fromkeys(FLAGS,False),'unaccepted unpack flags')
+    payloads = manifest['payloadSHA256']
+    require(isinstance(payloads,dict) and 0 < len(payloads) <= 10000 and
+            all(safe_name(name) and isinstance(value,str) and HEX.fullmatch(value) for name,value in payloads.items()),
+            'invalid unpack inventory')
+    checksum = ''.join(value + '  ' + name + '\n' for name,value in sorted(payloads.items())).encode()
+    wrapper_checksums = input_file(root,'checksums.sha256')
+    require(wrapper_checksums.stat().st_size <= 16 * 1024**2 and wrapper_checksums.read_bytes() == checksum,
+            'unpack wrapper checksums differ')
+    expected = {**payloads,'manifest.json':expected_manifest_sha256,'checksums.sha256':hashlib.sha256(checksum).hexdigest()}
+    receipt = get_json(root,'seal-receipt.json')
+    matches(receipt,{'schema':'remedy-stack-seal-receipt-v1','manifestSHA256':expected_manifest_sha256,'packageTARSHA256':expected_tar_sha256,
+                     'checksumsSHA256':hashlib.sha256(checksum).hexdigest()},'unpack receipt')
+    seen, total = set(), 0
+    with tarfile.open(archive,mode='r:') as tar:
+        for member in tar:
+            total += member.size
+            require(member.isfile() and member.name in expected and member.name not in seen and total <= 8 * 1024**3,
+                    'unsafe or oversized unpack member')
+            require(hashlib.file_digest(tar.extractfile(member),'sha256').hexdigest() == expected[member.name], 'unpack payload digest differs')
+            seen.add(member.name)
+    require(seen == set(expected), 'unpack archive incomplete')
+    destination.mkdir(mode=0o700)
+    with tarfile.open(archive,mode='r:') as tar:
+        for member in tar:
+            if member.name == 'manifest.json':
+                continue  # publication marker is last, after every copy is proved
+            require(member.isfile() and member.name in expected and safe_name(member.name), 'unpack archive changed')
+            target = destination/member.name
+            target.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+            with target.open('xb') as outgoing:
+                shutil.copyfileobj(tar.extractfile(member),outgoing)
+            require(digest(target) == expected[member.name], 'unpack copy changed')
+    require(digest(archive) == expected_tar_sha256, 'unpack archive changed during copy')
+    (destination/'seal-receipt.json').write_bytes(json_bytes(receipt))
+    with (destination/'manifest.json').open('xb') as outgoing:
+        outgoing.write(raw_manifest)
+    return {'verificationComplete':True,'packageTarVerified':True,'manifestSHA256':expected_manifest_sha256,
+            'packageTARSHA256':expected_tar_sha256, **dict.fromkeys(FLAGS,False)}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path.cwd())
     parser.add_argument('--output', type=Path)
     parser.add_argument('--tar', action='store_true', help='also create deterministic uncompressed package.tar')
+    parser.add_argument('--staged-checkout', type=Path, help='explicit canonical checkout for a recorded, unaccepted LT212 stage')
+    parser.add_argument('--verify', type=Path, help='read-only verification of an existing candidate directory')
+    parser.add_argument('--expected-manifest-sha', help='manifest digest obtained from the trusted source/run receipt')
+    parser.add_argument('--unpack', type=Path, help='verify a candidate wrapper and expand it to a new output directory')
+    parser.add_argument('--expected-tar-sha', help='package TAR digest from the trusted source/run receipt')
     args = parser.parse_args()
     try:
-        package = seal(args.root, args.output, args.tar)
-    except (ValueError, OSError) as error:
+        if args.unpack is not None:
+            require(args.output is not None and args.verify is None and not args.tar and args.staged_checkout is None,
+                    'unpack requires only a new output directory and trusted digests')
+            print(json.dumps(unpack_candidate(args.unpack,args.output,args.expected_manifest_sha,args.expected_tar_sha)))
+            return
+        if args.verify is not None:
+            require(args.output is None and not args.tar and args.staged_checkout is None and args.expected_tar_sha is None, 'verification cannot create a package')
+            print(json.dumps(verify_package(args.verify,args.expected_manifest_sha)))
+            return
+        require(args.expected_manifest_sha is None and args.expected_tar_sha is None, 'expected digest requires verification mode')
+        package = seal(args.root, args.output, args.tar, staged_checkout=args.staged_checkout)
+    except (ValueError, OSError, KeyError, TypeError, tarfile.TarError, zipfile.BadZipFile) as error:
         parser.exit(1, 'Candidate sealing refused: ' + str(error) + '\n')
     print(json.dumps({'package': str(package), 'deploymentReady': False, 'productionWritesEnabled': False}))
 

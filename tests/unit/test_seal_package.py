@@ -463,3 +463,39 @@ def test_refuses_unreferenced_linux_config_that_cannot_be_loaded(candidate):
     put(candidate, '.stack-artifacts/candidate.json', metadata)
     with pytest.raises(ValueError, match='selected OCI image config is not reachable'):
         sealer.seal(candidate)
+
+
+def test_verified_candidate_directory_reuses_strict_image_and_receipt_checks(candidate):
+    output=sealer.seal(candidate,make_tar=True)
+    result=sealer.verify_package(output,hash_file(output/'manifest.json'))
+    assert result['verificationComplete'] is True
+    assert result['deploymentReady'] is False and result['productionWritesEnabled'] is False
+    assert result['packageTarVerified'] is True
+
+
+@pytest.mark.parametrize('damage',['expected-hash','manifest','payload','tar'])
+def test_candidate_readback_refuses_changed_bytes(candidate,damage):
+    output=sealer.seal(candidate,make_tar=True);expected=hash_file(output/'manifest.json')
+    if damage=='expected-hash':expected='0'*64
+    else:
+        name={'manifest':'manifest.json','payload':'images/server.oci.tar','tar':'package.tar'}[damage]
+        with (output/name).open('ab') as stream:stream.write(b'changed')
+    with pytest.raises((ValueError,OSError)):
+        sealer.verify_package(output,expected)
+
+
+def test_verified_tar_unpacks_only_to_new_private_destination(candidate):
+    package=sealer.seal(candidate,make_tar=True);destination=candidate/'downloaded-expanded'
+    result=sealer.unpack_candidate(package,destination,hash_file(package/'manifest.json'),hash_file(package/'package.tar'))
+    assert result['packageTarVerified'] is True
+    assert sealer.verify_package(destination,hash_file(package/'manifest.json'))['verificationComplete'] is True
+    assert (destination/'source.tar').read_bytes()==(package/'source.tar').read_bytes()
+    with pytest.raises(ValueError,match='destination'):
+        sealer.unpack_candidate(package,destination,hash_file(package/'manifest.json'),hash_file(package/'package.tar'))
+
+
+def test_tar_untrusted_hash_refuses_before_creating_destination(candidate):
+    package=sealer.seal(candidate,make_tar=True);destination=candidate/'not-created'
+    with pytest.raises(ValueError):
+        sealer.unpack_candidate(package,destination,hash_file(package/'manifest.json'),'0'*64)
+    assert not destination.exists()

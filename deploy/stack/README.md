@@ -8,6 +8,16 @@ rollout timing. Review-only is optional; full signed apply/restore/history code 
 retained. Production automatic writes have no bypass toggle and still require
 the LibreTexts-owned vendor, adapter and target-policy validation.
 
+The current LT212 continuation builds an explicitly UNACCEPTED candidate with
+reviewed Bridge/renderer95a54dd and original36-patch Conductor617187f archives.
+LT227 is merged with clean exact Node22/24 and Python audits; its repaired lock
+still needs this package's fresh matching full runtime/operational proof.
+The [candidate contract](../../docs/releases/lt212-unaccepted-rehearsal.md)
+records the current profile, readonly public-PEM trust and staged source hashes.
+Canonical producer pins/index and default legacy sealing behavior remain
+separate. The sealer's explicit staged-candidate option retains both canonical
+and tested source archives; it grants no release/write approval.
+
 ## Immutable artifacts and prerequisites
 
 Use host Python 3.11+ for the standard-library preflight CLI (including

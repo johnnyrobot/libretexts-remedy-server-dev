@@ -21,8 +21,16 @@ def load():
 
 
 def test_package_copy_retains_every_public_byte_and_resolves_only_fixture_metadata(tmp_path):
+    import json
+    import shutil
     proof = load()
-    package, hashes = proof.prepare_package(ROOT, tmp_path)
+    source = tmp_path / 'source'
+    shutil.copytree(ROOT / 'deploy/stack', source / 'deploy/stack', ignore=shutil.ignore_patterns('__pycache__','*.env'))
+    inventory = {str(p.relative_to(source)):hashlib.sha256(p.read_bytes()).hexdigest()
+                 for p in (source/'deploy/stack').rglob('*') if p.is_file()}
+    (source/'.stack-artifacts').mkdir()
+    (source/'.stack-artifacts/candidate.json').write_text(json.dumps({'configurationSha256':inventory}))
+    package, hashes = proof.prepare_package(source, tmp_path)
     for relative, digest in hashes.items():
         assert (package / relative).read_bytes() == (ROOT / 'deploy/stack' / relative).read_bytes()
         assert len(digest) == 64

@@ -34,12 +34,16 @@ def prepare_package(root, work):
     package = Path(work) / 'public-compose-package'
     package.mkdir(mode=0o700)
     hashes = {}
-    tracked = subprocess.run(['git', '-C', str(root), 'ls-files', '-z', '--', 'deploy/stack'],
-                             capture_output=True, text=True, check=True).stdout.split('\0')
-    for name in sorted(name for name in tracked if name):
+    frozen = json.loads((Path(root) / '.stack-artifacts/candidate.json').read_text())['configurationSha256']
+    tracked = {name: digest for name, digest in frozen.items() if name.startswith('deploy/stack/')}
+    actual = {str(path.relative_to(root)) for path in source.rglob('*')
+              if '__pycache__' not in path.relative_to(source).parts and (path.is_file() or path.is_symlink())}
+    if not tracked or set(tracked) != actual:
+        raise ValueError('public package frozen inventory differs')
+    for name in sorted(tracked):
         original = Path(root) / name
-        if original.is_symlink():
-            raise ValueError('public package symlink refused')
+        if original.is_symlink() or '..' in Path(name).parts or hashlib.sha256(original.read_bytes()).hexdigest() != tracked[name]:
+            raise ValueError('public package source differs from frozen inventory')
         if original.is_file():
             relative = original.relative_to(source)
             target = package / relative
@@ -71,9 +75,10 @@ def prepare_package(root, work):
 def prepare_tls(tls_root, fixture, scanner_uid):
     """Prepare the exact role-owned files consumed by the public preflight."""
     tls_root.mkdir(mode=0o700)
-    for role, uid in (('server', 999), ('scanner', scanner_uid), ('bridge', 1000), ('conductor', 1000)):
+    for role, uid in (('server', 999), ('scanner', scanner_uid), ('bridge', 1000), ('conductor', 1000), ('renderer', 1001)):
         directory = _private_directory(tls_root / role, uid)
         _private_file(directory / 'ca.pem', uid, (fixture / 'ca.pem').read_bytes())
+        if role == 'renderer': (directory / 'ca.pem').chmod(0o400)
         if role == 'server':
             for name in ('cert.pem', 'key.pem'):
                 _private_file(directory / name, uid, (fixture / name).read_bytes())

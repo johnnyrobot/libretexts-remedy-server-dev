@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 from observer import Observer
 from metrics import Metrics
 from compose_proof import verify as verify_compose
-from evidence import write_product_log
+from evidence import write_product_log, runtime_node
 
 ROOT=Path.cwd();EVIDENCE=ROOT/'.stack-proof-evidence'
 EVIDENCE.mkdir(exist_ok=True)
@@ -121,6 +121,12 @@ def start(name,image,env=None,mounts=(),extra=(),command=(),uid=None):
         role=name.removeprefix(PREFIX+'-')
         if role in {'server','scanner','bridge'}: metrics.register(name,json.loads(inspect.stdout)[0],INPUT['limits'][role])
     if result.returncode: raise RuntimeError('Owned container start failed: '+name+': '+result.stderr[-1000:])
+    role = name.removeprefix(PREFIX + '-')
+    if role in {'server', 'bridge', 'renderer'}:
+        instance = json.loads(inspect.stdout)[0]
+        observed = runtime_node(instance['Id'])
+        if role == 'server': assert observed == 'v24.12.0'
+        report.setdefault('runtimeNodes', {})[role] = {'imageID':instance['Image'], 'node':observed}
     return name
 
 try:

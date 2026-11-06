@@ -1,0 +1,312 @@
+--- a/.github/stack-proof/full_proof.py
++++ b/.github/stack-proof/full_proof.py
+@@ -16 +16 @@
+-from evidence import write_product_log, collect_browser_evidence
++from evidence import write_product_log, collect_browser_evidence, runtime_node
+@@ -105,0 +106,5 @@
++    if role in {'server', 'bridge', 'renderer', 'conductor'}:
++        observed = runtime_node(value['Id'])
++        if role == 'server': assert observed == 'v24.12.0'
++        if role == 'conductor': assert observed.startswith('v22.')
++        report.setdefault('runtimeNodes', []).append({'role':role, 'imageID':value['Image'], 'node':observed})
+@@ -133 +138 @@
+-def request(role,port,path,body=None,key=None,control=False):
++def request(role,port,path,body=None,key=None,control=False,*,bearer=False):
+@@ -136 +141,3 @@
+-    if key:headers['X-Fixture-Control' if control else 'X-API-Key']=key
++    if key:
++        if bearer: headers['Authorization']='Bearer '+key
++        else: headers['X-Fixture-Control' if control else 'X-API-Key']=key
+@@ -181,0 +189 @@
++    (fixture/'ca.pem').chmod(0o444)
+@@ -213,2 +221,65 @@
+-    start('renderer','remedy-renderer:stack-candidate',['sh','/proof/nss_home.sh','node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/tmp/renderer-home'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(ROOT/'deploy/stack/browser-home.sh','/proof/nss_home.sh',True),(nss,'/run/certificates/nss-seed',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
+-    wait('renderer',5180)
++    def start_renderer(public_ca):
++        start('renderer','remedy-renderer:stack-candidate',['node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/tmp','RENDER_PUBLIC_CA_FILE':'/run/remedy-public-ca/roots.pem'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(public_ca,'/run/remedy-public-ca/roots.pem',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
++        wait('renderer',5180)
++
++    def trust_scan():
++        status, result = request('renderer',5180,'/scan',
++            {'url':'https://dev.libretexts.org/Sandboxes/johnnyphung/Stack/Synthetic'},
++            'synthetic-renderer-token',bearer=True)
++        assert status == 200,result
++        deadline=time.monotonic()+15
++        while request('renderer',5180,'/healthz')[1].get('busy') is not False:
++            assert time.monotonic()<deadline,'renderer job ownership did not settle'
++            time.sleep(.1)
++        return result
++
++    expected_sha=hashlib.sha256((fixture/'ca.pem').read_bytes()).hexdigest()
++    expected_fingerprint=run('openssl','x509','-in',fixture/'ca.pem','-noout','-sha256','-fingerprint').strip().split('=',1)[1]
++    start_renderer(fixture/'ca.pem')
++    trusted=trust_scan()
++    assert trusted['state']=='complete',trusted
++    assert trusted['publicCATrust']=={'sha256':expected_sha,'fingerprints':[expected_fingerprint]},trusted.get('publicCATrust')
++    report['rendererPublicCA']={**trusted['publicCATrust'],'producerSource':INPUT['rendererSource'],'mode':'job-local','parentNSSMounted':False}
++    report['assembledTLSControls']={'validCA':{'state':trusted['state'],'publicCATrust':trusted['publicCATrust']}}
++    stop('renderer')
++    wrong_ca=WORK/'wrong-public-ca.pem'
++    run('openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=LT212 wrong isolated root',
++        '-addext','basicConstraints=critical,CA:TRUE','-addext','keyUsage=critical,keyCertSign,cRLSign',
++        '-keyout',authority/'wrong-ca.key','-out',wrong_ca)
++    (authority/'wrong-ca.key').chmod(0o400);wrong_ca.chmod(0o444)
++    before=request('cxone',8082,'/control/status',key='synthetic-control-only',control=True)[1]
++    start_renderer(wrong_ca)
++    denied=trust_scan()
++    assert denied['state']=='error' and 'ERR_CERT_AUTHORITY_INVALID' in denied.get('error',''),denied
++    after=request('cxone',8082,'/control/status',key='synthetic-control-only',control=True)[1]
++    assert after['reads']==before['reads'] and after['mutations']==before['mutations']==0
++    report['assembledTLSControls']['wrongCA']={'state':denied['state'],'error':denied['error'],'externalReads':0,'externalMutations':0}
++    stop('renderer')
++    # A correctly trusted chain with the wrong leaf hostname must also fail.
++    wrong_host=WORK/'wrong-host-fixture';wrong_host.mkdir(mode=0o755)
++    (wrong_host/'ca.pem').write_bytes((fixture/'ca.pem').read_bytes());(wrong_host/'ca.pem').chmod(0o444)
++    run('openssl','req','-new','-newkey','rsa:2048','-nodes','-subj','/CN=wrong.invalid',
++        '-keyout',wrong_host/'key.pem','-out',authority/'wrong-host.csr')
++    wrong_ext=authority/'wrong-host.ext'
++    wrong_ext.write_text('basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:wrong.invalid\n')
++    run('openssl','x509','-req','-in',authority/'wrong-host.csr','-CA',fixture/'ca.pem','-CAkey',authority/'ca.key','-CAcreateserial',
++        '-days','1','-sha256','-extfile',wrong_ext,'-out',wrong_host/'cert.pem')
++    (wrong_host/'cert.pem').chmod(0o444);(wrong_host/'key.pem').chmod(0o400);os.chown(wrong_host/'key.pem',999,999)
++    stop('cxone')
++    start('cxone','remedy-server:stack-candidate',['python','/proof/external.py','--kind','cxone','--synthetic-source-controls'],
++        mounts=[(source/'external.py','/proof/external.py',True),(wrong_host,'/fixtures',True)],extra=[*net,'--ip','198.51.100.10','--network-alias','dev.libretexts.org'],uid=999)
++    wait('cxone',8082,'/control/status','synthetic-control-only',True)
++    start_renderer(fixture/'ca.pem')
++    denied=trust_scan()
++    assert denied['state']=='error' and 'ERR_CERT_COMMON_NAME_INVALID' in denied.get('error',''),denied
++    after=request('cxone',8082,'/control/status',key='synthetic-control-only',control=True)[1]
++    assert after['reads']==after['mutations']==0
++    report['assembledTLSControls']['wrongHostname']={'state':denied['state'],'error':denied['error'],'externalReads':0,'externalMutations':0}
++    stop('renderer');stop('cxone')
++    start('cxone','remedy-server:stack-candidate',['python','/proof/external.py','--kind','cxone','--synthetic-source-controls'],
++        mounts=[(source/'external.py','/proof/external.py',True),(fixture,'/fixtures',True)],extra=[*net,'--ip','198.51.100.10','--network-alias','dev.libretexts.org'],uid=999)
++    wait('cxone',8082,'/control/status','synthetic-control-only',True)
++    start_renderer(fixture/'ca.pem')
++    recovered=trust_scan()
++    assert recovered['state']=='complete' and recovered['publicCATrust']==trusted['publicCATrust'],recovered
++    report['assembledTLSControls']['validAfterRestart']={'state':recovered['state'],'publicCATrust':recovered['publicCATrust']}
+--- a/.github/stack-proof/synthetic_signed_proof.py
++++ b/.github/stack-proof/synthetic_signed_proof.py
+@@ -148 +148 @@
+-def request(role,port,path,body=None,key=None,control=False):
++def request(role,port,path,body=None,key=None,control=False,*,bearer=False):
+@@ -151 +151,3 @@
+-    if key:headers['X-Fixture-Control' if control else 'X-API-Key']=key
++    if key:
++        if bearer: headers['Authorization']='Bearer '+key
++        else: headers['X-Fixture-Control' if control else 'X-API-Key']=key
+@@ -308,3 +310 @@
+-    report['NSSSetup']={'toolSHA256':hashlib.sha256(Path('/usr/bin/certutil').read_bytes()).hexdigest(),'hostToolPackage':run('dpkg-query','-W','-f=${Version}','libnss3-tools').strip(),'hostOS':Path('/etc/os-release').read_text(),'temporaryHome':'/tmp/renderer-home','temporaryBytes':512*1024*1024}
+-    nss=WORK/'nssdb';nss.mkdir();run('certutil','-N','--empty-password','-d','sql:'+str(nss))
+-    run('certutil','-A','-d','sql:'+str(nss),'-n','isolated-cxone-fixture','-t','C,,','-i',fixture/'ca.pem')
++    report['NSSSetup']={'toolSHA256':hashlib.sha256(Path('/usr/bin/certutil').read_bytes()).hexdigest(),'hostToolPackage':run('dpkg-query','-W','-f=${Version}','libnss3-tools').strip(),'hostOS':Path('/etc/os-release').read_text(),'temporaryHome':'private-per-job','temporaryBytes':512*1024*1024}
+@@ -313 +312,0 @@
+-    for p in [nss,*nss.iterdir()]:os.chown(p,renderer_uid,renderer_uid);p.chmod(0o700 if p.is_dir() else 0o600)
+@@ -376 +375 @@
+-        start('renderer','remedy-renderer:stack-candidate',['sh','/proof/nss_home.sh','node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/tmp/renderer-home'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(ROOT/'deploy/stack/browser-home.sh','/proof/nss_home.sh',True),(nss,'/run/certificates/nss-seed',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
++        start('renderer','remedy-renderer:stack-candidate',['node','/proof/secret-env.mjs','renderer','node','server.mjs'],envfile('renderer',{'RENDER_SCANNER_TOKEN_FILE':'/run/secrets/token','RENDER_ALLOWED_HOSTS':'dev.libretexts.org','HOME':'/tmp','RENDER_PUBLIC_CA_FILE':'/run/remedy-public-ca/roots.pem'}),[(loader,'/proof/secret-env.mjs',True),(renderer_keys,'/run/secrets',True),(fixture/'ca.pem','/run/remedy-public-ca/roots.pem',True),(source/'renderer_diagnose.mjs','/proof/renderer_diagnose.mjs',True)],extra=[*net,'--network-alias','remedy-renderer','--security-opt','seccomp='+str(ROOT/'deploy/stack/renderer-seccomp-amd64.json')],limits=(1.5,'2g',256,'1g',30))
+@@ -378,0 +378,12 @@
++    ca_status, ca_scan = request('renderer',5180,'/scan',
++        {'url':'https://dev.libretexts.org/Sandboxes/johnnyphung/Stack/Synthetic'},
++        'synthetic-renderer-token',bearer=True)
++    expected_ca={'sha256':hashlib.sha256((fixture/'ca.pem').read_bytes()).hexdigest(),
++        'fingerprints':[run('openssl','x509','-in',fixture/'ca.pem','-noout','-sha256','-fingerprint').strip().split('=',1)[1]]}
++    assert ca_status==200 and ca_scan.get('state')=='complete','actual synthetic rendered TLS must complete before signed flows'
++    assert ca_scan.get('publicCATrust')==expected_ca,'actual synthetic renderer CA provenance must match'
++    report['rendererPublicCA']={**ca_scan['publicCATrust'],'producerSource':INPUT['rendererSource'],'parentNSSMounted':False}
++    ca_deadline=time.monotonic()+15
++    while request('renderer',5180,'/healthz')[1].get('busy') is not False:
++        assert time.monotonic()<ca_deadline,'synthetic renderer ownership did not settle'
++        time.sleep(.1)
+--- a/deploy/stack/preflight.py
++++ b/deploy/stack/preflight.py
+@@ -161,3 +160,0 @@
+-    if role=='renderer':
+-        arguments+=['--mount',f'type=bind,src={ROOT}/deploy/stack/browser-home.sh,dst=/proof/browser-home.sh,readonly']
+-        command=['sh','/proof/browser-home.sh',*command]
+@@ -458,0 +456,20 @@
++def validate_public_ca_file(path, uid):
++    canonical(path)
++    private_directory(path.parent, uid)
++    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
++    try:
++        info = os.fstat(fd)
++        require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and
++                stat.S_IMODE(info.st_mode) in {0o400, 0o444} and
++                (stat.S_IMODE(info.st_mode) == 0o444 or info.st_uid == uid) and
++                0 < info.st_size <= 65536, 'operator_public_ca_file_invalid')
++        raw = os.read(fd, 65537)
++        after = os.fstat(fd)
++        require(len(raw) == info.st_size and (after.st_mtime_ns,after.st_ctime_ns,after.st_size) ==
++                (info.st_mtime_ns,info.st_ctime_ns,info.st_size), 'operator_public_ca_changed')
++        require(b'PRIVATE KEY' not in raw, 'public_certificate_required')
++        return raw
++    finally:
++        os.close(fd)
++
++
+@@ -462 +479 @@
+-    for role in ('server','scanner','bridge','conductor'):
++    for role in ('server','scanner','bridge','conductor','renderer'):
+@@ -469 +486 @@
+-            raw = protected_file(directory / name, uid, 1024*1024)
++            raw = validate_public_ca_file(directory / name, uid) if role == 'renderer' else protected_file(directory / name, uid, 1024*1024)
+@@ -598,2 +615 @@
+-    for name,relative in {'credential-loader':'deploy/stack/secret-env.mjs',
+-                          'browser-home':'deploy/stack/browser-home.sh'}.items():
++    for name,relative in {'credential-loader':'deploy/stack/secret-env.mjs'}.items():
+@@ -672 +687,0 @@
+-            if role == 'renderer': expected_entrypoint = ['sh','/opt/remedy-bundle/browser-home.sh',*expected_entrypoint]
+@@ -675 +690 @@
+-            require(set(files) == ({'credential-loader','browser-home'} if role=='renderer' else {'credential-loader'}) and len(files) == len(service.get('configs',[])),
++            require(set(files) == {'credential-loader'} and len(files) == len(service.get('configs',[])),
+@@ -707,2 +722,2 @@
+-            require(service.get('command') == ['node','server.mjs'] and env.get('RENDER_ALLOWED_HOSTS') == 'dev.libretexts.org' and env.get('HOME') == '/tmp/renderer-home' and
+-                    files.get('browser-home') == '/opt/remedy-bundle/browser-home.sh', 'bounded_renderer_home_initializer_required')
++            require(service.get('command') == ['node','server.mjs'] and env.get('RENDER_ALLOWED_HOSTS') == 'dev.libretexts.org' and env.get('HOME') == '/tmp' and
++                    env.get('RENDER_PUBLIC_CA_FILE') == '/run/remedy-public-ca/roots.pem', 'job_local_public_ca_configuration_required')
+@@ -720 +735 @@
+-        elif role == 'renderer': expected_mounts['/run/certificates/nss-seed'] = (args.nss_seed_root, True)
++        elif role == 'renderer': expected_mounts['/run/remedy-public-ca/roots.pem'] = (args.tls_root/'renderer/ca.pem', True)
+@@ -886 +901,5 @@
+-    nss_mount = [(args.nss_seed_root,'/run/certificates/nss-seed')]
++    public_ca_mount = [(args.tls_root/'renderer/ca.pem','/run/remedy-public-ca/roots.pem')]
++    ca_probe = "import {loadPublicCA} from '/app/public-ca.mjs';const c=await loadPublicCA(process.env.RENDER_PUBLIC_CA_FILE);console.log(JSON.stringify({sha256:c.sha256,fingerprints:c.fingerprints}));"
++    expected_ca = hashlib.sha256(validate_public_ca_file(args.tls_root/'renderer/ca.pem',1001)).hexdigest()
++    actual_ca = read_json(probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=public_ca_mount,environment={'RENDER_PUBLIC_CA_FILE':'/run/remedy-public-ca/roots.pem'},command_override=['node','--input-type=module','-e',ca_probe]))
++    require(actual_ca['sha256'] == expected_ca and full.get('rendererPublicCA',{}).get('sha256') == expected_ca and bool(actual_ca['fingerprints']), 'actual_job_local_public_ca_provenance_required')
+@@ -888 +907 @@
+-        mounts = nss_mount if role == 'renderer' else ([(args.tls_root/role/'ca.pem','/run/tls/ca.pem')] if role in {'scanner','bridge','conductor'} else [])
++        mounts = public_ca_mount if role == 'renderer' else ([(args.tls_root/role/'ca.pem','/run/tls/ca.pem')] if role in {'scanner','bridge','conductor'} else [])
+@@ -894 +913 @@
+-                                     mounts=nss_mount if role=='renderer' else [], uid=scanner_uid if role=='scanner' else ROLE_UID[role])
++                                     mounts=public_ca_mount if role=='renderer' else [], uid=scanner_uid if role=='scanner' else ROLE_UID[role])
+@@ -898 +917 @@
+-    renderer_denial = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=nss_mount,
++    renderer_denial = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=public_ca_mount,
+@@ -901 +920 @@
+-    nss_version = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=nss_mount,
++    nss_version = probe(identities['renderer'],'renderer',policy,profiles['renderer'],integration=True,mounts=public_ca_mount,
+--- a/deploy/stack/compose.integration.yml
++++ b/deploy/stack/compose.integration.yml
+@@ -74,2 +74,3 @@
+-      HOME: /tmp/renderer-home
+-    entrypoint: [sh, /opt/remedy-bundle/browser-home.sh, node, /opt/remedy-bundle/secret-env.mjs, renderer]
++      HOME: /tmp
++      RENDER_PUBLIC_CA_FILE: /run/remedy-public-ca/roots.pem
++    entrypoint: [node, /opt/remedy-bundle/secret-env.mjs, renderer]
+@@ -80,2 +80,0 @@
+-      - source: browser-home
+-        target: /opt/remedy-bundle/browser-home.sh
+@@ -89,2 +88,2 @@
+-        source: ${REMEDY_NSS_SEED_ROOT:?compatible fresh CA-only public NSS seed required}
+-        target: /run/certificates/nss-seed
++        source: ${REMEDY_TLS_ROOT:?pre-provisioned per-role TLS files required}/renderer/ca.pem
++        target: /run/remedy-public-ca/roots.pem
+--- a/deploy/stack/env/renderer.env.example
++++ b/deploy/stack/env/renderer.env.example
+@@ -2 +2 @@
+-# Public CA-only NSS seed is mounted read-only and copied into private tmpfs HOME.
++# Operator public root PEM is read-only; producer provisions a fresh per-job NSS DB.
+@@ -4 +4,2 @@
+-HOME=/tmp/renderer-home
++HOME=/tmp
++RENDER_PUBLIC_CA_FILE=/run/remedy-public-ca/roots.pem
+--- a/deploy/stack/integration-profile.md
++++ b/deploy/stack/integration-profile.md
+@@ -22,3 +22,3 @@
+-32-patch index is from Conductor patch source
+-`dd152c5eca8e48609bbf7df9a9c8c63cf7b48fd2`, SHA-256
+-`99d70fe71fdf956bc60e34ca55b262cc39747cd5fd30bd386ec7518d3ba58da8`.
++36-patch index is from Conductor patch source
++`617187fd7993714ae4d6fb939b30268fb7be6eee`, SHA-256
++`2e1297e9c180af7dce1f2e6894c6afffd0aff20ed71c3434dbccd36f14dc6e29`.
+@@ -30,4 +30,4 @@
+-| Release 2.156.2 | `352a657ec6de7b317a70ad3f8f744bc6d5054d9d` | `363b016ed5177187159afbf3db13fab2bf124e78e0561b2659f5b59e09d08781` |
+-| Staging | `67301b35c3784ed73ba1a65011ef5a1d689abca1` | `fd65b40b251b9e0326e361fbe9422939702a796ce055d08fe885109fe29f99f9` |
+-
+-The original artifacts expire November 12, 2026 (exact UTC times and artifact
++| Release 2.156.2 | `352a657ec6de7b317a70ad3f8f744bc6d5054d9d` | `7783142ff1c0cc96574f1b16a79d7d57b4ae0d2913860651c4369391fddfeb88` |
++| Staging | `67301b35c3784ed73ba1a65011ef5a1d689abca1` | `c082192dd95e1c849e3a907dae17e5b01d29f4090b2983393087534272b70347` |
++
++The original artifacts expire November 16, 2026 (exact UTC times and artifact
+@@ -41 +41 @@
+-`f39566e0fa6413ed17e7a5c2a11fefc540ed5233`, with `cxone-review-v1` and
++`95a54dd3af850ca8eb5b8bf8be0395f0543c049e`, with `cxone-review-v1` and
+@@ -65 +65 @@
+-The candidate workflow's final `remedy-stack-handoff-<source commit>` artifact is
++The candidate workflow's final `lt212-UNACCEPTED-candidate-<source commit>` artifact is
+@@ -68 +68,2 @@
+-external `seal-receipt.json`. The TAR contains the exact tracked source archive,
++external `seal-receipt.json`. The TAR contains the exact tested staged source archive plus a separate
++canonical Git source archive and explicit before/after overlays,
+@@ -99,2 +100,3 @@
+-Use the authorized root operator and a new checkout/extracted `source.tar` at
+-the package's exact source commit. Install the supported Docker Engine/Compose
++Use the authorized root operator and the verified extracted `source.tar`.
++This is the tested staged snapshot, bound to the canonical Git commit and
++recorded overlays; it is not an unmodified checkout of that commit. Install the supported Docker Engine/Compose
+@@ -115,0 +118 @@
++cp "${REMEDY_VERIFIED_PACKAGE:?required}/metadata/staging.json" .stack-artifacts/rehearsal-inputs.json
+@@ -264,20 +267,33 @@
+-`REMEDY_NSS_SEED_ROOT` is a read-only **fresh CA-only** public seed containing
+-`cert9.db` and `key4.db`, readable only by renderer UID 1001. Deployment owners
+-must verify it contains only approved public trust certificates and no private
+-keys, client identities or copied user profile. Use the compatible Ubuntu 24.04
+-NSS toolchain and retain its version/hash with the exact image's runtime NSS
+-package. Actual Linux run `41029837474` on Ubuntu 24.04.5 recorded
+-`libnss3-tools=2:3.98-1ubuntu0.3`, tool SHA-256
+-`505b13e3087e1abcabec3f1485e0e76b81322667dcae25758341b46bcfc5b62d`, and
+-renderer `libnss3=2:3.98-1ubuntu0.2` in its `full-result.json` receipt. That is a
+-verified compatibility pair, not permission to replace runtime libraries or
+-assume an arbitrary newer tool is compatible. A host NSS 3.117 database failed
+-against immutable runtime NSS 3.98 and is unsupported.
+-
+-The single [browser-home.sh](browser-home.sh) initializer requires nonroot
+-`HOME=/tmp/renderer-home`, umask 077, and fresh current and legacy NSS directories.
+-It copies **only** `cert9.db`/`key4.db` into `$HOME/.local/share/pki/nssdb` and
+-`$HOME/.pki/nssdb`, then execs the unchanged command. It never imports host module
+-configuration or offers diagnostic variants. HOME lives inside the renderer's
+-512 MiB tmpfs; shm is 1 GiB and stop grace 30 seconds. A failed initializer is a
+-stop condition, not permission to reuse arbitrary host browser state.
++The LT212 branch is an **UNACCEPTED candidate** using the merged LT227 repair.
++Clean exact locked audits and new complete package proof are required. Its new renderer input is Bridge
++`95a54dd3af850ca8eb5b8bf8be0395f0543c049e`; it must be rebuilt from the exact
++producer Dockerfile. Published original artifacts and their old receipts are
++historical inputs; they do not accept this draft.
++
++The renderer consumes only `${REMEDY_TLS_ROOT}/renderer/ca.pem`, mounted read-only
++at `/run/remedy-public-ca/roots.pem`, selected by `RENDER_PUBLIC_CA_FILE`.
++The operator-controlled directory is mode 0700 owned by UID1001; its public PEM
++file is mode 0400 owned by UID1001 (0444 is also supported). No write bits, final
++symlink, key, client identity, intermediate or leaf certificate is allowed. At
++most 65,536 bytes and eight distinct self-issued, verified CA roots are supported.
++The actual image's producer parser validates this input during preflight and at
++service startup. Changes require a drain/restart. Each admitted job receives its
++own bounded snapshot and NSS database; SHA256/fingerprints describe the public
++input. The renderer never mounts or copies a parent NSS seed. Setup stays inside
++the existing guardian, 120-second deadline, 128 MiB/8,192-entry job thresholds,
++512 MiB tmpfs, 2 GiB memory, 256 PID and 30-second stop budgets. The separate
++completed trust setup is limited to 1 MiB and 32 entries.
++
++The producer image pins Playwright1.63.0 base `eff16c30…`, NSS runtime
++`2:3.98-1ubuntu0.2`, signed Ubuntu snapshot20261031 and certutil
++`2:3.98-1ubuntu0.3`/SHA256
++`505b13e3087e1abcabec3f1485e0e76b81322667dcae25758341b46bcfc5b62d`.
++No host-tool or arbitrary keystore substitution is supported. See the immutable
++[producer operator contract](https://github.com/johnnyrobot/libretexts-remedy-bridge-dev/blob/95a54dd3af850ca8eb5b8bf8be0395f0543c049e/browser-scanner/README.md#operator-public-ca-trust-lt-239).
++
++`REMEDY_NSS_SEED_ROOT` and [browser-home.sh](browser-home.sh) remain solely for
++the isolated proof's separate interactive frontend browser, which does not use
++the renderer service's job worker. They preserve that role's existing fresh
++public-only NSS compatibility checks. They are not mounted on remedy-renderer.
++All release flags remain false until supported security repair and complete new
++matching operational acceptance; this section is not a deployment endorsement.
+@@ -476 +492 @@
+-[renderer README](https://github.com/johnnyrobot/libretexts-remedy-bridge-dev/tree/f39566e0fa6413ed17e7a5c2a11fefc540ed5233/browser-scanner),
++[renderer README](https://github.com/johnnyrobot/libretexts-remedy-bridge-dev/tree/95a54dd3af850ca8eb5b8bf8be0395f0543c049e/browser-scanner),
+@@ -479 +495 @@
+-and [pinned Conductor targets/storage prerequisites](https://github.com/johnnyrobot/conductor-remedy-patch/blob/dd152c5eca8e48609bbf7df9a9c8c63cf7b48fd2/docs/integration/pinned-targets.md).
++and [pinned Conductor targets/storage prerequisites](https://github.com/johnnyrobot/conductor-remedy-patch/blob/617187fd7993714ae4d6fb939b30268fb7be6eee/docs/integration/pinned-targets.md).

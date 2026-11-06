@@ -1,0 +1,78 @@
+{
+  "status": "UNACCEPTED",
+  "securityGate": "CLEAN_LOCKED_AUDITS_REQUIRED",
+  "bridgeSource": "95a54dd3af850ca8eb5b8bf8be0395f0543c049e",
+  "conductorSource": "617187fd7993714ae4d6fb939b30268fb7be6eee",
+  "indexSHA256": "2e1297e9c180af7dce1f2e6894c6afffd0aff20ed71c3434dbccd36f14dc6e29",
+  "releasePrefix": "https://github.com/johnnyrobot/conductor-remedy-patch/releases/download/lt128-conductor-617187fd7993-run41451937248/",
+  "assets": {
+    "acquisition-receipt.json": {
+      "bytes": 4055,
+      "sha256": "38f3e7fb6ca3fd5897ef33119d9afaade991c98b523c413452eb0e05c90eca76"
+    },
+    "candidate-index.json": {
+      "bytes": 25748,
+      "sha256": "2e1297e9c180af7dce1f2e6894c6afffd0aff20ed71c3434dbccd36f14dc6e29"
+    },
+    "candidate-records.zip": {
+      "bytes": 28555,
+      "sha256": "16e0ebb4efe57fb1f35527ed85a8dcdd5ce6f1de16d66e2d9ef535c7e0d6cebc"
+    },
+    "publication-receipt.json": {
+      "bytes": 3691,
+      "sha256": "6dba464c1554a2c828da5e2419fc772b6cea9342fb93675d221d3a8b3d62d7e8"
+    },
+    "release-2.156.2.zip": {
+      "bytes": 195622161,
+      "sha256": "bec2c12268ea1c29814abe5ad2aeb91042097b0d00f659768b01be3c7ef46c41"
+    },
+    "staging-67301b35.zip": {
+      "bytes": 206133109,
+      "sha256": "6b46b10494a538fd4476461069ddc55dbab56e54845f61e89291b110ea693032"
+    }
+  },
+  "serverNodeLockSHA256": "86c63beacdf9019db77ade11c00441a248e8910a7a018b0d442cd5fd7bddfcf1",
+  "serverUVLockSHA256": "cea641c8ff68b073b70ff69d12efebf855f109d05b4a794a405fabbeb18a5c6c",
+  "sourceOverlay": {
+    "path": "renderer-trust.patch",
+    "sha256": "7e198bf9d7b4922c4b5220c8350106bd6bcebab6f37b664e0c1a2001a4a4f809",
+    "baselineSource": "8ca8d17607a3ac5cb48588a3de942fd7e5cb1d76",
+    "files": {
+      ".github/stack-proof/full_proof.py": {
+        "before": "c86de291d92d38f76bc21b8682baf7870e41f175488b0dd195f5f67955af9619",
+        "after": "202bbc191844da97a72dd13c78b943e69a4011ba3a7c94af1f9064118bce8e2d",
+        "stagedAfter": "202bbc191844da97a72dd13c78b943e69a4011ba3a7c94af1f9064118bce8e2d"
+      },
+      ".github/stack-proof/synthetic_signed_proof.py": {
+        "before": "1a5900044cd49fba9910d484e2524ba8d3f317e3956bf0a2715993ecf80295f3",
+        "after": "cb3cab21d7aef995d576134379a05a190b34b1d9b8a785490692f8c7fe7d6cd6",
+        "stagedAfter": "cb3cab21d7aef995d576134379a05a190b34b1d9b8a785490692f8c7fe7d6cd6"
+      },
+      "deploy/stack/preflight.py": {
+        "before": "00fa9ad88b01c43fd9e3c38ae2824900a09376cf2984e61fcf2f7a97ccc58aad",
+        "after": "6fb156e2375d80f048a79d0cfe64145abbef0a496d510cf8ce6e021bd0a750a3",
+        "stagedAfter": "4d2597410f07b760da71a11cd70c03f438bf9288b9502e8d5b29b6dd45f7e7fd"
+      },
+      "deploy/stack/compose.integration.yml": {
+        "before": "53e93673c9d550d9e0777b32c39f67e289526468413f155612bc8c8273582b7e",
+        "after": "83ca7c324f00385fb4adabc6267e962a9ea93173efb96fe250674b35eb329f53",
+        "stagedAfter": "83ca7c324f00385fb4adabc6267e962a9ea93173efb96fe250674b35eb329f53"
+      },
+      "deploy/stack/env/renderer.env.example": {
+        "before": "37c63e2939c72506696b3bfe7e5f8f34414851df93c8e531082e6158b9015034",
+        "after": "8c4b3aa7f677c542bc562f43acc0f63c34b6aa0e5e105953ee6a12c7de8a3a5c",
+        "stagedAfter": "8c4b3aa7f677c542bc562f43acc0f63c34b6aa0e5e105953ee6a12c7de8a3a5c"
+      },
+      "deploy/stack/integration-profile.md": {
+        "before": "ace0532d66f5bdc61e7ab07fb0118413d82ac4a5f0c85364543245e859458495",
+        "after": "3e8f4e0f1a39b135035f24973652bfeccf5c9a94fc6762b2ddbcb05accffc98a",
+        "stagedAfter": "3e8f4e0f1a39b135035f24973652bfeccf5c9a94fc6762b2ddbcb05accffc98a"
+      }
+    },
+    "previousFunctionalProofSource": "7ee60a1d72d9103d25ffde6856dd9774095f19ff",
+    "acceptanceInherited": false
+  },
+  "repairedLockSource": "e7e86801ef95098358d6ef8e25887f23e597c457",
+  "repairedLockVerificationRun": 42173247382,
+  "acceptanceLabel": "UNACCEPTED candidate; clean locked audits and owner acceptance required"
+}
