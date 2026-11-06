@@ -11,11 +11,11 @@ published November5,2026 includes maintainer change26014. Lighthouse13.6.0
 already permits `@sentry/node ^11.8.0`. The supported update selects:
 
 ```text
-Lighthouse13.6.0
-  @sentry/node11.11.0
-    @sentry/bundler-plugins11.11.0
-      glob14.0.4 (parent range ^14.0.3)
-        minimatch11.0.5 (parent range ^11.0.5)
+lighthouse@13.6.0
+  @sentry/node@11.11.0
+    @sentry/bundler-plugins@11.11.0
+      glob@14.0.4 (parent range ^14.0.3)
+        minimatch@11.0.5 (parent range ^11.0.5)
 ```
 
 The old glob13.0.6/minimatch10.2.6 lock was affected by

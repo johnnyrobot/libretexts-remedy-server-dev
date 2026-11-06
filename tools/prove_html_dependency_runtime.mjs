@@ -47,5 +47,5 @@ try {
   console.log(JSON.stringify({node: process.version, versions, assetIntegrity: true,
     finiteWalk: true, ordinaryPatterns: true, abortedWalkRejected: true, subsequentWalk: true}));
 } finally {
-  await rm(temporary, {recursive: true});
+  await rm(temporary, {recursive: true, force: true});
 }
