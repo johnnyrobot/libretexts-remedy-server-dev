@@ -2,6 +2,7 @@ name: LT212 UNACCEPTED rehearsal
 on:
   push:
     branches: [feat/lt212-unaccepted-rehearsal]
+  workflow_dispatch:
 permissions:
   contents: read
   actions: read
