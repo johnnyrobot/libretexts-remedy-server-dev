@@ -229,6 +229,35 @@ jobs:
           uv export --frozen --no-dev --no-emit-project --no-hashes --no-header > /tmp/remedy-requirements.txt
           uvx pip-audit --requirement /tmp/remedy-requirements.txt --no-deps --disable-pip
 
+  html-dependencies:
+    name: HTML dependencies (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.20.0', '24.12.0']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install and audit the exact production lock
+        run: |
+          mkdir -p "$RUNNER_TEMP/html-dependencies"
+          npm ci --prefix src/project_remedy/html_tools --ignore-scripts --omit=dev --engine-strict
+          npm ls --prefix src/project_remedy/html_tools --omit=dev --all --json > "$RUNNER_TEMP/html-dependencies/installed.json"
+          npm audit --prefix src/project_remedy/html_tools --ignore-scripts --omit=dev --json > "$RUNNER_TEMP/html-dependencies/audit.json"
+          timeout 15s node tools/prove_html_dependency_runtime.mjs src/project_remedy/html_tools > "$RUNNER_TEMP/html-dependencies/public-api.json"
+          git diff --exit-code -- src/project_remedy/html_tools/package.json src/project_remedy/html_tools/package-lock.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: html-dependencies-node-${{ matrix.node }}
+          path: ${{ runner.temp }}/html-dependencies
+
   full-runtime:
     name: full runtime HTTP + Chromium
     runs-on: ubuntu-latest
