@@ -31,6 +31,14 @@ deployment after those security findings. A patched compatible package requires
 fresh matching runtime and assembled-service acceptance; original receipts do
 not transfer.
 
+The [LT227 HTML dependency repair](docs/releases/lt-227-html-dependencies.md)
+keeps the pinned axe/pa11y/Lighthouse interfaces and updates their supported
+Sentry dependency branch. Exact installed production audits and public API
+checks run on Node22.20.0 and shipping Node24.12.0; the full Linux runtime job
+covers real offline checkers, rendering and execution limits. A new lock still
+requires new matching assembled-package acceptance; historical receipts do not
+transfer, and production automatic writes remain held.
+
 The deployment package remains a candidate until the exact archives and pulled
 Scanner digest pass the complete Linux service proof and operational acceptance.
 `deploy/stack/bundle.json` deliberately keeps `deploymentReady` and
