@@ -15,7 +15,7 @@ Lighthouse13.6.0
   @sentry/node11.11.0
     @sentry/bundler-plugins11.11.0
       glob14.0.4 (parent range ^14.0.3)
-        minimatch11.0.5 (parent range ^11.0.2)
+        minimatch11.0.5 (parent range ^11.0.5)
 ```
 
 The old glob13.0.6/minimatch10.2.6 lock was affected by
